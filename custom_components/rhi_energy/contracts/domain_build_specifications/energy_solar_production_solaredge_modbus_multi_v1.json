@@ -1,0 +1,397 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.solar_production.solaredge_modbus_multi.v1",
+  "builder_version": "1.2.0",
+  "concept": {
+    "concept_id": "solar_production",
+    "display_name": "Solar Production",
+    "description": "Represents photovoltaic production measured by the Energy domain.",
+    "selection_guidance": "Select the integrations and devices that expose authoritative photovoltaic production measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "solaredge_modbus_multi"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_device",
+      "minimum_groups": 0,
+      "maximum_groups": null
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "solar_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "integration_api"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "i1_dc_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "i2_dc_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "i3_dc_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "i4_dc_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "solar_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "pv_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "i1_dc_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "i2_dc_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "i3_dc_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_energy_today",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_energy_today",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "energy_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_energy_today",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "daily_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_energy_today",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "solar_energy_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_energy_today_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "energy_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_energy_today_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "daily_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_energy_today_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "solar_energy_today"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "inverter_status",
+        "technical_capabilities": {
+          "any_of": [
+            "binary_state"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "inverter_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "inverter_status"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "inverter_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "status"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "inverter_status_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "inverter_status"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "inverter_status_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "status"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "phase_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "phase_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "l1_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "l2_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "l3_power"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "solar_system",
+      "solar_inverter"
+    ],
+    "possible_facts": [
+      "solar.power_kw",
+      "solar.energy_today_kwh",
+      "solar.health"
+    ],
+    "possible_editable_properties": [],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

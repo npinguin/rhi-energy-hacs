@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Robotix Home Intelligence - Energy Module",
+        "description": "Add the Energy module. Foundation must be installed and configured before Energy can activate its domain runtime."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "The Energy Module is already configured. Open the existing Robotix Home Intelligence - Energy Module integration instead of adding a second instance."
+    }
+  }
+}

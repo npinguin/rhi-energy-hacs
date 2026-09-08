@@ -1,1 +1,0 @@
-Candidate publication is intentionally fail-closed. The public mirror becomes installable only after the private source publisher writes the exact `custom_components/rhi_energy` tree and records source provenance.

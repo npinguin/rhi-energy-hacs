@@ -1,0 +1,90 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.gas_meter.homewizard.v1",
+  "builder_version": "1.2.1",
+  "concept": {
+    "concept_id": "gas_meter",
+    "display_name": "Gas Meter",
+    "description": "Represents the property gas meter used for Energy consumption accounting.",
+    "selection_guidance": "Select the integration and device that provide the authoritative gas meter readings for the property."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "homewizard"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_device",
+      "minimum_groups": 0,
+      "maximum_groups": null
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "gas_total",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter",
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "homewizard",
+            "raw_capability_id": "gas_total",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "gas_meter"
+              },
+              {
+                "field": "technical_capability.native_unit",
+                "operator": "equals",
+                "value": "m³"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "gas_meter"
+    ],
+    "possible_facts": [
+      "gas.total_m3",
+      "gas.flow_m3_h",
+      "gas.health"
+    ],
+    "possible_editable_properties": [],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "kind": "domain_build_specification_manifest",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "specification_count": 14,
+  "builders": [
+    {
+      "builder_id": "energy.grid_connection.homewizard.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "grid_connection",
+      "integration_domains": [
+        "homewizard"
+      ]
+    },
+    {
+      "builder_id": "energy.grid_connection.dsmr_reader.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "grid_connection",
+      "integration_domains": [
+        "dsmr_reader"
+      ]
+    },
+    {
+      "builder_id": "energy.grid_connection.solaredge.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "grid_connection",
+      "integration_domains": [
+        "solaredge"
+      ]
+    },
+    {
+      "builder_id": "energy.grid_connection.solaredge_modbus_multi.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "grid_connection",
+      "integration_domains": [
+        "solaredge_modbus_multi"
+      ]
+    },
+    {
+      "builder_id": "energy.gas_meter.homewizard.v1",
+      "builder_version": "1.2.1",
+      "concept_id": "gas_meter",
+      "integration_domains": [
+        "homewizard"
+      ]
+    },
+    {
+      "builder_id": "energy.solar_production.solaredge.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "solar_production",
+      "integration_domains": [
+        "solaredge"
+      ]
+    },
+    {
+      "builder_id": "energy.solar_production.solaredge_modbus_multi.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "solar_production",
+      "integration_domains": [
+        "solaredge_modbus_multi"
+      ]
+    },
+    {
+      "builder_id": "energy.solar_optimizer.solaredgeoptimizers.v1",
+      "builder_version": "1.2.1",
+      "concept_id": "solar_optimizer",
+      "integration_domains": [
+        "solaredgeoptimizers"
+      ]
+    },
+    {
+      "builder_id": "energy.solar_forecast.forecast_solar.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "solar_forecast",
+      "integration_domains": [
+        "forecast_solar"
+      ]
+    },
+    {
+      "builder_id": "energy.price_source.nordpool.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "price_source",
+      "integration_domains": [
+        "nordpool"
+      ]
+    },
+    {
+      "builder_id": "energy.price_source.entsoe.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "price_source",
+      "integration_domains": [
+        "entsoe"
+      ]
+    },
+    {
+      "builder_id": "energy.price_source.energidataservice.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "price_source",
+      "integration_domains": [
+        "energidataservice"
+      ]
+    },
+    {
+      "builder_id": "energy.price_source.frank_energie.v1",
+      "builder_version": "1.2.0",
+      "concept_id": "price_source",
+      "integration_domains": [
+        "frank_energie"
+      ]
+    },
+    {
+      "builder_id": "energy.battery_system.solaredge_modbus_multi.v1",
+      "builder_version": "1.2.1",
+      "concept_id": "battery_system",
+      "integration_domains": [
+        "solaredge_modbus_multi"
+      ]
+    }
+  ],
+  "legacy_migration": {
+    "legacy_publication": "sensor.rhi_energy_foundation_binding_adapter_publication",
+    "legacy_adapter_count": 13,
+    "migrated_adapter_count": 13,
+    "additional_runtime_established_specs": [
+      "energy.battery_system.solaredge_modbus_multi.v1"
+    ]
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "publication_contract": "domain_build_specification_v1.2.0",
+  "shared_baseline_version": "1.7.0",
+  "publication_revision": 10
+}

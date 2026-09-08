@@ -1,0 +1,468 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.price_source.nordpool.v1",
+  "builder_version": "1.2.0",
+  "concept": {
+    "concept_id": "price_source",
+    "display_name": "Energy Price Source",
+    "description": "Represents the electricity price source used for Energy planning and value accounting.",
+    "selection_guidance": "Select the price provider that supplies the applicable electricity market or tariff data."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "nordpool"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_config_entry",
+      "minimum_groups": 0,
+      "maximum_groups": 1
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "current_price",
+        "technical_capabilities": {
+          "any_of": [
+            "price_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider",
+          "integration_api"
+        ],
+        "required": true,
+        "cardinality": "exactly_one",
+        "integration_matches": [
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "current_price"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "price_now"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "spot_price"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "current_price"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "price_now"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "spot_price"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "current_price"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "price_now"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "current_price_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "spot_price"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "future_prices",
+        "technical_capabilities": {
+          "any_of": [
+            "price_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "future_price"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "price_schedule"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "prices"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "future_price"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "price_schedule"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "future_price"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "future_prices_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "price_schedule"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "currency",
+        "technical_capabilities": {
+          "any_of": [
+            "currency_metadata"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider",
+          "integration_api",
+          "configured_product_capability"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "currency",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "currency"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "currency_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "currency"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "currency_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "currency"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "currency_configured",
+            "source_kind": "configured_product_capability",
+            "all_of": [
+              {
+                "field": "source_identity.capability_key",
+                "operator": "contains",
+                "value": "currency"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "tariff_metadata",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider",
+          "integration_api",
+          "configured_product_capability"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "tariff_metadata",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "tariff"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "tariff_metadata_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "tariff"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "tariff_metadata_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "tariff"
+              }
+            ]
+          },
+          {
+            "integration_domain": "nordpool",
+            "raw_capability_id": "tariff_metadata_configured",
+            "source_kind": "configured_product_capability",
+            "all_of": [
+              {
+                "field": "source_identity.capability_key",
+                "operator": "contains",
+                "value": "tariff"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "price_source"
+    ],
+    "possible_facts": [
+      "pricing.import_price_current_eur_kwh",
+      "pricing.export_price_current_eur_kwh",
+      "pricing.next_price_eur_kwh",
+      "pricing.price_level"
+    ],
+    "possible_editable_properties": [
+      "pricing.market",
+      "pricing.currency",
+      "pricing.tariff_mode"
+    ],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

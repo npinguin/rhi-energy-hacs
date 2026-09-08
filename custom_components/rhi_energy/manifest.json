@@ -1,0 +1,18 @@
+{
+  "domain": "rhi_energy",
+  "name": "Robotix Home Intelligence - Energy Module",
+  "after_dependencies": [
+    "rhi_foundation"
+  ],
+  "codeowners": [
+    "@npinguin"
+  ],
+  "config_flow": true,
+  "documentation": "https://robotix.be/",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/npinguin/rhi-energy/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.11.1"
+}

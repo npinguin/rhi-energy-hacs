@@ -1,0 +1,563 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.solar_forecast.forecast_solar.v1",
+  "builder_version": "1.2.0",
+  "concept": {
+    "concept_id": "solar_forecast",
+    "display_name": "Solar Forecast",
+    "description": "Represents forecast solar production used for planning and Energy intelligence.",
+    "selection_guidance": "Select the forecast provider that supplies the solar forecast for this property."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "forecast_solar"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_config_entry",
+      "minimum_groups": 0,
+      "maximum_groups": null
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "forecast_today_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider",
+          "integration_api"
+        ],
+        "required": true,
+        "cardinality": "one_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "energy_production_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "forecast_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "energy_production_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "forecast_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "energy_production_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "forecast_today"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_today_energy_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "today"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "forecast_tomorrow_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "energy_production_tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "forecast_tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "energy_production_tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "forecast_tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "energy_production_tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "forecast_tomorrow"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_tomorrow_energy_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "tomorrow"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "forecast_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "forecast_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "power_production_now"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "forecast_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "power_production_now"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "forecast_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "power_production_now"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_power_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "forecast_peak_time",
+        "technical_capabilities": {
+          "any_of": [
+            "timestamp_source"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "peak_time"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "highest_power_time"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "peak"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "peak_time"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "highest_power_time"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "peak"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "peak_time"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "highest_power_time"
+              }
+            ]
+          },
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_peak_time_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "peak"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "solar_forecast",
+      "forecast_zone"
+    ],
+    "possible_facts": [
+      "forecast.solar_today_kwh",
+      "forecast.solar_remaining_today_kwh",
+      "forecast.solar_tomorrow_kwh",
+      "forecast.this_hour_energy_kwh",
+      "forecast.next_hour_energy_kwh",
+      "forecast.peak_time"
+    ],
+    "possible_editable_properties": [
+      "forecast.horizon_hours"
+    ],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

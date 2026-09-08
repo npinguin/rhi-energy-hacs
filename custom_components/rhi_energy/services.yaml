@@ -1,0 +1,42 @@
+write_property:
+  name: Write Energy property
+  description: Write a public Energy property through its authoritative V2 owner and expose authoritative readback.
+  fields:
+    property_id:
+      name: Property ID
+      required: true
+      selector:
+        text:
+    value:
+      name: Value
+      required: true
+      selector:
+        text:
+invoke_command:
+  name: Invoke Energy command
+  description: Invoke an Energy command. Physical actions are dispatched only through accepted or producer-published command references.
+  fields:
+    command_id:
+      name: Command ID
+      required: true
+      selector:
+        text:
+    target_asset_id:
+      name: Target asset ID
+      required: false
+      selector:
+        text:
+    period_id:
+      name: Period ID
+      required: false
+      selector:
+        text:
+    parameters:
+      name: Parameters
+      required: false
+      selector:
+        object:
+
+refresh_build_input:
+  name: Refresh Energy build input
+  description: Re-read the Energy SelectedDomainBuildInput from the shared Foundation registry and rebuild semantically.

@@ -1,0 +1,244 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.solar_optimizer.solaredgeoptimizers.v1",
+  "builder_version": "1.2.1",
+  "concept": {
+    "concept_id": "solar_optimizer",
+    "display_name": "Solar Optimizer",
+    "description": "Represents optimizer-level photovoltaic production and health information.",
+    "selection_guidance": "Select the integration that exposes optimizer-level data for the photovoltaic installation."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "solaredgeoptimizers"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_device",
+      "minimum_groups": 0,
+      "maximum_groups": null
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "optimizer_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_power_"
+              },
+              {
+                "field": "technical_capability.native_unit",
+                "operator": "equals",
+                "value": "W"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "optimizer_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "optimizer_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_energy_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "optimizer_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_energy_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "energy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "panel_identity",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "binary_state"
+          ]
+        },
+        "allowed_source_kinds": [
+          "configured_product_capability",
+          "entity",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "panel_identity_configured",
+            "source_kind": "configured_product_capability",
+            "all_of": [
+              {
+                "field": "source_identity.capability_key",
+                "operator": "contains",
+                "value": "panel"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "panel_identity_configured",
+            "source_kind": "configured_product_capability",
+            "all_of": [
+              {
+                "field": "source_identity.capability_key",
+                "operator": "contains",
+                "value": "module"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "panel_identity",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "panel"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "panel_identity",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "module"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "panel_identity_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "panel"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "panel_identity_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "module"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "solar_optimizer",
+      "solar_panel"
+    ],
+    "possible_facts": [
+      "solar_optimizer.power_w",
+      "solar_optimizer.energy_kwh",
+      "solar_optimizer.health"
+    ],
+    "possible_editable_properties": [],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

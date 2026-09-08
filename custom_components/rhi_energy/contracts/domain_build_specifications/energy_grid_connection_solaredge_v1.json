@@ -1,0 +1,413 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.grid_connection.solaredge.v1",
+  "builder_version": "1.2.0",
+  "concept": {
+    "concept_id": "grid_connection",
+    "display_name": "Grid Connection",
+    "description": "Represents the electrical connection between the property and the public grid.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative grid import, export and connection measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "solaredge"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_device",
+      "minimum_groups": 0,
+      "maximum_groups": 1
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "grid_net_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": true,
+        "cardinality": "exactly_one",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_net_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "grid_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_net_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "meter_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_net_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "m1_ac_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_net_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "active_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_import_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_import_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "grid_import"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_import_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "import_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_import_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "consumption"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_import_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "delivered"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_import_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "from_grid"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_import_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "grid_import"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_import_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "import_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_import_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "consumption"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_export_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "config_entry_provider"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_export_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "grid_export"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_export_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "export_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_export_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "return"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_export_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "produced"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_export_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "to_grid"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_export_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "grid_export"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_export_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "export_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_export_energy_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "return"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_phase_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "phase_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "l1_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "l2_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge",
+            "raw_capability_id": "grid_phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "l3_power"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "grid_connection",
+      "grid_phase"
+    ],
+    "possible_facts": [
+      "grid.net_power_kw",
+      "grid.import_power_kw",
+      "grid.export_power_kw",
+      "grid.import_energy_kwh",
+      "grid.export_energy_kwh",
+      "grid.health"
+    ],
+    "possible_editable_properties": [
+      "grid.connection_limit_kw"
+    ],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}
