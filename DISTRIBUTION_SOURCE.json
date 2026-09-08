@@ -1,0 +1,11 @@
+{
+  "source_repository": "npinguin/rhi-energy",
+  "source_commit": "PENDING_PUBLISHER",
+  "source_release": "E0.11.1",
+  "manifest_version": "0.11.1",
+  "channel": "candidate-bootstrap",
+  "approved_release": false,
+  "shared_baseline": "1.7.0",
+  "publication_revision": 10,
+  "distribution_license": "GPL-3.0-only"
+}
