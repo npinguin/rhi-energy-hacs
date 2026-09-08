@@ -1,0 +1,4 @@
+# Generated distribution mirror; no local build artefacts
+__pycache__/
+*.pyc
+.pytest_cache/
