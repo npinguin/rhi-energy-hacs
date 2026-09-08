@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.solar_forecast.forecast_solar.v1",
-  "builder_version": "1.2.0",
+  "builder_version": "1.2.1",
   "concept": {
     "concept_id": "solar_forecast",
     "display_name": "Solar Forecast",
@@ -28,7 +28,8 @@
         "input_id": "forecast_today_energy",
         "technical_capabilities": {
           "any_of": [
-            "energy_counter"
+            "energy_counter",
+            "energy_capacity"
           ]
         },
         "allowed_source_kinds": [
@@ -150,10 +151,95 @@
         ]
       },
       {
+        "input_id": "forecast_remaining_today_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter",
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_remaining_today_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "energy_production_today_remaining"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "forecast_current_hour_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter",
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_current_hour_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "energy_current_hour"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "forecast_next_hour_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter",
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "forecast_solar",
+            "raw_capability_id": "forecast_next_hour_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "energy_next_hour"
+              }
+            ]
+          }
+        ]
+      },
+      {
         "input_id": "forecast_tomorrow_energy",
         "technical_capabilities": {
           "any_of": [
-            "energy_counter"
+            "energy_counter",
+            "energy_capacity"
           ]
         },
         "allowed_source_kinds": [

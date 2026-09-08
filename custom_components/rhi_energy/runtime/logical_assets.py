@@ -354,7 +354,6 @@ def _append_blocked_selected(
 
 def build_logical_assets(build_inputs: dict[str, dict[str, Any]], model: dict[str, Any]) -> list[LogicalAsset]:
     out = _build_compiled_assets(build_inputs, model)
-    _append_blocked_selected(out, build_inputs, model)
     dedup: dict[str, LogicalAsset] = {}
     for asset in out:
         asset_id = str(asset.get("asset_id") or "")

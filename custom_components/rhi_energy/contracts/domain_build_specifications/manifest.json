@@ -31,7 +31,7 @@
     },
     {
       "builder_id": "energy.grid_connection.solaredge_modbus_multi.v1",
-      "builder_version": "1.2.0",
+      "builder_version": "1.2.1",
       "concept_id": "grid_connection",
       "integration_domains": [
         "solaredge_modbus_multi"
@@ -55,7 +55,7 @@
     },
     {
       "builder_id": "energy.solar_production.solaredge_modbus_multi.v1",
-      "builder_version": "1.2.0",
+      "builder_version": "1.2.1",
       "concept_id": "solar_production",
       "integration_domains": [
         "solaredge_modbus_multi"
@@ -71,7 +71,7 @@
     },
     {
       "builder_id": "energy.solar_forecast.forecast_solar.v1",
-      "builder_version": "1.2.0",
+      "builder_version": "1.2.1",
       "concept_id": "solar_forecast",
       "integration_domains": [
         "forecast_solar"
@@ -87,7 +87,7 @@
     },
     {
       "builder_id": "energy.price_source.entsoe.v1",
-      "builder_version": "1.2.0",
+      "builder_version": "1.2.1",
       "concept_id": "price_source",
       "integration_domains": [
         "entsoe"
@@ -111,7 +111,7 @@
     },
     {
       "builder_id": "energy.battery_system.solaredge_modbus_multi.v1",
-      "builder_version": "1.2.1",
+      "builder_version": "1.2.2",
       "concept_id": "battery_system",
       "integration_domains": [
         "solaredge_modbus_multi"
@@ -134,5 +134,5 @@
   },
   "publication_contract": "domain_build_specification_v1.2.0",
   "shared_baseline_version": "1.7.0",
-  "publication_revision": 10
+  "publication_revision": 11
 }

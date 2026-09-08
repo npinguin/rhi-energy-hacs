@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.battery_system.solaredge_modbus_multi.v1",
-  "builder_version": "1.2.1",
+  "builder_version": "1.2.2",
   "concept": {
     "concept_id": "battery_system",
     "display_name": "Home Battery System",
@@ -170,6 +170,18 @@
               {
                 "field": "source_identity.unique_id",
                 "operator": "contains",
+                "value": "battery_soe"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_unit_soc",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
                 "value": "b1_state_of_energy"
               }
             ]
@@ -285,6 +297,18 @@
                 "field": "source_identity.unique_id",
                 "operator": "contains",
                 "value": "maximum_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_capacity",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "max_energy"
               }
             ]
           },

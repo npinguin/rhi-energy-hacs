@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.price_source.entsoe.v1",
-  "builder_version": "1.2.0",
+  "builder_version": "1.2.1",
   "concept": {
     "concept_id": "price_source",
     "display_name": "Energy Price Source",
@@ -28,7 +28,8 @@
         "input_id": "current_price",
         "technical_capabilities": {
           "any_of": [
-            "price_measurement"
+            "price_measurement",
+            "state_observation"
           ]
         },
         "allowed_source_kinds": [
@@ -72,18 +73,6 @@
                 "field": "source_identity.unique_id",
                 "operator": "contains",
                 "value": "spot_price"
-              }
-            ]
-          },
-          {
-            "integration_domain": "entsoe",
-            "raw_capability_id": "current_price",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "current"
               }
             ]
           },

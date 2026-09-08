@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.grid_connection.solaredge_modbus_multi.v1",
-  "builder_version": "1.2.0",
+  "builder_version": "1.2.1",
   "concept": {
     "concept_id": "grid_connection",
     "display_name": "Grid Connection",
@@ -98,6 +98,18 @@
                 "field": "source_identity.unique_id",
                 "operator": "contains",
                 "value": "grid_import"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "grid_import_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "imported_kwh"
               }
             ]
           },
@@ -210,6 +222,18 @@
                 "field": "source_identity.unique_id",
                 "operator": "contains",
                 "value": "grid_export"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "grid_export_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "exported_kwh"
               }
             ]
           },
