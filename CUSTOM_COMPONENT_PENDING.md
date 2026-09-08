@@ -1,0 +1,1 @@
+The `custom_components/rhi_energy` runtime tree is generated from `npinguin/rhi-energy` by the source repository publisher. This bootstrap marker is removed automatically when the first candidate publication succeeds.
