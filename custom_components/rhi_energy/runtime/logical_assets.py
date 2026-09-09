@@ -127,6 +127,11 @@ def _properties(
         binding, binding_ids = _role_binding(roles, role, binding_index)
         derived_from_bound = bool(spec.get("derived") and role and roles.get(role))
         supported = bool(binding_ids or derived_from_bound or (role and aggregate_roles and role in aggregate_roles))
+        # Optional capabilities that a concrete asset does not publish are not
+        # properties of that asset.  Keeping them as empty rows created misleading
+        # UNKNOWN/UNAVAILABLE surfaces throughout diagnostics and HA projection.
+        if not supported and not spec.get("required"):
+            continue
         status = "NORMALIZED" if binding else "MATCHED" if supported else "MISSING" if spec.get("required") else "UNSUPPORTED"
         property_key = str(spec.get("property_key") or "")
         rows.append(
@@ -174,12 +179,18 @@ def _build_compiled_assets(
         if not aid:
             continue
         system_roles = {"reserve": provider.get("reserve_binding")}
+        aggregate_roles = {
+            role
+            for unit in provider.get("units") or []
+            for role in (unit.get("bindings") or {})
+            if role != "reserve"
+        }
         out.append(_asset(
             aid, "battery_system", f"Home Battery System · {integration or aid}",
             builder_id=builder, integration_domain=integration,
             normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
             selection_mode=_selection(build_inputs, builder).get("device_filter_mode"),
-            properties=_properties("battery_system", aid, system_roles, binding_index, aggregate_roles={"power", "soc", "capacity", "status"}),
+            properties=_properties("battery_system", aid, system_roles, binding_index, aggregate_roles=aggregate_roles),
         ))
         for unit in provider.get("units") or []:
             uid = str(unit.get("asset_id") or "")
@@ -193,12 +204,30 @@ def _build_compiled_assets(
                 selected_device_ids=[str(unit.get("device_registry_id"))] if unit.get("device_registry_id") else [],
                 device_registry_id=str(unit.get("device_registry_id") or "") or None,
                 via_device_registry_id=str(unit.get("via_device_registry_id") or "") or None,
-                properties=_properties("battery_system", uid, unit.get("bindings") or {}, binding_index, exclude_roles={"reserve"}),
+                properties=_properties("battery_system", uid, unit.get("bindings") or {}, binding_index),
             ))
 
     # One provider object + optional phase children.
     for concept, label in (("grid_connection", "Grid Connection"), ("solar_forecast", "Solar Forecast"), ("price_source", "Energy Price Source")):
         for provider in ((concepts.get(concept) or {}).get("providers") or []):
+            if concept == "price_source":
+                for source in provider.get("sources") or []:
+                    aid = str(source.get("asset_id") or "")
+                    builder = str(source.get("builder_id") or provider.get("builder_id") or "")
+                    integration = str(source.get("integration_domain") or provider.get("integration_domain") or "")
+                    if not aid:
+                        continue
+                    asset = _asset(
+                        aid, concept, str(source.get("display_name") or f"{label} · {integration or aid}"),
+                        builder_id=builder, integration_domain=integration,
+                        normalization_status=str(source.get("normalization_status") or provider.get("normalization_status") or "DEGRADED"),
+                        selection_mode=_selection(build_inputs, builder).get("device_filter_mode"),
+                        properties=_properties(concept, aid, source.get("bindings") or {}, binding_index),
+                        device_registry_id=str(source.get("device_registry_id") or "") or None,
+                    )
+                    asset["market_role"] = source.get("market_role")
+                    out.append(asset)
+                continue
             aid = str(provider.get("asset_id") or "")
             builder = str(provider.get("builder_id") or "")
             integration = str(provider.get("integration_domain") or "")
@@ -230,12 +259,18 @@ def _build_compiled_assets(
         integration = str(provider.get("integration_domain") or "")
         if not sid:
             continue
+        aggregate_roles = {
+            role
+            for inverter in provider.get("inverters") or []
+            for role in (inverter.get("bindings") or {})
+            if role != "phases"
+        }
         out.append(_asset(
             sid, "solar_production", f"Solar Production · {integration or sid}",
             builder_id=builder, integration_domain=integration,
             normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
             selection_mode=_selection(build_inputs, builder).get("device_filter_mode"),
-            properties=_properties("solar_production", sid, {}, binding_index, aggregate_roles={"power", "energy_today", "status"}),
+            properties=_properties("solar_production", sid, {}, binding_index, aggregate_roles=aggregate_roles),
         ))
         for inverter in provider.get("inverters") or []:
             iid = str(inverter.get("asset_id") or "")
@@ -294,64 +329,6 @@ def _build_compiled_assets(
     return out
 
 
-def _append_blocked_selected(
-    out: list[LogicalAsset],
-    build_inputs: dict[str, dict[str, Any]],
-    model: dict[str, Any],
-) -> None:
-    existing_devices = {str(device) for asset in out for device in asset.get("selected_device_ids") or [] if device}
-    assessments = model.get("concept_assessments") or {}
-    class_for_concept = {
-        "battery_system": "battery_unit",
-        "solar_production": "solar_inverter",
-        "solar_optimizer": "solar_optimizer",
-        "gas_meter": "gas_meter",
-        "grid_connection": "grid_connection",
-        "solar_forecast": "solar_forecast",
-        "price_source": "price_source",
-    }
-    for builder_id, build_input in build_inputs.items():
-        selection = build_input.get("selection") or {}
-        if selection.get("device_filter_mode") != "specific_devices":
-            continue
-        concept = str((assessments.get(builder_id) or {}).get("concept") or selection.get("concept") or "")
-        object_class = class_for_concept.get(concept)
-        if not object_class:
-            continue
-        for device_id in _selected_devices(build_inputs, builder_id):
-            if device_id in existing_devices:
-                continue
-            aid = f"{object_class}_{_hash(builder_id + ':' + device_id)}"
-            props: list[LogicalProperty] = []
-            source_class = "battery_system" if object_class == "battery_unit" else "solar_production" if object_class == "solar_inverter" else object_class
-            for spec in property_definitions(source_class):
-                if object_class == "battery_unit" and spec.get("role") == "reserve":
-                    continue
-                key = str(spec.get("property_key") or "")
-                props.append({
-                    "property_key": key,
-                    "display_name": str(spec.get("name") or key),
-                    "unit": spec.get("unit"),
-                    "kind": str(spec.get("kind") or "text"),
-                    "platform": str(spec.get("platform") or "sensor"),
-                    "input_id": spec.get("input_id"),
-                    "required": bool(spec.get("required")),
-                    "derived": bool(spec.get("derived")),
-                    "status": "MISSING" if spec.get("required") else "UNSUPPORTED",
-                    "candidate_count": 0,
-                    "issues": ["selected_device_has_no_safe_binding"],
-                    "fact_key": object_fact_key(aid, key),
-                })
-            out.append(_asset(
-                aid, object_class,
-                f"{OBJECT_CLASS_LABELS.get(object_class, object_class.replace('_', ' ').title())} {device_id[:8]}",
-                builder_id=builder_id,
-                integration_domain=str(selection.get("integration_domain") or ""),
-                normalization_status="BLOCKED", runtime_truth=False,
-                selection_mode="specific_devices", selected_device_ids=[device_id], properties=props,
-            ))
-
-
 def build_logical_assets(build_inputs: dict[str, dict[str, Any]], model: dict[str, Any]) -> list[LogicalAsset]:
     out = _build_compiled_assets(build_inputs, model)
     dedup: dict[str, LogicalAsset] = {}
@@ -381,11 +358,13 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
         props: list[LogicalProperty] = []
         for spec in property_definitions("flexible_load"):
             key = str(spec.get("property_key") or "")
+            if item.get(key) is None:
+                continue
             props.append({
                 "property_key": key, "display_name": str(spec.get("name") or key),
                 "unit": spec.get("unit"), "kind": str(spec.get("kind") or "text"), "platform": "sensor",
                 "input_id": None, "required": False, "derived": False,
-                "status": "MATCHED" if item.get(key) is not None else "UNSUPPORTED",
+                "status": "NORMALIZED",
                 "candidate_count": 0, "issues": [], "fact_key": f"flexible:{source_id}:{key}",
             })
         rows.append(_asset(

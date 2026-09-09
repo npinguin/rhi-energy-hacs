@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.solar_production.solaredge_modbus_multi.v1",
-  "builder_version": "1.2.1",
+  "builder_version": "1.2.2",
   "concept": {
     "concept_id": "solar_production",
     "display_name": "Solar Production",
@@ -252,7 +252,8 @@
         "input_id": "inverter_status",
         "technical_capabilities": {
           "any_of": [
-            "binary_state"
+            "binary_state",
+            "state_observation"
           ]
         },
         "allowed_source_kinds": [

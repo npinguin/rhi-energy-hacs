@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.solar_forecast.forecast_solar.v1",
-  "builder_version": "1.2.1",
+  "builder_version": "1.2.2",
   "concept": {
     "concept_id": "solar_forecast",
     "display_name": "Solar Forecast",
@@ -47,7 +47,7 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "energy_production_today"
               }
             ]
@@ -59,20 +59,8 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "forecast_today"
-              }
-            ]
-          },
-          {
-            "integration_domain": "forecast_solar",
-            "raw_capability_id": "forecast_today_energy",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "today"
               }
             ]
           },
@@ -83,7 +71,7 @@
             "all_of": [
               {
                 "field": "source_identity.provider_key",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "energy_production_today"
               }
             ]
@@ -95,20 +83,8 @@
             "all_of": [
               {
                 "field": "source_identity.provider_key",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "forecast_today"
-              }
-            ]
-          },
-          {
-            "integration_domain": "forecast_solar",
-            "raw_capability_id": "forecast_today_energy_provider",
-            "source_kind": "config_entry_provider",
-            "all_of": [
-              {
-                "field": "source_identity.provider_key",
-                "operator": "contains",
-                "value": "today"
               }
             ]
           },
@@ -119,7 +95,7 @@
             "all_of": [
               {
                 "field": "source_identity.api_capability_id",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "energy_production_today"
               }
             ]
@@ -131,20 +107,8 @@
             "all_of": [
               {
                 "field": "source_identity.api_capability_id",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "forecast_today"
-              }
-            ]
-          },
-          {
-            "integration_domain": "forecast_solar",
-            "raw_capability_id": "forecast_today_energy_api",
-            "source_kind": "integration_api",
-            "all_of": [
-              {
-                "field": "source_identity.api_capability_id",
-                "operator": "contains",
-                "value": "today"
               }
             ]
           }
@@ -190,7 +154,7 @@
           "entity"
         ],
         "required": false,
-        "cardinality": "zero_or_one",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "forecast_solar",
@@ -218,7 +182,7 @@
           "entity"
         ],
         "required": false,
-        "cardinality": "zero_or_one",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "forecast_solar",
@@ -382,7 +346,7 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "forecast_power"
               }
             ]
@@ -394,20 +358,8 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "power_production_now"
-              }
-            ]
-          },
-          {
-            "integration_domain": "forecast_solar",
-            "raw_capability_id": "forecast_power",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "power"
               }
             ]
           },
@@ -418,7 +370,7 @@
             "all_of": [
               {
                 "field": "source_identity.provider_key",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "forecast_power"
               }
             ]
@@ -430,20 +382,8 @@
             "all_of": [
               {
                 "field": "source_identity.provider_key",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "power_production_now"
-              }
-            ]
-          },
-          {
-            "integration_domain": "forecast_solar",
-            "raw_capability_id": "forecast_power_provider",
-            "source_kind": "config_entry_provider",
-            "all_of": [
-              {
-                "field": "source_identity.provider_key",
-                "operator": "contains",
-                "value": "power"
               }
             ]
           },
@@ -454,7 +394,7 @@
             "all_of": [
               {
                 "field": "source_identity.api_capability_id",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "forecast_power"
               }
             ]
@@ -466,20 +406,8 @@
             "all_of": [
               {
                 "field": "source_identity.api_capability_id",
-                "operator": "contains",
+                "operator": "ends_with",
                 "value": "power_production_now"
-              }
-            ]
-          },
-          {
-            "integration_domain": "forecast_solar",
-            "raw_capability_id": "forecast_power_api",
-            "source_kind": "integration_api",
-            "all_of": [
-              {
-                "field": "source_identity.api_capability_id",
-                "operator": "contains",
-                "value": "power"
               }
             ]
           }

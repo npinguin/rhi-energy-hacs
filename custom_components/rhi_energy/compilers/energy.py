@@ -13,6 +13,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import re
 from typing import Any
 
 try:
@@ -54,12 +55,67 @@ def _candidate_group_key(candidate: dict[str, Any]) -> str:
     )
 
 
+def _identity_is_semantically_specific(input_id: str, candidate: dict[str, Any]) -> bool:
+    """Reject technically matching sibling surfaces that have another Energy meaning.
+
+    Foundation deliberately applies only the published mechanical rule.  Some
+    integrations expose a family of identifiers where a positive-only match cannot
+    distinguish the authoritative total from phase, inverted or battery siblings.
+    Energy owns that semantic distinction and therefore performs the final exact
+    suffix check before accepting a binding.
+    """
+    source = candidate.get("source_identity") or {}
+    integration = str(source.get("integration_domain") or "")
+    unique_id = str(source.get("unique_id") or "")
+    if not unique_id:
+        return True
+
+    if integration == "solaredge_modbus_multi":
+        suffixes = {
+            "battery_unit_power": r"_B[1-4]_dc_power$",
+            "battery_status": r"_B[1-4]_status$",
+            "grid_net_power": r"_M1_ac_power$",
+            "grid_import_energy": r"_M1_imported_kwh$",
+            "grid_export_energy": r"_M1_exported_kwh$",
+            "grid_phase_power": r"_M1_ac_power_[abc]$",
+        }
+        if input_id in suffixes:
+            # Generic non-SolarEdge naming remains valid; exact filtering applies to
+            # the native Bx/M1 identifier family only.
+            family_marker = "_B" if input_id.startswith("battery_") else "_M1_"
+            return family_marker not in unique_id or re.search(suffixes[input_id], unique_id) is not None
+        if input_id == "solar_power":
+            return re.search(r"_B[1-4]_", unique_id) is None and not unique_id.endswith("_inverted")
+        if input_id == "inverter_status":
+            # SolarEdge exposes status_vendor/status_vendor4 siblings alongside the
+            # actual inverter state.  Only the native ``_status`` surface is truth.
+            return unique_id.endswith("_status") and re.search(r"_B[1-4]_", unique_id) is None
+
+    if integration == "forecast_solar":
+        suffixes = {
+            "forecast_today_energy": ("_energy_production_today", "_forecast_today"),
+            "forecast_remaining_today_energy": ("_energy_production_today_remaining",),
+            "forecast_current_hour_energy": ("_energy_current_hour",),
+            "forecast_next_hour_energy": ("_energy_next_hour",),
+            "forecast_tomorrow_energy": ("_energy_production_tomorrow", "_forecast_tomorrow"),
+            "forecast_power": ("_power_production_now", "_forecast_power"),
+        }
+        expected = suffixes.get(input_id)
+        if expected:
+            return unique_id.endswith(expected)
+    return True
+
+
 def _safe_candidates(build_input: dict[str, Any], input_id: str) -> tuple[list[dict[str, Any]], list[str]]:
     """Return independently cardinality-safe candidates for one normalized input."""
     accepted: dict[str, dict[str, Any]] = {}
     issues: list[str] = []
     for group in _groups(build_input, input_id):
-        candidates = [item for item in (group.get("candidates") or []) if isinstance(item, dict)]
+        candidates = [
+            item
+            for item in (group.get("candidates") or [])
+            if isinstance(item, dict) and _identity_is_semantically_specific(input_id, item)
+        ]
         cardinality = str(group.get("cardinality") or "zero_or_one")
         required = group.get("required") is True
         if cardinality in {"exactly_one", "zero_or_one"}:
@@ -296,6 +352,12 @@ def _compile_battery(build_input: dict[str, Any], previous: dict[str, dict[str, 
     bindings: list[AcceptedBinding] = []
     units: list[dict[str, Any]] = []
     device_specs = [spec for spec in input_definitions("battery_system") if spec.get("object_scope") == "device"]
+    entity_reserves = [
+        candidate
+        for candidate in inputs.get("reserve_write_surface", [])
+        if (candidate.get("source_identity") or {}).get("source_kind") == "entity"
+        and str((candidate.get("source_identity") or {}).get("current_entity_id") or "").startswith("number.")
+    ]
     for device_id in device_ids:
         asset_id = f"battery_unit_{_hash([builder_id, device_id], 10)}"
         role_map: dict[str, str] = {}
@@ -313,6 +375,23 @@ def _compile_battery(build_input: dict[str, Any], previous: dict[str, dict[str, 
                 local_candidates.extend(rows)
             elif len(rows) > 1:
                 issues.append(f"battery_{role}:{device_id}:ambiguous")
+        unit_config_entries = {
+            str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
+            for candidate in local_candidates
+            if (candidate.get("source_identity") or {}).get("config_entry_id")
+        }
+        unit_reserves = [
+            candidate
+            for candidate in entity_reserves
+            if str((candidate.get("source_identity") or {}).get("config_entry_id") or "") in unit_config_entries
+        ]
+        if len(unit_reserves) == 1:
+            binding_id = f"energy:{asset_id}:reserve"
+            bindings.append(_binding(asset_id, "reserve", unit_reserves[0], previous.get(binding_id)))
+            role_map["reserve"] = binding_id
+            local_candidates.extend(unit_reserves)
+        elif len(unit_reserves) > 1:
+            issues.append(f"battery_reserve:{device_id}:ambiguous")
         if role_map:
             metadata = _candidate_metadata(local_candidates[0]) if local_candidates else {}
             units.append({"asset_id": asset_id, "bindings": role_map, **metadata, "device_registry_id": device_id})
@@ -320,13 +399,6 @@ def _compile_battery(build_input: dict[str, Any], previous: dict[str, dict[str, 
         raise ValueError("no_semantically_safe_measurement")
 
     reserve_binding = None
-    reserves = inputs.get("reserve_write_surface", [])
-    entity_reserves = [
-        candidate
-        for candidate in reserves
-        if (candidate.get("source_identity") or {}).get("source_kind") == "entity"
-        and str((candidate.get("source_identity") or {}).get("current_entity_id") or "").startswith("number.")
-    ]
     if len(entity_reserves) == 1:
         reserve = entity_reserves[0]
         source = reserve.get("source_identity") or {}
@@ -350,9 +422,7 @@ def _compile_battery(build_input: dict[str, Any], previous: dict[str, dict[str, 
             reserve_binding = binding_id
         else:
             issues.append("reserve_write_surface:not_attributable")
-    elif len(entity_reserves) > 1:
-        issues.append(f"reserve_write_surface:ambiguous:count_{len(entity_reserves)}")
-    elif reserves:
+    elif not entity_reserves and inputs.get("reserve_write_surface"):
         issues.append("reserve_write_surface:no_executable_number_entity")
 
     complete = sum(1 for unit in units if {"power", "soc", "capacity"}.issubset((unit.get("bindings") or {}).keys()))
@@ -481,12 +551,66 @@ def _compile_forecast(build_input: dict[str, Any], previous: dict[str, dict[str,
 def _compile_price(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
     builder_id = str(build_input.get("builder_id") or "price")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "price")
-    asset_id = f"price_source_{_hash([integration, builder_id], 8)}"
-    bindings, roles, issues = _compile_provider_semantics(build_input, previous, "price_source", asset_id)
-    if not roles:
+    inputs, issues = _safe_inputs(build_input, "price_source")
+    current_rows = inputs.get("current_price", [])
+    if not current_rows:
         raise ValueError("no_semantically_safe_input")
-    completeness = sum(1 for key in ("current", "future", "currency", "tariff") if key in roles)
-    return bindings, {"asset_id": asset_id, "asset_type": "price_source", "bindings": roles, "builder_id": builder_id, "integration_domain": integration, "semantic_completeness": completeness, "normalization_status": "READY" if "current" in roles and not issues else "DEGRADED"}, issues
+    bindings: list[AcceptedBinding] = []
+    sources: list[dict[str, Any]] = []
+    for current in current_rows:
+        anchor = _candidate_config_id(current)
+        asset_id = f"price_source_{_hash([builder_id, anchor], 10)}"
+        role_map: dict[str, Any] = {}
+        local_candidates: list[dict[str, Any]] = []
+        for spec in input_definitions("price_source"):
+            role = str(spec.get("role") or "")
+            input_id = str(spec.get("input_id") or "")
+            rows = [candidate for candidate in inputs.get(input_id, []) if _candidate_config_id(candidate) == anchor]
+            if spec.get("many"):
+                ids = _bind_many(bindings, previous, asset_id, role, rows)
+                if ids:
+                    role_map[role] = ids
+                    local_candidates.extend(rows)
+            elif len(rows) == 1:
+                binding_id = f"energy:{asset_id}:{role}"
+                bindings.append(_binding(asset_id, role, rows[0], previous.get(binding_id)))
+                role_map[role] = binding_id
+                local_candidates.extend(rows)
+            elif len(rows) > 1:
+                issues.append(f"price_{role}:{anchor}:ambiguous")
+        if "current" not in role_map:
+            continue
+        metadata = _candidate_metadata(local_candidates[0] if local_candidates else current)
+        identity_text = " ".join(
+            str(value or "").lower()
+            for value in (
+                (current.get("source_identity") or {}).get("unique_id"),
+                metadata.get("display_name"),
+            )
+        )
+        market_role = "export" if any(token in identity_text for token in ("injectie", "injection", "export")) else "import"
+        sources.append({
+            "asset_id": asset_id,
+            "asset_type": "price_source",
+            "bindings": role_map,
+            "builder_id": builder_id,
+            "integration_domain": integration,
+            "market_role": market_role,
+            "semantic_completeness": sum(1 for key in ("current", "future", "currency", "tariff") if key in role_map),
+            "normalization_status": "READY",
+            **metadata,
+        })
+    if not sources:
+        raise ValueError("no_semantically_safe_input")
+    collection_id = f"price_provider_{_hash([integration, builder_id], 8)}"
+    return bindings, {
+        "asset_id": collection_id,
+        "asset_type": "price_source_collection",
+        "sources": sources,
+        "builder_id": builder_id,
+        "integration_domain": integration,
+        "normalization_status": "READY" if not issues else "DEGRADED",
+    }, issues
 
 
 def _compile_gas(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:

@@ -1,14 +1,14 @@
 {
   "source_repository": "npinguin/rhi-energy",
-  "source_commit": "46bbac3fbe4b515642a747aeaf27e1023611243e",
-  "source_release": "E0.11.2",
-  "manifest_version": "0.11.2",
+  "source_commit": "b6291b7c2181fa7b399c5ca88dd27b0d53026bb3",
+  "source_release": "E0.11.3",
+  "manifest_version": "0.11.3",
   "channel": "candidate",
   "approved_release": false,
   "shared_baseline": "1.7.0",
-  "publication_revision": 11,
+  "publication_revision": 12,
   "engineering_repository_visibility": "private",
   "distribution_license": "GPL-3.0-only",
-  "runtime_file_count": 54,
-  "runtime_aggregate_sha256": "b327f6daaebc961032d3f23ba75f0418ac510f76fe18b623146ddf071b5be282"
+  "runtime_file_count": 56,
+  "runtime_aggregate_sha256": "e9d427cca9023f288b9f1a45e75873c9f6c7ccf4e64ec17a821fcc1b281968d5"
 }

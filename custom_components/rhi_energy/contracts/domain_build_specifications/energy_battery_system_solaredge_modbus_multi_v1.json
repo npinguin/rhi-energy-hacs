@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.battery_system.solaredge_modbus_multi.v1",
-  "builder_version": "1.2.2",
+  "builder_version": "1.2.3",
   "concept": {
     "concept_id": "battery_system",
     "display_name": "Home Battery System",
@@ -57,8 +57,8 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "b1_dc_power"
+                "operator": "ends_with",
+                "value": "_B1_dc_power"
               }
             ]
           },
@@ -69,8 +69,8 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "b2_dc_power"
+                "operator": "ends_with",
+                "value": "_B2_dc_power"
               }
             ]
           },
@@ -81,8 +81,8 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "b3_dc_power"
+                "operator": "ends_with",
+                "value": "_B3_dc_power"
               }
             ]
           },
@@ -93,8 +93,8 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "b4_dc_power"
+                "operator": "ends_with",
+                "value": "_B4_dc_power"
               }
             ]
           },
@@ -486,7 +486,8 @@
         "input_id": "battery_status",
         "technical_capabilities": {
           "any_of": [
-            "binary_state"
+            "binary_state",
+            "state_observation"
           ]
         },
         "allowed_source_kinds": [
@@ -517,6 +518,30 @@
                 "field": "source_identity.unique_id",
                 "operator": "contains",
                 "value": "battery_state"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_B1_status"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_B2_status"
               }
             ]
           },

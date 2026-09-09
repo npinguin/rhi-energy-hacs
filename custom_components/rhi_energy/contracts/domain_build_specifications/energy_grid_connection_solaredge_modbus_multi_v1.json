@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.grid_connection.solaredge_modbus_multi.v1",
-  "builder_version": "1.2.1",
+  "builder_version": "1.2.2",
   "concept": {
     "concept_id": "grid_connection",
     "display_name": "Grid Connection",
@@ -56,6 +56,18 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_M1_ac_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "grid_net_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
                 "operator": "contains",
                 "value": "grid_power"
               }
@@ -79,7 +91,8 @@
         "input_id": "grid_import_energy",
         "technical_capabilities": {
           "any_of": [
-            "energy_counter"
+            "energy_counter",
+            "energy_capacity"
           ]
         },
         "allowed_source_kinds": [
@@ -203,7 +216,8 @@
         "input_id": "grid_export_energy",
         "technical_capabilities": {
           "any_of": [
-            "energy_counter"
+            "energy_counter",
+            "energy_capacity"
           ]
         },
         "allowed_source_kinds": [
@@ -381,6 +395,42 @@
                 "field": "source_identity.unique_id",
                 "operator": "contains",
                 "value": "l3_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "grid_phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_M1_ac_power_a"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "grid_phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_M1_ac_power_b"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "grid_phase_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_M1_ac_power_c"
               }
             ]
           }

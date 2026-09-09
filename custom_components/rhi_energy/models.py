@@ -89,6 +89,7 @@ class LogicalAsset(TypedDict, total=False):
     source_domain: str
     device_registry_id: str
     via_device_registry_id: str
+    market_role: str
 
 
 class CompiledEnergyModel(TypedDict, total=False):

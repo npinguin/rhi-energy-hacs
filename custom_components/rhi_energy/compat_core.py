@@ -343,7 +343,9 @@ def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[
     export_fee = number(cfg.get("export_fee_eur_kwh"))
     base_complete = all(v is not None for v in (spot, network, levies, vat))
     import_price = round((spot + network + levies) * (1 + vat/100), 6) if base_complete else None
-    export_price = round(spot - export_fee, 6) if spot is not None and export_fee is not None else None
+    export_spot = number(facts.get("pricing.export_spot_eur_kwh"))
+    export_base = export_spot if export_spot is not None else spot
+    export_price = round(export_base - export_fee, 6) if export_base is not None and export_fee is not None else None
     rows = [
         prop("pricing", "pricing.spot_eur_kwh", spot, "EUR/kWh", availability=spot_av, editable=spot_live is None, editor="number", operation_id="energy.pricing.set_property", constraints={"min":-1,"max":5,"step":0.001}, reason_code="LIVE_SOURCE" if spot_live is not None else "FALLBACK_REQUIRED"),
         prop("pricing", "pricing.import_network_eur_kwh", network, "EUR/kWh", availability=AVAILABLE if network is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":2,"step":0.001}),

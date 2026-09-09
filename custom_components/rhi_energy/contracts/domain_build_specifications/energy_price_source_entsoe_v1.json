@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.price_source.entsoe.v1",
-  "builder_version": "1.2.1",
+  "builder_version": "1.2.2",
   "concept": {
     "concept_id": "price_source",
     "display_name": "Energy Price Source",
@@ -38,7 +38,7 @@
           "integration_api"
         ],
         "required": true,
-        "cardinality": "exactly_one",
+        "cardinality": "one_or_more",
         "integration_matches": [
           {
             "integration_domain": "entsoe",

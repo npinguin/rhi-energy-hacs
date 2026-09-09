@@ -295,6 +295,20 @@ def _object_id(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
 
 
+def _property_is_projectable(prop: dict) -> bool:
+    """Only create HA entities for semantically supported public properties."""
+    if str(prop.get("platform") or "sensor") != "sensor":
+        return False
+    if str(prop.get("status") or "") in {"UNSUPPORTED", "MISSING"}:
+        return False
+    return bool(
+        prop.get("binding_id")
+        or prop.get("binding_ids")
+        or prop.get("derived")
+        or prop.get("availability") == "AVAILABLE"
+    )
+
+
 class EnergyLogicalEntityManager:
     """Project the authoritative logical Energy inventory to HA.
 
@@ -332,7 +346,7 @@ class EnergyLogicalEntityManager:
             desired.add(f"rhi_energy:logical:{asset_id}:status")
             for prop in asset.get("properties") or []:
                 key = str((prop or {}).get("property_key") or "")
-                if key and str((prop or {}).get("platform") or "sensor") == "sensor":
+                if key and _property_is_projectable(prop or {}):
                     desired.add(f"rhi_energy:logical:{asset_id}:property:{key}")
         return desired
 
@@ -373,7 +387,7 @@ class EnergyLogicalEntityManager:
                 self._known.add(status_uid)
                 additions.append(EnergyLogicalAssetStatusSensor(self._entry, self._manager, self._runtime, asset_id))
             for prop in asset.get("properties") or []:
-                if str((prop or {}).get("platform") or "sensor") != "sensor":
+                if not _property_is_projectable(prop or {}):
                     continue
                 property_key = str((prop or {}).get("property_key") or "")
                 if not property_key:

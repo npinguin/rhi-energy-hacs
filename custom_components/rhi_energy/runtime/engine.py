@@ -26,6 +26,8 @@ from ..compat_core import (
     overview_snapshot,
 )
 from ..semantic import property_definitions
+from .consumer_assets import normalize_mobility_consumers
+from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
 from .producers import mobility_entity_ids, read_mobility_energy_assets
 
@@ -152,6 +154,8 @@ class EnergyRuntime:
             if isinstance(row, dict)
         ]
         ids.extend(mobility_entity_ids())
+        if needs_sun_tracking((self.model or {}).get("logical_assets", [])):
+            ids.append("sun.sun")
         return sorted({str(value) for value in ids if value})
 
     def activate_model(self, model: dict[str, Any] | None) -> None:
@@ -177,43 +181,6 @@ class EnergyRuntime:
             [{"source_domain": "mobility", **deepcopy(row)} for row in connections if isinstance(row, dict)],
             {"mobility": bool(attrs or rows or connections)},
         )
-
-    @staticmethod
-    def _normalize_flexible_assets(consumers: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for asset in consumers:
-            if not isinstance(asset, dict) or not asset.get("asset_id"):
-                continue
-            props = asset.get("properties") if isinstance(asset.get("properties"), dict) else {}
-
-            def first(*names):
-                for name in names:
-                    value = asset.get(name, props.get(name))
-                    if value is not None:
-                        return value
-                return None
-
-            power = number(first("power_kw", "actual_power_kw"))
-            out.append({
-                **deepcopy(asset),
-                "asset_id": str(asset["asset_id"]),
-                "display_name": asset.get("display_name") or asset.get("name") or str(asset["asset_id"]),
-                "asset_type": "flexible_asset",
-                "energy_asset_role": "flexible_load",
-                "power_kw": power,
-                "energy_to_target_kwh": number(first("energy_to_target_kwh", "required_energy_kwh", "energy_need_kwh")),
-                "requested_power_kw": number(first("requested_power_kw", "requested_charge_power_kw")),
-                "min_power_kw": number(first("min_power_kw", "minimum_power_kw")),
-                "max_power_kw": number(first("max_power_kw", "maximum_power_kw")),
-                "minimum_runtime_minutes": number(first("minimum_runtime_minutes", "min_runtime_minutes")),
-                "operating_state": first("operating_state", "state") or ("running" if power is not None and abs(power) > 0.05 else "idle"),
-                "availability_state": first("availability_state", "availability") or "AVAILABLE",
-                "target_soc_pct": number(first("target_soc_pct")),
-                "current_soc_pct": number(first("soc_pct", "current_soc_pct")),
-                "deadline": first("deadline", "target_time", "departure_time"),
-                "command_refs": deepcopy(asset.get("command_refs") or {}),
-            })
-        return out
 
     def _convert(self, prop: dict[str, Any], raw: Any, unit: str | None, attrs: dict[str, Any]) -> Any:
         key = str(prop.get("property_key") or "")
@@ -276,6 +243,7 @@ class EnergyRuntime:
             value = complete_numeric_sum(values, expected_count=len(values))
         else:
             value = values[0] if values and all(item == values[0] for item in values) else None
+        value = dark_zero(self.hass, key, value)
         normalizer = get_normalizer(asset.get("integration_domain"))
         context = {"asset": asset, "property": prop, "binding_ids": binding_ids, "attributes": contexts}
         if key == "solar.power_kw" and asset.get("object_class") == "solar_inverter":
@@ -402,7 +370,6 @@ class EnergyRuntime:
             "grid_connection": "grid.net_power_kw",
             "solar_production": "solar.power_kw",
             "solar_forecast": "forecast.solar_today_kwh",
-            "price_source": "pricing.spot_eur_kwh",
         }
         for concept, primary_key in primary.items():
             rows = [row for row in assets if row.get("object_class") == concept]
@@ -424,6 +391,25 @@ class EnergyRuntime:
                     facts[key] = facts.get(prop.get("fact_key"))
             facts[f"{concept}.source_id"] = selected.get("asset_id")
             facts[f"{concept}.source_integration"] = selected.get("integration_domain")
+
+        price_rows = [row for row in assets if row.get("object_class") == "price_source"]
+        import_rows = [row for row in price_rows if row.get("market_role") != "export"]
+        export_rows = [row for row in price_rows if row.get("market_role") == "export"]
+        if len(import_rows) == 1:
+            row = import_rows[0]
+            prop = _properties(row).get("pricing.spot_eur_kwh") or {}
+            facts["pricing.spot_eur_kwh"] = facts.get(prop.get("fact_key"))
+            facts["price_source.source_id"] = row.get("asset_id")
+            facts["price_source.source_integration"] = row.get("integration_domain")
+        elif len(import_rows) > 1:
+            issues.append("price_source:multiple_import_sources:selection_required")
+        if len(export_rows) == 1:
+            row = export_rows[0]
+            prop = _properties(row).get("pricing.spot_eur_kwh") or {}
+            facts["pricing.export_spot_eur_kwh"] = facts.get(prop.get("fact_key"))
+            facts["pricing.export_source_id"] = row.get("asset_id")
+        elif len(export_rows) > 1:
+            issues.append("price_source:multiple_export_sources:selection_required")
 
         # Compatibility aliases retained outside the object model.
         facts["metering.grid_import_total_kwh"] = facts.get("grid_import.energy_total_kwh")
@@ -484,7 +470,7 @@ class EnergyRuntime:
         facts["consumption.health"] = consumption["health"]
 
         consumers, connections, producer_availability = self._producer_assets()
-        flexible = self._normalize_flexible_assets(consumers)
+        flexible = normalize_mobility_consumers(consumers)
         settings = deepcopy(self.store.data.get("settings") or {})
         settings["baseload_profile"] = deepcopy((self.store.data.get("metering") or {}).get("baseload_profile") or {})
         now_local = datetime.now(ZoneInfo(self.hass.config.time_zone))
