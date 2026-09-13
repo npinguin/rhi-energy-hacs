@@ -69,6 +69,29 @@ def _issue(
     }
 
 
+def _entry_is_loaded(entry: Any) -> bool:
+    """Read ConfigEntry state without importing HA into the pure supervision contract."""
+    state = getattr(entry, "state", None)
+    value = getattr(state, "value", state)
+    return str(value or "").lower() == "loaded"
+
+
+def _mobility_runtime_expected(hass: Any) -> bool:
+    """Return whether Mobility is actually loaded and therefore owes a publication.
+
+    Persisted Foundation configuration can legitimately contain Mobility selections while
+    the Mobility integration is disabled/unloaded. Energy must not turn that lifecycle
+    state into an Energy runtime defect. Config-entry load state is used only for producer
+    lifecycle expectation; producer semantics still come exclusively from Mobility's
+    public contract.
+    """
+    try:
+        entries = hass.config_entries.async_entries("rhi_mobility")
+    except Exception:
+        return False
+    return any(_entry_is_loaded(entry) for entry in entries)
+
+
 class EnergyDomainSupervision:
     """Synchronous, bounded provider consumed by Foundation's shared registry."""
 
@@ -121,6 +144,7 @@ class EnergyDomainSupervision:
             else "OK"
         )
         mobility_available = bool(runtime_snapshot.get("mobility_publication_available"))
+        mobility_expected = _mobility_runtime_expected(self.hass)
 
         issues: list[dict[str, Any]] = []
         if configuration_status != "OK":
@@ -165,7 +189,7 @@ class EnergyDomainSupervision:
                 "V1_FEATURE_PARITY_FUNCTIONALLY_INCOMPLETE", blocking=False,
                 severity="WARNING", scope=degraded_public_entities[:12] or ["R1.89.44_CONTRACT"],
             ))
-        if "mobility_publication_available" in runtime_snapshot and not mobility_available:
+        if mobility_expected and not mobility_available:
             issues.append(_issue(
                 "energy:dependency:mobility_publication", "DEPENDENCY",
                 "MOBILITY_PUBLICATION_UNAVAILABLE", blocking=False,
@@ -209,6 +233,7 @@ class EnergyDomainSupervision:
             "last_observed_at": observed_at,
             "details_reference": "rhi_energy:diagnostics",
         }
+
 
 def register_domain_supervision(hass: Any, provider: EnergyDomainSupervision) -> None:
     """Register through Foundation-owned 1.8.1 registry mechanics."""
