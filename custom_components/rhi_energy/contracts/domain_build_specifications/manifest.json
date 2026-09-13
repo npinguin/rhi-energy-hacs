@@ -133,6 +133,6 @@
     "executes_commands": false
   },
   "publication_contract": "domain_build_specification_v1.2.0",
-  "shared_baseline_version": "1.7.0",
+  "shared_baseline_version": "1.8.1",
   "publication_revision": 12
 }

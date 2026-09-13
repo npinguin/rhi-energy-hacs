@@ -25,12 +25,19 @@ def read_mobility_energy_assets(
     state = hass.states.get(MOBILITY_ASSET_ENTITY)
     if not state:
         return [], [], {}
-    consumers = jload(state.attributes.get("consumer_assets"), [])
-    connections = jload(state.attributes.get("connection_assets"), [])
+    consumers = jload(state.attributes.get("consumer_assets") or state.attributes.get("consumer_assets_json"), [])
+    connections = jload(state.attributes.get("connection_assets") or state.attributes.get("connection_assets_json") or state.attributes.get("connections_json"), [])
+    metadata = dict(state.attributes)
+    metadata.update({
+        "source_entity_id": MOBILITY_ASSET_ENTITY,
+        "source_state": state.state,
+        "source_last_updated": state.last_updated.isoformat(),
+        "source_last_changed": state.last_changed.isoformat(),
+    })
     return (
         consumers if isinstance(consumers, list) else [],
         connections if isinstance(connections, list) else [],
-        dict(state.attributes),
+        metadata,
     )
 
 

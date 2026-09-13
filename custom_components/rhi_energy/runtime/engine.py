@@ -30,6 +30,7 @@ from .consumer_assets import normalize_mobility_consumers
 from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
 from .producers import mobility_entity_ids, read_mobility_energy_assets
+from .selection import select_canonical_provider
 
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
@@ -105,6 +106,8 @@ class EnergyRuntime:
         self.snapshot: dict[str, Any] = self._empty_snapshot()
         self._unsubscribe = None
         self._callbacks: list[Callable[[], None]] = []
+        self._topology_callbacks: list[Callable[[], None]] = []
+        self._topology_signature: tuple[Any, ...] | None = None
 
     @staticmethod
     def _empty_snapshot() -> dict[str, Any]:
@@ -125,6 +128,35 @@ class EnergyRuntime:
     def add_callback(self, cb):
         self._callbacks.append(cb)
         return lambda: self._callbacks.remove(cb) if cb in self._callbacks else None
+
+    def add_topology_callback(self, cb):
+        """Subscribe only to logical asset/property topology changes."""
+        self._topology_callbacks.append(cb)
+        return lambda: self._topology_callbacks.remove(cb) if cb in self._topology_callbacks else None
+
+    @staticmethod
+    def _logical_topology(snapshot: dict[str, Any]) -> tuple[Any, ...]:
+        return tuple(sorted(
+            (
+                str(asset.get("asset_id") or ""),
+                str(asset.get("object_class") or ""),
+                tuple(sorted(
+                    str(prop.get("property_key") or "")
+                    for prop in (asset.get("properties") or [])
+                    if isinstance(prop, dict) and prop.get("property_key")
+                )),
+            )
+            for asset in (snapshot.get("logical_assets") or [])
+            if isinstance(asset, dict) and asset.get("asset_id")
+        ))
+
+    def _notify_topology_if_changed(self) -> None:
+        signature = self._logical_topology(self.snapshot)
+        if signature == self._topology_signature:
+            return
+        self._topology_signature = signature
+        for cb in tuple(self._topology_callbacks):
+            cb()
 
     def _notify(self) -> None:
         for cb in tuple(self._callbacks):
@@ -174,12 +206,13 @@ class EnergyRuntime:
     def _handle_state_change(self, _event) -> None:
         self._recompute()
 
-    def _producer_assets(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, bool]]:
+    def _producer_assets(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, bool], dict[str, dict[str, Any]]]:
         rows, connections, attrs = read_mobility_energy_assets(self.hass)
         return (
             [{"source_domain": "mobility", **deepcopy(row)} for row in rows if isinstance(row, dict)],
             [{"source_domain": "mobility", **deepcopy(row)} for row in connections if isinstance(row, dict)],
             {"mobility": bool(attrs or rows or connections)},
+            {"mobility": deepcopy(attrs)},
         )
 
     def _convert(self, prop: dict[str, Any], raw: Any, unit: str | None, attrs: dict[str, Any]) -> Any:
@@ -349,21 +382,6 @@ class EnergyRuntime:
         value = (((self.store.data.get("settings") or {}).get("sources") or {}).get(concept))
         return str(value) if value not in {None, "", "auto"} else None
 
-    def _select_asset(self, concept: str, assets: list[dict[str, Any]], readiness: dict[str, bool], issues: list[str]) -> dict[str, Any] | None:
-        ready = [row for row in assets if readiness.get(str(row.get("asset_id") or ""))]
-        preferred = self._preferred_source(concept)
-        if preferred:
-            matches = [row for row in ready if preferred in {str(row.get("asset_id") or ""), str(row.get("integration_domain") or ""), str(row.get("builder_id") or "")}]
-            if len(matches) == 1:
-                return matches[0]
-            issues.append(f"{concept}:preferred_source_unavailable:{preferred}")
-            return None
-        if len(ready) == 1:
-            return ready[0]
-        if len(ready) > 1:
-            issues.append(f"{concept}:multiple_authoritative_providers:selection_required")
-        return None
-
     def _canonicalize(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
         primary = {
             "battery_system": "battery.power_kw",
@@ -382,7 +400,11 @@ class EnergyRuntime:
                     power_prop = props.get("forecast.solar_power_kw")
                     primary_value = facts.get((power_prop or {}).get("fact_key")) if power_prop else None
                 readiness[str(row.get("asset_id") or "")] = primary_value is not None
-            selected = self._select_asset(concept, rows, readiness, issues)
+            selected, selection_issue = select_canonical_provider(
+                concept, rows, readiness, facts, self._preferred_source(concept)
+            )
+            if selection_issue:
+                issues.append(selection_issue)
             if not selected:
                 continue
             for prop in selected.get("properties") or []:
@@ -450,6 +472,7 @@ class EnergyRuntime:
     def _recompute(self) -> None:
         if self.model is None:
             self.snapshot = self._empty_snapshot()
+            self._notify_topology_if_changed()
             self._notify()
             return
 
@@ -469,7 +492,7 @@ class EnergyRuntime:
         facts["consumption.power_kw"] = consumption["power_kw"]
         facts["consumption.health"] = consumption["health"]
 
-        consumers, connections, producer_availability = self._producer_assets()
+        consumers, connections, producer_availability, producer_metadata = self._producer_assets()
         flexible = normalize_mobility_consumers(consumers)
         settings = deepcopy(self.store.data.get("settings") or {})
         settings["baseload_profile"] = deepcopy((self.store.data.get("metering") or {}).get("baseload_profile") or {})
@@ -490,6 +513,7 @@ class EnergyRuntime:
             "flexible_assets": flexible,
             "connections": connections,
             "producer_publication_availability": producer_availability,
+            "producer_publication_metadata": producer_metadata,
             "mobility_publication_available": producer_availability.get("mobility", False),
             "plan": plan,
             "intelligence": intel,
@@ -498,9 +522,12 @@ class EnergyRuntime:
             "runtime_issues": runtime_issues,
             "degraded_logical_assets": degraded_assets[:40],
         }
+        self._notify_topology_if_changed()
         self._notify()
 
     async def async_stop(self) -> None:
         if callable(self._unsubscribe):
             self._unsubscribe()
         self._unsubscribe = None
+        self._callbacks.clear()
+        self._topology_callbacks.clear()

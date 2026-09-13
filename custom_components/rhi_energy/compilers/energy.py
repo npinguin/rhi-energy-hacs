@@ -13,10 +13,10 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
-import re
 from typing import Any
 
 try:
+    from ..adapters import get_candidate_filter, get_market_role_resolver
     from ..models import AcceptedBinding, CompiledEnergyModel
     from ..runtime.logical_assets import build_logical_assets
     from ..semantic import input_definitions
@@ -26,6 +26,15 @@ except ImportError:  # Direct runpy/static unit-test execution without package c
     _root = _Path(__file__).resolve().parents[1]
     build_logical_assets = _runpy.run_path(str(_root / "runtime" / "logical_assets.py"))["build_logical_assets"]
     input_definitions = _runpy.run_path(str(_root / "semantic.py"))["input_definitions"]
+    def _adapter_function(integration: str, name: str, default):
+        path = _root / "adapters" / f"{integration}.py"
+        if not path.is_file():
+            return default
+        return _runpy.run_path(str(path)).get(name, default)
+    def get_candidate_filter(integration):
+        return _adapter_function(str(integration or ""), "accept_candidate", lambda _input_id, _candidate: True)
+    def get_market_role_resolver(integration):
+        return _adapter_function(str(integration or ""), "market_role", lambda candidate: (candidate.get("semantic_metadata") or {}).get("market_role"))
     AcceptedBinding = dict  # type: ignore[assignment,misc]
     CompiledEnergyModel = dict  # type: ignore[assignment,misc]
 
@@ -55,66 +64,16 @@ def _candidate_group_key(candidate: dict[str, Any]) -> str:
     )
 
 
-def _identity_is_semantically_specific(input_id: str, candidate: dict[str, Any]) -> bool:
-    """Reject technically matching sibling surfaces that have another Energy meaning.
-
-    Foundation deliberately applies only the published mechanical rule.  Some
-    integrations expose a family of identifiers where a positive-only match cannot
-    distinguish the authoritative total from phase, inverted or battery siblings.
-    Energy owns that semantic distinction and therefore performs the final exact
-    suffix check before accepting a binding.
-    """
-    source = candidate.get("source_identity") or {}
-    integration = str(source.get("integration_domain") or "")
-    unique_id = str(source.get("unique_id") or "")
-    if not unique_id:
-        return True
-
-    if integration == "solaredge_modbus_multi":
-        suffixes = {
-            "battery_unit_power": r"_B[1-4]_dc_power$",
-            "battery_status": r"_B[1-4]_status$",
-            "grid_net_power": r"_M1_ac_power$",
-            "grid_import_energy": r"_M1_imported_kwh$",
-            "grid_export_energy": r"_M1_exported_kwh$",
-            "grid_phase_power": r"_M1_ac_power_[abc]$",
-        }
-        if input_id in suffixes:
-            # Generic non-SolarEdge naming remains valid; exact filtering applies to
-            # the native Bx/M1 identifier family only.
-            family_marker = "_B" if input_id.startswith("battery_") else "_M1_"
-            return family_marker not in unique_id or re.search(suffixes[input_id], unique_id) is not None
-        if input_id == "solar_power":
-            return re.search(r"_B[1-4]_", unique_id) is None and not unique_id.endswith("_inverted")
-        if input_id == "inverter_status":
-            # SolarEdge exposes status_vendor/status_vendor4 siblings alongside the
-            # actual inverter state.  Only the native ``_status`` surface is truth.
-            return unique_id.endswith("_status") and re.search(r"_B[1-4]_", unique_id) is None
-
-    if integration == "forecast_solar":
-        suffixes = {
-            "forecast_today_energy": ("_energy_production_today", "_forecast_today"),
-            "forecast_remaining_today_energy": ("_energy_production_today_remaining",),
-            "forecast_current_hour_energy": ("_energy_current_hour",),
-            "forecast_next_hour_energy": ("_energy_next_hour",),
-            "forecast_tomorrow_energy": ("_energy_production_tomorrow", "_forecast_tomorrow"),
-            "forecast_power": ("_power_production_now", "_forecast_power"),
-        }
-        expected = suffixes.get(input_id)
-        if expected:
-            return unique_id.endswith(expected)
-    return True
-
-
 def _safe_candidates(build_input: dict[str, Any], input_id: str) -> tuple[list[dict[str, Any]], list[str]]:
     """Return independently cardinality-safe candidates for one normalized input."""
     accepted: dict[str, dict[str, Any]] = {}
     issues: list[str] = []
     for group in _groups(build_input, input_id):
+        raw_candidates = [item for item in (group.get("candidates") or []) if isinstance(item, dict)]
         candidates = [
             item
-            for item in (group.get("candidates") or [])
-            if isinstance(item, dict) and _identity_is_semantically_specific(input_id, item)
+            for item in raw_candidates
+            if get_candidate_filter((item.get("source_identity") or {}).get("integration_domain"))(input_id, item)
         ]
         cardinality = str(group.get("cardinality") or "zero_or_one")
         required = group.get("required") is True
@@ -581,14 +540,13 @@ def _compile_price(build_input: dict[str, Any], previous: dict[str, dict[str, An
         if "current" not in role_map:
             continue
         metadata = _candidate_metadata(local_candidates[0] if local_candidates else current)
-        identity_text = " ".join(
-            str(value or "").lower()
-            for value in (
-                (current.get("source_identity") or {}).get("unique_id"),
-                metadata.get("display_name"),
-            )
-        )
-        market_role = "export" if any(token in identity_text for token in ("injectie", "injection", "export")) else "import"
+        market_role = get_market_role_resolver(integration)(current)
+        if market_role not in {"import", "export"}:
+            if len(current_rows) == 1:
+                market_role = "import"
+            else:
+                issues.append(f"price_market_role:{anchor}:unresolved")
+                continue
         sources.append({
             "asset_id": asset_id,
             "asset_type": "price_source",

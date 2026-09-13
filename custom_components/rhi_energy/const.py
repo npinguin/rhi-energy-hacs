@@ -1,10 +1,11 @@
-"""Constants for RHI Energy V2 structural closure on Shared Baseline 1.7.0."""
+"""Constants for RHI Energy V2 structural closure on Shared Baseline 1.8.1."""
 DOMAIN = "rhi_energy"
-RELEASE = "E0.11.3"
-RELEASE_NAME = "RUNTIME_PROPERTY_CLOSURE"
+DOMAIN_ID = "energy"
+RELEASE = "E0.12.1"
+RELEASE_NAME = "FOUNDATION_AUTHORITY_AND_RUNTIME_QUIESCENCE"
 SHARED_BASELINE_ID = "RHI_SHARED_ARCHITECTURE_BASELINE"
-SHARED_BASELINE_VERSION = "1.7.0"
-SHARED_BASELINE_CHECKSUM = "27fc53b0c94dfaac32794699113d3eedd6520003ae8dbc7977e7ab9ff7eb25bf"
+SHARED_BASELINE_VERSION = "1.8.1"
+SHARED_BASELINE_CHECKSUM = "sha256:e76a3fb3539f9bc8b2b1b07976cf1372b39319b97887465669d4c452c07f7e52"
 PUBLICATION_REVISION = 12
 PUBLICATION_CONTRACT = "domain_build_specification_v1.2.0"
 BUILD_INPUT_REGISTRY_KEY = "rhi_selected_domain_build_input_registry"
@@ -14,7 +15,8 @@ STORE_VERSION = 2
 STORE_KEY = "rhi_energy_v2_state"
 MOBILITY_ASSET_ENTITY = "sensor.mobility_energy_asset_publication"
 MOBILITY_COMMAND_ENTITY = "sensor.mobility_command_index"
-LEGACY_CONTRACT_VERSION = "R1.84.2_CONTRACT"
+LEGACY_CONTRACT_VERSION = "R1.89.44_CONTRACT"
+LEGACY_BACKEND_RELEASE = "R1.89.45"
 LEGACY_PUBLIC_ENTITIES = (
     "sensor.energy_release_contract",
     "sensor.energy_overview_experience",
@@ -29,9 +31,11 @@ LEGACY_PUBLIC_ENTITIES = (
     "sensor.energy_consumer_property_index",
     "sensor.energy_consumer_mix_index",
     "sensor.energy_flexible_asset_index",
+    "sensor.energy_connection_property_index",
     "sensor.energy_strategy_profile_index",
     "sensor.energy_strategy_effective_index",
     "sensor.energy_planning_index",
+    "sensor.energy_operational_plan_index",
     "sensor.energy_planning_experience_index",
     "sensor.energy_command_index",
     "sensor.energy_intelligence_property_index",
@@ -40,6 +44,9 @@ LEGACY_PUBLIC_ENTITIES = (
     "sensor.energy_relationship_index",
     "sensor.energy_activity_index",
     "sensor.energy_public_editable_property_index",
+    "sensor.energy_pricing_interval_index",
+    "sensor.energy_asset_metering_index",
+    "sensor.energy_retrospective_event_index",
 )
 COMPAT_READINESS_ENTITY = "sensor.energy_pilot_readiness"
 LEGACY_DIAGNOSTIC_ENTITIES = (
@@ -50,7 +57,7 @@ LEGACY_DIAGNOSTIC_ENTITIES = (
     "sensor.energy_home_intelligence_contract_standard_health",
 )
 HEALTH_STATES=("OK","DEGRADED","STALE","INVALID","UNKNOWN")
-FOUNDATION_MIN_RELEASE="F1.6.0"
+FOUNDATION_MIN_RELEASE="F1.8.1"
 FOUNDATION_HANDOFF_REQUIRED_FIELDS=("source_identity","technical_capability","evidence")
 COMMAND_TIMEOUT_SECONDS=120
 COMMAND_IDEMPOTENCY_WINDOW_SECONDS=120

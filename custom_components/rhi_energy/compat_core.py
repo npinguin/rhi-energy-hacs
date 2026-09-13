@@ -1,4 +1,4 @@
-"""Pure product semantics and R1.84.2 public-contract projection helpers.
+"""Pure product semantics and R1.89.45 public-contract projection helpers.
 
 This module deliberately has no Home Assistant imports so all product semantics
 can be contract-tested without a running HA instance.
@@ -146,7 +146,7 @@ def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, batter
 
 
 def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Build the exact R1.84.2 Overview snapshot semantics.
+    """Build the exact R1.89.45 Overview snapshot semantics.
 
     Status and primary metric are intentionally inseparable and backend-owned.
     Missing core facts remain unavailable; they are never coerced to zero.
@@ -202,12 +202,12 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
 
 
 def _period_label(period_id: str) -> str:
-    return {"today": "Today", "week": "This week", "month": "This month", "year": "This year"}.get(period_id, period_id)
+    return {"hour": "This hour", "today": "Today", "week": "This week", "month": "This month", "year": "This year"}.get(period_id, period_id)
 
 
 def metering_rows(metering: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
-    for pid in ("today", "week", "month", "year"):
+    for pid in ("hour", "today", "week", "month", "year"):
         bucket = deepcopy((metering.get("periods") or {}).get(pid) or {})
         availability = AVAILABLE if bucket.get("quality") == "OK" else bucket.get("quality") or UNAVAILABLE
         rows.append({
@@ -222,6 +222,9 @@ def metering_rows(metering: dict[str, Any]) -> list[dict[str, Any]]:
             "battery_discharge_kwh": bucket.get("battery_discharge_kwh"),
             "flexible_load_kwh": bucket.get("flexible_load_kwh"),
             "flexible_assets_kwh": deepcopy(bucket.get("flexible_assets_kwh") or {}),
+            "import_cost_eur": bucket.get("import_cost_eur"),
+            "export_revenue_eur": bucket.get("export_revenue_eur"),
+            "financial_quality": deepcopy(bucket.get("financial_quality") or {}),
             "baseline_reset_required": False,
             "can_be_used_for_remaining": availability == AVAILABLE,
             "remaining_use_policy": "allowed" if availability == AVAILABLE else "not_available",
@@ -798,8 +801,11 @@ def intelligence(plan: dict[str, Any], facts: dict[str, Any], settings: dict[str
     gi=number(balance.get("expected_grid_import_kwh"))
     ge=number(balance.get("expected_grid_export_kwh"))
     needs=[a for a in flexible_assets if (number(a.get("energy_to_target_kwh")) or 0)>0]
+    plan_availability = ((d0.get("quality") or {}).get("availability"))
     if mode == "disabled":
-        decision="HOLD"; rec="Energy automation is disabled."; reason="strategy_disabled"; readiness="UNAVAILABLE"
+        decision="HOLD"; rec="Energy automation is disabled."; reason="strategy_disabled"; readiness=UNAVAILABLE
+    elif plan_availability != AVAILABLE:
+        decision="NOT_EVALUATED"; rec=None; reason="planning_inputs_incomplete"; readiness=UNAVAILABLE
     elif needs and ge is not None and ge > 0.5:
         decision="USE_SURPLUS"; rec=f"Use expected surplus for {needs[0].get('display_name') or needs[0].get('asset_id')}."; reason="forecast_surplus_and_flexible_need"; readiness=AVAILABLE
     elif needs and gi is not None and gi > 0:

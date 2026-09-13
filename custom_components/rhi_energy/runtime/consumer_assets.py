@@ -12,6 +12,28 @@ except ImportError:  # Direct runpy/static regression execution.
     number = _runpy.run_path(str(_Path(__file__).resolve().parents[1] / "compat_core.py"))["number"]
 
 _UNKNOWN = {"unknown", "unavailable", "none", ""}
+_RESOLVED_STATUSES = {"RESOLVED", "NORMALIZED", "MATCHED", "AVAILABLE"}
+
+
+def _resolved_properties(raw: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Read Mobility's typed public rows without laundering resolution errors."""
+    if isinstance(raw, dict):
+        return deepcopy(raw), []
+    values: dict[str, Any] = {}
+    evidence: list[dict[str, Any]] = []
+    for row in raw if isinstance(raw, list) else []:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("property_id") or row.get("property_key") or row.get("key") or "")
+        if not key:
+            continue
+        resolution = row.get("resolution") if isinstance(row.get("resolution"), dict) else {}
+        status = str(resolution.get("status") or row.get("status") or row.get("availability") or "")
+        evidence.append({"property_id": key, "status": status, "reason_code": resolution.get("reason_code") or row.get("reason_code") or row.get("reason")})
+        if status in _RESOLVED_STATUSES and row.get("value") is not None:
+            values[key] = row.get("value")
+            values[key.rsplit(".", 1)[-1]] = row.get("value")
+    return values, evidence
 
 
 def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -24,9 +46,13 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
         object_type = str(asset.get("asset_type") or asset.get("object_class") or "").lower()
         if "robotix home intelligence" in display_name.lower() or object_type in {"module", "foundation", "integration"}:
             continue
-        props = asset.get("properties") if isinstance(asset.get("properties"), dict) else {}
+        raw_properties = asset.get("properties")
+        typed_properties = isinstance(raw_properties, list)
+        props, property_evidence = _resolved_properties(raw_properties)
 
         def first(*names: str) -> Any:
+            if typed_properties:
+                return next((props.get(name) for name in names if props.get(name) is not None), None)
             return next((asset.get(name, props.get(name)) for name in names if asset.get(name, props.get(name)) is not None), None)
 
         power = number(first("power_kw", "actual_power_kw"))
@@ -46,12 +72,13 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
             "min_power_kw": number(first("min_power_kw", "minimum_power_kw")),
             "max_power_kw": number(first("max_power_kw", "maximum_power_kw")),
             "minimum_runtime_minutes": number(first("minimum_runtime_minutes", "min_runtime_minutes")),
-            "operating_state": operating_state or ("running" if power is not None and abs(power) > 0.05 else "idle" if power is not None else None),
+            "operating_state": operating_state,
             "availability_state": first("availability_state", "availability") or "AVAILABLE",
             "target_soc_pct": number(first("target_soc_pct")),
             "current_soc_pct": number(first("soc_pct", "current_soc_pct")),
             "deadline": first("deadline", "target_time", "departure_time"),
             "command_refs": command_refs,
+            "source_property_resolution": property_evidence,
         }
         useful = ("power_kw", "energy_to_target_kwh", "requested_power_kw", "current_soc_pct", "target_soc_pct", "deadline")
         if any(normalized.get(key) is not None for key in useful) or command_refs or normalized.get("operating_state") is not None:

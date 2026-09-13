@@ -1,4 +1,4 @@
-"""Canonical Energy services and R1.84.2 script-service compatibility aliases."""
+"""Canonical Energy services and R1.89.45 script-service compatibility aliases."""
 from __future__ import annotations
 
 from typing import Any

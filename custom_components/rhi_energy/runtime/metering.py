@@ -21,6 +21,7 @@ PERSIST_DEBOUNCE_SECONDS = 10
 def _period_keys(now: datetime) -> dict[str, str]:
     iso = now.isocalendar()
     return {
+        "hour": now.strftime("%Y-%m-%dT%H"),
         "today": now.strftime("%Y-%m-%d"),
         "week": f"{iso.year}-W{iso.week:02d}",
         "month": now.strftime("%Y-%m"),
@@ -29,6 +30,8 @@ def _period_keys(now: datetime) -> dict[str, str]:
 
 
 def _period_start(now: datetime, period_id: str) -> datetime:
+    if period_id == "hour":
+        return now.replace(minute=0, second=0, microsecond=0)
     if period_id == "today":
         return now.replace(hour=0, minute=0, second=0, microsecond=0)
     if period_id == "week":
@@ -71,6 +74,12 @@ def _new_period(period_key: str) -> dict[str, Any]:
         "flexible_assets_kwh": {},
         "field_quality": {field: "UNKNOWN" for field in fields},
         "field_coverage_seconds": {field: 0 for field in fields},
+        "financial_quality": {
+            "import_cost_eur": "UNKNOWN",
+            "export_revenue_eur": "UNKNOWN",
+        },
+        "import_cost_eur": None,
+        "export_revenue_eur": None,
         "baseline_reset_at": None,
         "gap_count": 0,
         **{field: None for field in fields},
@@ -119,6 +128,7 @@ class EnergyMetering:
         state.setdefault("last_update", None)
         state.setdefault("last_powers", {})
         state.setdefault("last_flexible_powers", {})
+        state.setdefault("last_financial_rates", {})
         state.setdefault("baseload_profile", {})
         state.setdefault("baseload_last_sample_bucket", None)
         keys = _period_keys(now)
@@ -131,6 +141,12 @@ class EnergyMetering:
                 row.setdefault("flexible_assets_kwh", {})
                 row.setdefault("field_quality", {field: "UNKNOWN" for field in self.FIELDS})
                 row.setdefault("field_coverage_seconds", {field: 0 for field in self.FIELDS})
+                row.setdefault(
+                    "financial_quality",
+                    {"import_cost_eur": "UNKNOWN", "export_revenue_eur": "UNKNOWN"},
+                )
+                row.setdefault("import_cost_eur", None)
+                row.setdefault("export_revenue_eur", None)
                 row.setdefault("baseline_reset_at", None)
                 row.setdefault("gap_count", 0)
                 for field in self.FIELDS:
@@ -149,7 +165,50 @@ class EnergyMetering:
         coverage[field] = int(coverage.get(field, 0)) + int(max(0, seconds))
 
     @staticmethod
-    def _mark_gap(row: dict[str, Any], last: dict[str, Any], now: datetime) -> None:
+    def _accumulate_financial(
+        row: dict[str, Any], field: str, rate_eur_h: float, hours: float
+    ) -> None:
+        current = row.get(field)
+        row[field] = round(
+            (float(current) if current is not None else 0.0)
+            + float(rate_eur_h) * hours,
+            6,
+        )
+        quality = row.setdefault("financial_quality", {})
+        quality[field] = _sticky_field_quality(quality.get(field), observed=True)
+
+    def _financial_rates(self, facts: dict[str, Any]) -> dict[str, float | None]:
+        from ..compat_core import by_key, number, pricing_properties
+
+        prices = by_key(pricing_properties(facts, self.store.data.get("settings") or {}))
+        import_price = number(
+            (prices.get("pricing.import_price_current_eur_kwh") or {}).get("value")
+        )
+        export_price = number(
+            (prices.get("pricing.export_price_current_eur_kwh") or {}).get("value")
+        )
+        grid_import = number(facts.get("grid_import.power_kw"))
+        grid_export = number(facts.get("grid_export.power_kw"))
+        return {
+            "import_cost_eur": (
+                grid_import * import_price
+                if grid_import is not None and import_price is not None
+                else None
+            ),
+            "export_revenue_eur": (
+                grid_export * export_price
+                if grid_export is not None and export_price is not None
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _mark_gap(
+        row: dict[str, Any],
+        last: dict[str, Any],
+        now: datetime,
+        last_financial: dict[str, Any] | None = None,
+    ) -> None:
         qualities = row.setdefault("field_quality", {})
         had_evidence = False
         for field in EnergyMetering.FIELDS:
@@ -160,6 +219,12 @@ class EnergyMetering:
             row["gap_count"] = int(row.get("gap_count") or 0) + 1
             row["gap_detected_at"] = now.isoformat()
         row["quality"] = _overall_quality(row, EnergyMetering.FIELDS)
+        financial_quality = row.setdefault("financial_quality", {})
+        for field in ("import_cost_eur", "export_revenue_eur"):
+            observed = isinstance((last_financial or {}).get(field), (int, float)) or row.get(field) is not None
+            financial_quality[field] = _sticky_field_quality(
+                financial_quality.get(field), observed=observed, gap=True
+            )
 
     @staticmethod
     def _effective_start(row: dict[str, Any], natural_start: datetime, prev: datetime) -> datetime:
@@ -240,6 +305,7 @@ class EnergyMetering:
         last_at = state.get("last_update")
         last = state.get("last_powers") or {}
         last_flexible = state.get("last_flexible_powers") or {}
+        last_financial = state.get("last_financial_rates") or {}
         try:
             prev = datetime.fromisoformat(last_at) if last_at else None
         except (TypeError, ValueError):
@@ -261,15 +327,20 @@ class EnergyMetering:
                     if isinstance(kw, (int, float)):
                         per = row.setdefault("flexible_assets_kwh", {})
                         per[asset_id] = round(float(per.get(asset_id) or 0.0) + max(0.0, float(kw)) * hours, 6)
+                for field in ("import_cost_eur", "export_revenue_eur"):
+                    rate = last_financial.get(field)
+                    if isinstance(rate, (int, float)):
+                        self._accumulate_financial(row, field, float(rate), hours)
                 row["quality"] = _overall_quality(row, self.FIELDS)
         elif prev is not None and dt > 300:
             for row in state["periods"].values():
-                self._mark_gap(row, last, now)
+                self._mark_gap(row, last, now, last_financial)
 
         self._learn_baseload(now, facts, flexible_total)
         state["last_update"] = now.isoformat()
         state["last_powers"] = current
         state["last_flexible_powers"] = flexible_powers
+        state["last_financial_rates"] = self._financial_rates(facts)
         self._notify()
         self._schedule_save()
 
@@ -284,6 +355,12 @@ class EnergyMetering:
         row["flexible_assets_kwh"] = {}
         row["field_quality"] = {field: "UNKNOWN" for field in self.FIELDS}
         row["field_coverage_seconds"] = {field: 0 for field in self.FIELDS}
+        row["financial_quality"] = {
+            "import_cost_eur": "UNKNOWN",
+            "export_revenue_eur": "UNKNOWN",
+        }
+        row["import_cost_eur"] = None
+        row["export_revenue_eur"] = None
         row["quality"] = "UNKNOWN"
         row["baseline_reset_at"] = now.isoformat()
         row["gap_count"] = 0

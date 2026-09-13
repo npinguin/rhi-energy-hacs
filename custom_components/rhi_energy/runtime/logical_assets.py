@@ -14,6 +14,7 @@ from typing import Any
 try:
     from ..models import LogicalAsset, LogicalProperty
     from ..semantic import OBJECT_CLASS_LABELS, object_fact_key, property_definitions
+    from .resolution import compatibility_availability, resolve_property
 except ImportError:  # direct runpy tests
     from pathlib import Path as _Path
     import runpy as _runpy
@@ -22,6 +23,9 @@ except ImportError:  # direct runpy tests
     OBJECT_CLASS_LABELS = _semantic["OBJECT_CLASS_LABELS"]
     object_fact_key = _semantic["object_fact_key"]
     property_definitions = _semantic["property_definitions"]
+    _resolution = _runpy.run_path(str(_root / "runtime" / "resolution.py"))
+    compatibility_availability = _resolution["compatibility_availability"]
+    resolve_property = _resolution["resolve_property"]
     LogicalAsset = dict  # type: ignore[assignment,misc]
     LogicalProperty = dict  # type: ignore[assignment,misc]
 
@@ -394,8 +398,14 @@ def apply_runtime_values(
         for prop in asset.get("properties") or []:
             value = flexible.get(prop.get("property_key")) if flexible is not None else facts.get(prop.get("fact_key")) if prop.get("fact_key") else None
             prop["value"] = value
-            prop["availability"] = "AVAILABLE" if value is not None else "UNAVAILABLE"
-            if value is not None:
+            resolution = resolve_property(
+                prop,
+                value,
+                value_revision=int(asset.get("value_revision") or 1),
+            )
+            prop["resolution"] = resolution
+            prop["availability"] = compatibility_availability(resolution)
+            if resolution["status"] == "RESOLVED":
                 available += 1
                 if asset.get("runtime_truth"):
                     prop["status"] = "NORMALIZED"

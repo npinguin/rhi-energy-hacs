@@ -1,4 +1,4 @@
-"""RHI Energy V2 sensors: public Energy contract plus Baseline 1.7.0 observability."""
+"""RHI Energy V2 sensors: public Energy contract plus Baseline 1.7.1 observability."""
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -11,6 +11,8 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import (
     DOMAIN,
+    FOUNDATION_MIN_RELEASE,
+    LEGACY_DIAGNOSTIC_ENTITIES,
     LEGACY_PUBLIC_ENTITIES,
     RELEASE,
     RELEASE_NAME,
@@ -28,7 +30,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     runtime = state["runtime"]
     projector = state["public_projector"]
     entities: list[SensorEntity] = [
-        *(LegacyPublicContractSensor(entry, projector, eid.split(".", 1)[1]) for eid in LEGACY_PUBLIC_ENTITIES),
+        *(LegacyPublicContractSensor(entry, projector, eid.split(".", 1)[1]) for eid in (*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES)),
+        EnergyPublicV2Sensor(entry, projector),
         EnergyBatteryMetricSensor(entry, runtime, "power_kw"),
         EnergyBatteryMetricSensor(entry, runtime, "soc_pct"),
         EnergyBatteryMetricSensor(entry, runtime, "capacity_kwh"),
@@ -82,6 +85,40 @@ class LegacyPublicContractSensor(_EnergySensor):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
         self.async_on_remove(self._projector.add_callback(self._object_id, self.async_write_ha_state))
+
+
+class EnergyPublicV2Sensor(_EnergySensor):
+    """Single canonical object graph; legacy entities are a facade over this payload."""
+
+    _attr_name = "RHI Energy Public Contract V2"
+    _attr_suggested_object_id = "rhi_energy_public_contract_v2"
+    _attr_unique_id = "rhi_energy:public:contract:v2"
+
+    def __init__(self, entry: ConfigEntry, projector) -> None:
+        super().__init__(entry)
+        self._projector = projector
+
+    @property
+    def native_value(self):
+        return self._projector.get_v2().get("health") or "UNKNOWN"
+
+    @property
+    def extra_state_attributes(self):
+        contract = self._projector.get_v2()
+        return {
+            "contract_version": contract.get("contract_version"),
+            "release": contract.get("release"),
+            "compiled_model_revision": contract.get("compiled_model_revision"),
+            "summary": contract.get("summary") or {},
+            "objects": contract.get("objects") or [],
+            "relationships": contract.get("relationships") or [],
+            "planning": contract.get("planning") or {},
+            "intelligence": contract.get("intelligence") or {},
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(self._projector.add_v2_callback(self.async_write_ha_state))
 
 
 class _RuntimeSensor(_EnergySensor):
@@ -157,7 +194,7 @@ class EnergyReleaseSensor(_DiagnosticSensor):
             "shared_baseline_id": SHARED_BASELINE_ID,
             "shared_baseline_version": SHARED_BASELINE_VERSION,
             "shared_baseline_checksum": SHARED_BASELINE_CHECKSUM,
-            "foundation_target": "F1.6.0",
+            "foundation_target": FOUNDATION_MIN_RELEASE,
             "release_decision": "PILOT_CANDIDATE" if not target_complete else "PILOT_READY",
             "reason": "target_home_assistant_runtime_proof_pending" if not target_complete else "target_home_assistant_lifecycle_evidence_complete",
             "known_accepted_technical_debt": 0,
@@ -371,7 +408,7 @@ class EnergyLogicalEntityManager:
         if self._remove_manager is None:
             self._remove_manager = self._manager.add_callback(self._sync)
         if self._remove_runtime is None:
-            self._remove_runtime = self._runtime.add_callback(self._sync)
+            self._remove_runtime = self._runtime.add_topology_callback(self._sync)
         self._sync()
 
     def _sync(self) -> None:

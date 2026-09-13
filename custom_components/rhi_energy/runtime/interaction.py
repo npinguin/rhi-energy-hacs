@@ -213,7 +213,7 @@ class EnergyInteractionEngine:
                     result.update(status="CONFIRMED", reason="persisted_strategy_intent", readback_value=normalized)
         elif property_id in {"metering.selected_period_id", "metering.selected_period"}:
             normalized = str(value).lower()
-            if normalized not in {"today", "week", "month", "year"}:
+            if normalized not in {"hour", "today", "week", "month", "year"}:
                 result["reason"] = "invalid_period"
             else:
                 settings["metering_selected_period"] = normalized

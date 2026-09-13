@@ -1,0 +1,112 @@
+"""Canonical Energy public contract V2 and the V1 compatibility boundary."""
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import UTC, datetime
+from typing import Any
+
+try:
+    from .const import RELEASE
+except ImportError:  # direct runpy tests
+    from pathlib import Path as _Path
+    import runpy as _runpy
+
+    RELEASE = _runpy.run_path(str(_Path(__file__).resolve().parent / "const.py"))["RELEASE"]
+
+PUBLIC_CONTRACT_V2 = "2.0.0"
+
+
+def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for asset in snapshot.get("logical_assets") or []:
+        source = str(asset.get("parent_asset_id") or "")
+        target = str(asset.get("asset_id") or "")
+        if source and target:
+            relationship_id = f"energy:{source}:contains:{target}"
+            rows[relationship_id] = {
+                "relationship_id": relationship_id,
+                "source_asset_id": source,
+                "target_asset_id": target,
+                "relationship_type": "contains",
+                "source_domain": "energy",
+            }
+    for index, relation in enumerate(snapshot.get("connections") or []):
+        if not isinstance(relation, dict):
+            continue
+        source = relation.get("source_asset_id") or relation.get("from_asset_id") or relation.get("source")
+        target = relation.get("target_asset_id") or relation.get("to_asset_id") or relation.get("target")
+        if not source or not target:
+            continue
+        relationship_id = str(relation.get("relationship_id") or f"external:{index}:{source}:{target}")
+        rows[relationship_id] = {
+            "relationship_id": relationship_id,
+            "source_asset_id": str(source),
+            "target_asset_id": str(target),
+            "relationship_type": str(relation.get("relationship_type") or relation.get("type") or "connected_to"),
+            "source_domain": str(relation.get("source_domain") or "external"),
+        }
+    return [rows[key] for key in sorted(rows)]
+
+
+def build_public_contract_v2(
+    snapshot: dict[str, Any],
+    store_data: dict[str, Any],
+    command_rows: list[dict[str, Any]],
+    model: dict[str, Any],
+) -> dict[str, Any]:
+    """Build one object-centric contract from resolved runtime truth.
+
+    ``_compatibility`` is an internal lossless envelope used only by the V1 facade.
+    It is stripped from the published V2 payload and prevents the facade from reading
+    mutable runtime state through a second path.
+    """
+    source = deepcopy(snapshot)
+    source["settings"] = deepcopy(store_data.get("settings") or {})
+    concepts = model.get("concepts") or {}
+    source["battery_reserve_write_supported"] = bool(
+        (concepts.get("battery_system") or {}).get("reserve_binding")
+    )
+    objects = deepcopy(source.get("logical_assets") or [])
+    unresolved = sum(
+        1
+        for asset in objects
+        for prop in asset.get("properties") or []
+        if (prop.get("resolution") or {}).get("status") != "RESOLVED"
+    )
+    return {
+        "kind": "rhi_energy_public_contract",
+        "contract_version": PUBLIC_CONTRACT_V2,
+        "domain_id": "energy",
+        "release": RELEASE,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "compiled_model_revision": model.get("compiled_model_revision"),
+        "health": source.get("health") or "UNKNOWN",
+        "objects": objects,
+        "relationships": _relationships(source),
+        "planning": deepcopy(source.get("plan") or {}),
+        "intelligence": deepcopy(source.get("intelligence") or {}),
+        "overview": deepcopy(source.get("overview") or {}),
+        "commands": deepcopy(command_rows),
+        "summary": {
+            "object_count": len(objects),
+            "property_count": sum(len(asset.get("properties") or []) for asset in objects),
+            "unresolved_property_count": unresolved,
+            "relationship_count": len(_relationships(source)),
+        },
+        "_compatibility": source,
+    }
+
+
+def published_v2(contract: dict[str, Any]) -> dict[str, Any]:
+    """Return the public payload without the private V1 reconstruction envelope."""
+    return {key: deepcopy(value) for key, value in contract.items() if key != "_compatibility"}
+
+
+def compatibility_snapshot(contract: dict[str, Any]) -> dict[str, Any]:
+    """Return the exact V1 source snapshot carried by one immutable V2 decision."""
+    if contract.get("kind") != "rhi_energy_public_contract" or contract.get("contract_version") != PUBLIC_CONTRACT_V2:
+        raise ValueError("unsupported_energy_public_contract")
+    source = contract.get("_compatibility")
+    if not isinstance(source, dict):
+        raise ValueError("energy_v2_compatibility_envelope_missing")
+    return deepcopy(source)

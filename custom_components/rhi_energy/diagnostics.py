@@ -4,10 +4,15 @@ from __future__ import annotations
 from copy import deepcopy
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     DOMAIN,
+    FOUNDATION_MIN_RELEASE,
+    LEGACY_BACKEND_RELEASE,
     LEGACY_CONTRACT_VERSION,
+    LEGACY_DIAGNOSTIC_ENTITIES,
+    LEGACY_PUBLIC_ENTITIES,
     RELEASE,
     RELEASE_NAME,
     SHARED_BASELINE_CHECKSUM,
@@ -131,6 +136,7 @@ def _logical_asset_row(asset):
             "current_entity_id": prop.get("current_entity_id"),
             "unique_id": prop.get("unique_id"),
             "issues": [str(v) for v in (prop.get("issues") or [])][:8],
+            "resolution": deepcopy(prop.get("resolution") or {}),
         })
     return {
         "asset_id": asset.get("asset_id"),
@@ -166,6 +172,24 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     evidence = store_data.get("pilot_evidence", {})
     periods = metering.get("periods") or {}
     specifications = tuple(provider.iter_specifications()) if provider else ()
+    registry = er.async_get(hass)
+    public_surface = []
+    compatibility_entities = (*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES)
+    for entity_id in compatibility_entities:
+        registry_entry = registry.async_get(entity_id)
+        public_surface.append(
+            {
+                "expected_entity_id": entity_id,
+                "registered": registry_entry is not None,
+                "platform": getattr(registry_entry, "platform", None),
+                "owned_by_energy": (
+                    getattr(registry_entry, "platform", None) == DOMAIN
+                    if registry_entry is not None
+                    else False
+                ),
+                "live_state_present": hass.states.get(entity_id) is not None,
+            }
+        )
 
     selected_registry = hass.data.get("rhi_selected_domain_build_input_registry", {}) or {}
     selected_entry = selected_registry.get("energy") if isinstance(selected_registry, dict) else None
@@ -177,17 +201,40 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "release_name": RELEASE_NAME,
             "shared_baseline_version": SHARED_BASELINE_VERSION,
             "shared_baseline_checksum": SHARED_BASELINE_CHECKSUM,
-            "foundation_target": "F1.6.0",
+            "foundation_min_release": FOUNDATION_MIN_RELEASE,
+            "compatibility_backend_release": LEGACY_BACKEND_RELEASE,
             "public_contract": LEGACY_CONTRACT_VERSION,
             "known_accepted_technical_debt": 0,
         },
+        "supervision": (state.get("supervision").snapshot() if state.get("supervision") else None),
         "health": {
+            "foundation_supervisory_contract": "RHI_DOMAIN_SUPERVISORY_STATUS_V1",
             "foundation_status": getattr(manager, "foundation_status", None),
             "configuration_status": getattr(manager, "configuration_status", None),
             "build_health": getattr(manager, "build_health", None),
             "runtime_health": snap.get("health"),
             "reason": getattr(manager, "reason", None),
             "last_success": getattr(manager, "last_success", None),
+            "contract_alignment": {
+                "shared_baseline": SHARED_BASELINE_VERSION,
+                "foundation_min_release": FOUNDATION_MIN_RELEASE,
+                "selected_input_contracts": sorted({
+                    str(item.get("contract_version"))
+                    for item in selected_inputs
+                    if isinstance(item, dict) and item.get("contract_version")
+                }),
+            },
+        },
+        "public_surface": {
+            "expected_entity_count": len(compatibility_entities),
+            "product_entity_count": len(LEGACY_PUBLIC_ENTITIES),
+            "diagnostic_entity_count": len(LEGACY_DIAGNOSTIC_ENTITIES),
+            "expected_entity_ids": list(compatibility_entities),
+            "registered_entity_count": sum(row["registered"] for row in public_surface),
+            "owned_entity_count": sum(row["owned_by_energy"] for row in public_surface),
+            "live_state_count": sum(row["live_state_present"] for row in public_surface),
+            "takeover": deepcopy(state.get("migration") or {}),
+            "entities": public_surface,
         },
         "configuration": {
             "configuration_status": getattr(manager, "configuration_status", None),
@@ -254,6 +301,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
                 }
             },
             "flexible_asset_count": len(snap.get("flexible_assets") or []),
+            "connection_asset_count": len(snap.get("connections") or []),
+            "producer_publication_availability": deepcopy(snap.get("producer_publication_availability") or {}),
+            "producer_publication_metadata": deepcopy(snap.get("producer_publication_metadata") or {}),
             "metering": {
                 "last_update": metering.get("last_update"),
                 "baseload_last_sample_bucket": metering.get("baseload_last_sample_bucket"),

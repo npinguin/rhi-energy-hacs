@@ -106,7 +106,7 @@ def _canonicalize_and_validate(specification: dict[str, Any]) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class EnergyBuildSpecificationProvider:
-    """Bounded immutable Shared Baseline 1.7.0 provider consumed by Foundation."""
+    """Bounded immutable Shared Baseline 1.8.1 provider consumed by Foundation."""
 
     specifications: tuple[dict[str, Any], ...]
     publisher_domain: str = DOMAIN

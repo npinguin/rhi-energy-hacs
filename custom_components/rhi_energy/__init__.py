@@ -1,4 +1,4 @@
-"""Robotix Home Intelligence Energy V2 integration — Shared Baseline 1.7.0."""
+"""Robotix Home Intelligence Energy V2 integration — Shared Baseline 1.8.1."""
 from __future__ import annotations
 
 import logging
@@ -8,7 +8,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .builders.build_manager import EnergyBuildManager
-from .const import DOMAIN, PLATFORMS, RELEASE
+from .const import (
+    DOMAIN,
+    FOUNDATION_MIN_RELEASE,
+    PLATFORMS,
+    RELEASE,
+    SHARED_BASELINE_VERSION,
+)
 from .runtime.interaction import EnergyInteractionEngine
 from .runtime.metering import EnergyMetering
 from .migration import async_prepare_legacy_entity_takeover
@@ -17,19 +23,48 @@ from .contracts.publication import EnergyBuildSpecificationProvider
 from .runtime.engine import EnergyRuntime
 from .services import async_register_services, async_unregister_services
 from .runtime.storage import EnergyStore
+from .supervision import (
+    EnergyDomainSupervision,
+    register_domain_supervision,
+    unregister_domain_supervision,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _PUBLICATION_STATE_KEY = "__domain_build_specification_publication__"
 
 
+def _release_version(value: str) -> tuple[int, int, int]:
+    try:
+        parts = str(value).removeprefix("F").split(".")
+        major, minor, patch = parts
+        return int(major), int(minor), int(patch)
+    except (TypeError, ValueError):
+        return (-1, -1, -1)
+
+
 def _shared_registry_api():
     try:
+        from custom_components.rhi_foundation.const import (
+            RELEASE as foundation_release,
+            SHARED_BASELINE_VERSION as foundation_baseline,
+        )
         from custom_components.rhi_foundation.shared_registry import (
             register_domain_build_specification_provider,
             unregister_domain_build_specification_provider,
         )
     except Exception as exc:  # Foundation owns the shared registry implementation.
         raise ConfigEntryNotReady(f"foundation_shared_registry_api_unavailable:{type(exc).__name__}") from exc
+    if (
+        foundation_baseline != SHARED_BASELINE_VERSION
+        or _release_version(foundation_release) < _release_version(FOUNDATION_MIN_RELEASE)
+    ):
+        raise ConfigEntryNotReady(
+            "foundation_contract_incompatible:"
+            f"required_release={FOUNDATION_MIN_RELEASE}:"
+            f"required_baseline={SHARED_BASELINE_VERSION}:"
+            f"loaded_release={foundation_release}:"
+            f"loaded_baseline={foundation_baseline}"
+        )
     return register_domain_build_specification_provider, unregister_domain_build_specification_provider
 
 
@@ -82,17 +117,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     metering = EnergyMetering(hass, store, runtime)
     interaction = EnergyInteractionEngine(hass, store, runtime, metering, manager)
     projector = PublicContractProjector(runtime, store, metering, interaction, manager)
+    supervision = EnergyDomainSupervision(hass, entry.entry_id)
     services = None
     manager.add_model_callback(runtime.activate_model)
     try:
         services = await async_register_services(hass, interaction, manager)
-        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        state = {
             "provider": provider, "store": store, "build_manager": manager, "runtime": runtime,
             "metering": metering, "interaction": interaction, "public_projector": projector,
-            "services": services, "migration": migration,
+            "services": services, "migration": migration, "supervision": supervision,
             "execution_model": "compiled_model_direct_source_listeners",
-            "shared_baseline_version": "1.7.0",
+            "shared_baseline_version": SHARED_BASELINE_VERSION,
         }
+        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
+        register_domain_supervision(hass, supervision)
         await manager.async_start()
         runtime.activate_model(manager.compiled_model)
         await metering.async_start()
@@ -107,6 +145,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await runtime.async_stop()
         await manager.async_stop()
         await async_unregister_services(hass, services)
+        unregister_domain_supervision(hass, supervision)
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         # Do not unregister the DomainBuildSpecification provider here. Publication
         # is an independent configuration-time contract and remains available so
@@ -121,6 +160,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not unloaded:
         return False
     state = hass.data.get(DOMAIN, {}).pop(entry.entry_id, {})
+    supervision = state.get("supervision")
+    if isinstance(supervision, EnergyDomainSupervision):
+        unregister_domain_supervision(hass, supervision)
     for key in ("entity_projection", "public_projector", "interaction", "metering", "runtime", "build_manager"):
         obj = state.get(key)
         if obj is not None and hasattr(obj, "async_stop"):

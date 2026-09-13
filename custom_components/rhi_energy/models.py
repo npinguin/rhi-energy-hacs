@@ -6,7 +6,22 @@ plain mappings at their boundaries.
 """
 from __future__ import annotations
 
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
+
+
+ResolutionStatus = Literal["RESOLVED", "UNAVAILABLE", "UNRESOLVED", "INVALID"]
+ResolutionQuality = Literal["AUTHORITATIVE", "DERIVED", "FALLBACK", "NOT_ASSESSED"]
+
+
+class PropertyResolution(TypedDict):
+    """One explicit, inspectable decision for a logical Energy property."""
+
+    status: ResolutionStatus
+    quality: ResolutionQuality
+    reason_code: str
+    binding_ids: list[str]
+    provenance: list[dict[str, Any]]
+    value_revision: int
 
 
 class SourceIdentity(TypedDict, total=False):
@@ -66,6 +81,7 @@ class LogicalProperty(TypedDict, total=False):
     unique_id: str
     target_scope: str
     platform: str
+    resolution: PropertyResolution
 
 
 class LogicalAsset(TypedDict, total=False):

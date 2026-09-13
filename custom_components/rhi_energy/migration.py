@@ -32,8 +32,6 @@ async def async_prepare_legacy_entity_takeover(hass: HomeAssistant) -> dict[str,
             continue
         platform = str(getattr(reg_entry, "platform", "") or "")
         if platform == DOMAIN:
-            # These historical engineering entities are intentionally no longer
-            # re-created in Baseline 1.7.0; cleanup happens by unique id below.
             already_owned += 1
             continue
         if platform != "template":
@@ -45,7 +43,7 @@ async def async_prepare_legacy_entity_takeover(hass: HomeAssistant) -> dict[str,
         _LOGGER.info("Removed stale legacy Template registry row for compatibility takeover: %s", entity_id)
         removed += 1
 
-    # Baseline 1.7.0 replaces implementation-specific monitoring with four shared roles.
+    # Shared monitoring replaces implementation-specific monitoring unique IDs.
     for unique_id in OLD_MONITORING_UNIQUE_IDS:
         entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
         if entity_id:
@@ -53,14 +51,13 @@ async def async_prepare_legacy_entity_takeover(hass: HomeAssistant) -> dict[str,
             removed_obsolete_monitoring += 1
             _LOGGER.info("Removed obsolete Energy monitoring entity: %s", entity_id)
 
-    # Historical diagnostic compatibility entities and pilot-readiness are engineering
-    # monitoring, not the 24 public Energy product interfaces. Remove RHI-owned rows.
-    for entity_id in (*LEGACY_DIAGNOSTIC_ENTITIES, COMPAT_READINESS_ENTITY):
-        reg_entry = registry.async_get(entity_id)
-        if reg_entry is not None and str(getattr(reg_entry, "platform", "") or "") == DOMAIN:
-            registry.async_remove(entity_id)
-            removed_obsolete_monitoring += 1
-            _LOGGER.info("Removed obsolete Energy diagnostic entity: %s", entity_id)
+    # Pilot-readiness is obsolete internal monitoring. The five historical
+    # diagnostic entities remain a deliberate V1 compatibility facade.
+    reg_entry = registry.async_get(COMPAT_READINESS_ENTITY)
+    if reg_entry is not None and str(getattr(reg_entry, "platform", "") or "") == DOMAIN:
+        registry.async_remove(COMPAT_READINESS_ENTITY)
+        removed_obsolete_monitoring += 1
+        _LOGGER.info("Removed obsolete Energy pilot-readiness entity: %s", COMPAT_READINESS_ENTITY)
 
     return {
         "removed_stale_template_registry_entries": removed,
