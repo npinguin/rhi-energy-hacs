@@ -336,31 +336,52 @@ def strategy_properties(settings: dict[str, Any]) -> list[dict[str, Any]]:
 
 def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]]:
     cfg = settings.get("pricing") or {}
-    spot_live = number(facts.get("pricing.spot_eur_kwh"))
+    import_live = number(facts.get("pricing.import_price_current_eur_kwh"))
+    if import_live is None:
+        import_live = number(facts.get("pricing.spot_eur_kwh"))
     spot_fallback = number(cfg.get("spot_fallback_eur_kwh"))
-    spot = spot_live if spot_live is not None else spot_fallback
-    spot_av = AVAILABLE if spot is not None else CONFIGURATION_REQUIRED
+    import_market = import_live if import_live is not None else spot_fallback
+    import_market_av = AVAILABLE if import_market is not None else CONFIGURATION_REQUIRED
+
+    export_live = number(facts.get("pricing.export_price_current_eur_kwh"))
+    if export_live is None:
+        export_live = number(facts.get("pricing.export_spot_eur_kwh"))
+    export_market_av = AVAILABLE if export_live is not None else UNAVAILABLE
+
     network = number(cfg.get("import_network_eur_kwh"))
     levies = number(cfg.get("import_levies_eur_kwh"))
     vat = number(cfg.get("import_vat_pct"))
     export_fee = number(cfg.get("export_fee_eur_kwh"))
-    base_complete = all(v is not None for v in (spot, network, levies, vat))
-    import_price = round((spot + network + levies) * (1 + vat/100), 6) if base_complete else None
-    export_spot = number(facts.get("pricing.export_spot_eur_kwh"))
-    export_base = export_spot if export_spot is not None else spot
-    export_price = round(export_base - export_fee, 6) if export_base is not None and export_fee is not None else None
+    import_effective = (
+        round((import_market + network + levies) * (1 + vat / 100), 6)
+        if all(v is not None for v in (import_market, network, levies, vat))
+        else None
+    )
+    export_effective = (
+        round(export_live - export_fee, 6)
+        if export_live is not None and export_fee is not None
+        else None
+    )
+
     rows = [
-        prop("pricing", "pricing.spot_eur_kwh", spot, "EUR/kWh", availability=spot_av, editable=spot_live is None, editor="number", operation_id="energy.pricing.set_property", constraints={"min":-1,"max":5,"step":0.001}, reason_code="LIVE_SOURCE" if spot_live is not None else "FALLBACK_REQUIRED"),
+        # R1.89.44 current import/export prices are producer-owned market truth.
+        # Optional tariff configuration augments that truth in separate effective
+        # properties; it never turns a real live market price into unavailable.
+        prop("pricing", "pricing.spot_eur_kwh", import_market, "EUR/kWh", availability=import_market_av, editable=import_live is None, editor="number", operation_id="energy.pricing.set_property", constraints={"min":-1,"max":5,"step":0.001}, reason_code="LIVE_SOURCE" if import_live is not None else "FALLBACK_REQUIRED"),
+        prop("pricing", "pricing.import_price_current_eur_kwh", import_market, "EUR/kWh", availability=import_market_av, reason_code="LIVE_SOURCE" if import_live is not None else "FALLBACK_REQUIRED"),
+        prop("pricing", "pricing.export_spot_eur_kwh", export_live, "EUR/kWh", availability=export_market_av, reason_code="LIVE_SOURCE" if export_live is not None else "EXPORT_SOURCE_UNAVAILABLE"),
+        prop("pricing", "pricing.export_price_current_eur_kwh", export_live, "EUR/kWh", availability=export_market_av, reason_code="LIVE_SOURCE" if export_live is not None else "EXPORT_SOURCE_UNAVAILABLE"),
         prop("pricing", "pricing.import_network_eur_kwh", network, "EUR/kWh", availability=AVAILABLE if network is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":2,"step":0.001}),
         prop("pricing", "pricing.import_levies_eur_kwh", levies, "EUR/kWh", availability=AVAILABLE if levies is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":2,"step":0.001}),
         prop("pricing", "pricing.import_vat_pct", vat, "%", availability=AVAILABLE if vat is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":30,"step":0.1}),
         prop("pricing", "pricing.export_fee_eur_kwh", export_fee, "EUR/kWh", availability=AVAILABLE if export_fee is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":2,"step":0.001}),
-        prop("pricing", "pricing.import_price_current_eur_kwh", import_price, "EUR/kWh", availability=AVAILABLE if import_price is not None else CONFIGURATION_REQUIRED),
-        prop("pricing", "pricing.export_price_current_eur_kwh", export_price, "EUR/kWh", availability=AVAILABLE if export_price is not None else CONFIGURATION_REQUIRED),
+        prop("pricing", "pricing.import_effective_price_eur_kwh", import_effective, "EUR/kWh", availability=AVAILABLE if import_effective is not None else CONFIGURATION_REQUIRED),
+        prop("pricing", "pricing.export_effective_price_eur_kwh", export_effective, "EUR/kWh", availability=AVAILABLE if export_effective is not None else CONFIGURATION_REQUIRED),
         prop("pricing", "pricing.future_prices", deepcopy(facts.get("pricing.future_prices")), availability=AVAILABLE if facts.get("pricing.future_prices") is not None else UNAVAILABLE),
-        prop("pricing", "pricing.currency", facts.get("pricing.currency"), availability=AVAILABLE if facts.get("pricing.currency") is not None else UNAVAILABLE),
+        prop("pricing", "pricing.currency", facts.get("pricing.currency") or ("EUR" if import_market is not None or export_live is not None else None), availability=AVAILABLE if (facts.get("pricing.currency") is not None or import_market is not None or export_live is not None) else UNAVAILABLE),
         prop("pricing", "pricing.tariff", deepcopy(facts.get("pricing.tariff")), availability=AVAILABLE if facts.get("pricing.tariff") is not None else UNAVAILABLE),
         prop("pricing", "pricing.source_id", facts.get("pricing.source_id"), availability=AVAILABLE if facts.get("pricing.source_id") is not None else UNAVAILABLE),
+        prop("pricing", "pricing.export_source_id", facts.get("pricing.export_source_id"), availability=AVAILABLE if facts.get("pricing.export_source_id") is not None else UNAVAILABLE),
         prop("pricing", "pricing.source_integration", facts.get("pricing.source_integration"), availability=AVAILABLE if facts.get("pricing.source_integration") is not None else UNAVAILABLE),
     ]
     return rows

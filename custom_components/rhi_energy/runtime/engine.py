@@ -426,7 +426,7 @@ class EnergyRuntime:
         if len(import_rows) == 1:
             row = import_rows[0]
             prop = _properties(row).get("pricing.spot_eur_kwh") or {}
-            facts["pricing.spot_eur_kwh"] = facts.get(prop.get("fact_key"))
+            facts.update({"pricing.import_price_current_eur_kwh": facts.get(prop.get("fact_key")), "pricing.spot_eur_kwh": facts.get(prop.get("fact_key"))})
             facts["price_source.source_id"] = row.get("asset_id")
             facts["price_source.source_integration"] = row.get("integration_domain")
         elif len(import_rows) > 1:
@@ -434,7 +434,7 @@ class EnergyRuntime:
         if len(export_rows) == 1:
             row = export_rows[0]
             prop = _properties(row).get("pricing.spot_eur_kwh") or {}
-            facts["pricing.export_spot_eur_kwh"] = facts.get(prop.get("fact_key"))
+            facts.update({"pricing.export_price_current_eur_kwh": facts.get(prop.get("fact_key")), "pricing.export_spot_eur_kwh": facts.get(prop.get("fact_key"))})
             facts["pricing.export_source_id"] = row.get("asset_id")
         elif len(export_rows) > 1:
             issues.append("price_source:multiple_export_sources:selection_required")

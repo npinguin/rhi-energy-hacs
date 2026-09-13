@@ -144,6 +144,8 @@ def _fact_rows(snapshot: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
         prop("forecast", "forecast.solar_power_kw", number(f.get("forecast.solar_power_kw")), "kW"),
         prop("forecast", "forecast.solar_today_kwh", number(f.get("forecast.solar_today_kwh")), "kWh"),
         prop("forecast", "forecast.solar_remaining_today_kwh", number(f.get("forecast.solar_remaining_today_kwh")), "kWh"),
+        prop("forecast", "forecast.solar_current_hour_kwh", number(f.get("forecast.solar_current_hour_kwh")), "kWh"),
+        prop("forecast", "forecast.solar_next_hour_kwh", number(f.get("forecast.solar_next_hour_kwh")), "kWh"),
         prop("forecast", "forecast.solar_tomorrow_kwh", number(f.get("forecast.solar_tomorrow_kwh")), "kWh"),
         prop("forecast", "forecast.peak_time", f.get("forecast.peak_time"), availability=AVAILABLE if f.get("forecast.peak_time") is not None else UNAVAILABLE),
     ]
@@ -171,8 +173,11 @@ def _metering_projection(store_data: dict[str, Any]) -> tuple[str, dict[str, Any
         prop("metering","metering.selected_period",selected,editable=True,editor="select",constraints={"allowed":["hour","today","week","month","year"]},choices=period_choices,operation_id="energy.metering.set_period"),
         prop("metering","metering.selected_period_id",selected,editable=True,editor="select",constraints={"allowed":["hour","today","week","month","year"]},choices=period_choices,operation_id="energy.metering.set_period"),
     ]
+    field_quality = current.get("field_quality") or {}
     for key in ("solar_kwh", "grid_import_kwh", "grid_export_kwh", "consumption_kwh", "battery_charge_kwh", "battery_discharge_kwh", "flexible_load_kwh"):
-        props.append(prop("metering", f"metering.{selected}.{key}", current.get(key), "kWh", availability=status))
+        quality = str(field_quality.get(key) or status)
+        field_availability = AVAILABLE if quality == "OK" else quality
+        props.append(prop("metering", f"metering.{selected}.{key}", current.get(key), "kWh", availability=field_availability, reason_code=f"METERING_{quality}"))
     return status, {"selected_period_id": selected, "periods": rows, "periods_by_id": by_id, "selected": current}, props
 
 
@@ -412,7 +417,7 @@ def _assets(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             asset_role="logical_object",
             cluster_role="contributor_detail",
             parent_asset_id=logical.get("parent_asset_id") or parent_by_class.get(object_class),
-            show_in_primary_ux=bool(logical.get("runtime_truth")),
+            show_in_primary_ux=bool(logical.get("show_in_primary_ux", False)),
             show_in_engineering=True,
             capabilities=[str(row.get("property_key")) for row in props if isinstance(row, dict) and row.get("property_key")],
             logical_object_class=object_class,
@@ -716,9 +721,13 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     asset_meter_records=[]
     for period in meter_ctx["periods"]:
         pid=str(period.get("period_id") or "")
+        field_quality = period.get("field_quality") or {}
         for key in ("solar_kwh","grid_import_kwh","grid_export_kwh","consumption_kwh","battery_charge_kwh","battery_discharge_kwh","flexible_load_kwh"):
             value=period.get(key)
-            asset_meter_records.append({"asset_id":key.removesuffix("_kwh"),"period":pid,"property_key":f"metering.{pid}.{key}","energy_kwh":value,"measurement_state":"MEASURED" if value is not None else "PENDING","status_label":"Measured" if value is not None else "Waiting for period evidence","availability":AVAILABLE if value is not None else PENDING,"completeness":"COMPLETE" if value is not None else "INCOMPLETE","record_role":"aggregate","ux_visible":True})
+            quality=str(field_quality.get(key) or ("PENDING" if value is None else "PARTIAL"))
+            available=value is not None
+            complete=available and quality == "OK"
+            asset_meter_records.append({"asset_id":key.removesuffix("_kwh"),"period":pid,"property_key":f"metering.{pid}.{key}","energy_kwh":value,"measurement_state":"MEASURED" if available else "PENDING","status_label":"Measured" if complete else "Partial coverage" if available else "Waiting for period evidence","availability":AVAILABLE if complete else quality if available else PENDING,"completeness":"COMPLETE" if complete else "PARTIAL" if available else "INCOMPLETE","record_role":"aggregate","ux_visible":True})
         for aid,value in (period.get("flexible_assets_kwh") or {}).items():
             asset_meter_records.append({"asset_id":aid,"period":pid,"property_key":f"metering.{pid}.flexible.{aid}","energy_kwh":value,"measurement_state":"MEASURED","status_label":"Measured","availability":AVAILABLE,"completeness":"COMPLETE","record_role":"flexible_load_detail","ux_visible":True})
     selected_records=[row for row in asset_meter_records if row["period"]==selected_period]
@@ -732,7 +741,18 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     runtime_ok = runtime_health == "OK"
     audit_closed = target_proof and bool(retrospective_events)
     product_projection_ids = {f"sensor.{name}" for name in projections}
-    standard_ok = set(LEGACY_PUBLIC_ENTITIES).issubset(product_projection_ids)
+    standard_presence_ok = set(LEGACY_PUBLIC_ENTITIES).issubset(product_projection_ids)
+    healthy_states = {"AVAILABLE", "OK", "READY", "COMPLETE"}
+    standard_degraded = [
+        entity_id
+        for entity_id in LEGACY_PUBLIC_ENTITIES
+        if str((projections.get(entity_id.removeprefix("sensor.")) or {}).get("state") or "UNAVAILABLE").upper() not in healthy_states
+    ]
+    standard_state = (
+        "BLOCKED" if not standard_presence_ok
+        else "DEGRADED" if standard_degraded
+        else "OK"
+    )
     diagnostic_payloads = {
         "energy_runtime_deployment_health": (
             "OK" if runtime_ok else runtime_health,
@@ -751,8 +771,10 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
             "release_and_v1_facade_constants_are_single_source",
         ),
         "energy_home_intelligence_contract_standard_health": (
-            "OK" if standard_ok else "BLOCKED",
-            "all_product_v1_projections_present" if standard_ok else "product_v1_projection_missing",
+            standard_state,
+            "all_product_v1_projections_functional" if standard_state == "OK"
+            else "product_v1_projection_missing" if standard_state == "BLOCKED"
+            else "product_v1_projection_functionally_incomplete",
         ),
     }
     for object_id, (state_value, reason) in diagnostic_payloads.items():
@@ -765,6 +787,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
                 "health_reason": reason,
                 "source_of_truth": "canonical_v2_runtime_and_release_evidence",
                 "second_health_engine": False,
+                **({"degraded_public_entities_json": jdump(standard_degraded)} if object_id == "energy_home_intelligence_contract_standard_health" else {}),
             },
         }
     assert {f"sensor.{name}" for name in projections} == set((*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES))

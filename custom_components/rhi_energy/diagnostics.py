@@ -298,12 +298,19 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
                     "solar.power_kw", "grid.net_power_kw", "battery.power_kw",
                     "home_consumption.power_kw", "forecast.solar_today_kwh",
                     "forecast.solar_remaining_today_kwh", "pricing.spot_eur_kwh",
+                    "pricing.import_price_current_eur_kwh",
+                    "pricing.export_price_current_eur_kwh",
                 }
             },
             "flexible_asset_count": len(snap.get("flexible_assets") or []),
             "connection_asset_count": len(snap.get("connections") or []),
             "producer_publication_availability": deepcopy(snap.get("producer_publication_availability") or {}),
             "producer_publication_metadata": deepcopy(snap.get("producer_publication_metadata") or {}),
+            "runtime_issues": deepcopy(snap.get("runtime_issues") or []),
+            "public_contract_states": {
+                entity_id: (state.get("public_projector").get(entity_id.removeprefix("sensor.")) or {}).get("state")
+                for entity_id in LEGACY_PUBLIC_ENTITIES
+            } if state.get("public_projector") else {},
             "metering": {
                 "last_update": metering.get("last_update"),
                 "baseload_last_sample_bucket": metering.get("baseload_last_sample_bucket"),

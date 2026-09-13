@@ -130,13 +130,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "shared_baseline_version": SHARED_BASELINE_VERSION,
         }
         hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
-        register_domain_supervision(hass, supervision)
         await manager.async_start()
         runtime.activate_model(manager.compiled_model)
         await metering.async_start()
         await interaction.async_start()
         projector.start()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Baseline 1.8.1 supervision is structural, not telemetry-driven. Register
+        # only after Energy has a coherent initial build/runtime/public projection so
+        # Foundation never snapshots the transient pre-build state as the domain truth.
+        register_domain_supervision(hass, supervision)
     except Exception:
         _LOGGER.exception("RHI Energy setup failed")
         await projector.async_stop()

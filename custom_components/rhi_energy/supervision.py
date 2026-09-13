@@ -100,9 +100,27 @@ class EnergyDomainSupervision:
             self.hass.states.get(entity_id) is not None
             for entity_id in compatibility_entities
         )
-        compatibility_status = (
+        compatibility_presence_status = (
             "OK" if live_public_count == len(compatibility_entities) else "BLOCKED"
         )
+        projector = state.get("public_projector")
+        product_states = {}
+        if projector is not None and hasattr(projector, "get"):
+            product_states = {
+                entity_id: str(projector.get(entity_id.removeprefix("sensor.")).get("state") or "UNAVAILABLE").upper()
+                for entity_id in LEGACY_PUBLIC_ENTITIES
+            }
+        healthy_public_states = {"AVAILABLE", "OK", "READY", "COMPLETE"}
+        degraded_public_entities = sorted(
+            entity_id for entity_id, value in product_states.items()
+            if value not in healthy_public_states
+        )
+        compatibility_functional_status = (
+            compatibility_presence_status if not product_states
+            else "DEGRADED" if degraded_public_entities
+            else "OK"
+        )
+        mobility_available = bool(runtime_snapshot.get("mobility_publication_available"))
 
         issues: list[dict[str, Any]] = []
         if configuration_status != "OK":
@@ -135,11 +153,23 @@ class EnergyDomainSupervision:
                 severity="ERROR" if runtime_status in {"BLOCKED", "STALE"} else "WARNING",
                 scope=["EnergyRuntime"],
             ))
-        if compatibility_status != "OK":
+        if compatibility_presence_status != "OK":
             issues.append(_issue(
-                "energy:compatibility:v1_feature_parity", "COMPATIBILITY",
+                "energy:compatibility:v1_contract_presence", "COMPATIBILITY",
                 "V1_FEATURE_PARITY_INCOMPLETE", blocking=True,
                 severity="CRITICAL", scope=["R1.89.44_CONTRACT"],
+            ))
+        elif compatibility_functional_status != "OK":
+            issues.append(_issue(
+                "energy:compatibility:v1_feature_parity", "COMPATIBILITY",
+                "V1_FEATURE_PARITY_FUNCTIONALLY_INCOMPLETE", blocking=False,
+                severity="WARNING", scope=degraded_public_entities[:12] or ["R1.89.44_CONTRACT"],
+            ))
+        if "mobility_publication_available" in runtime_snapshot and not mobility_available:
+            issues.append(_issue(
+                "energy:dependency:mobility_publication", "DEPENDENCY",
+                "MOBILITY_PUBLICATION_UNAVAILABLE", blocking=False,
+                severity="WARNING", scope=["sensor.mobility_energy_asset_publication"],
             ))
 
         statuses = [
@@ -147,7 +177,8 @@ class EnergyDomainSupervision:
             contract_status,
             build_status,
             runtime_status,
-            compatibility_status,
+            compatibility_presence_status,
+            compatibility_functional_status,
         ]
         overall = max(statuses, key=lambda value: _PRIORITY[value])
         if all(value == "OK" for value in statuses):
