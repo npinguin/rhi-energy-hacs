@@ -108,7 +108,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    migration = await async_prepare_legacy_entity_takeover(hass)
+    migration = await async_prepare_legacy_entity_takeover(hass, entry)
     provider = _ensure_publication_provider(hass)
     store = EnergyStore(hass)
     await store.async_load()

@@ -219,6 +219,12 @@ class EnergyRuntime:
         key = str(prop.get("property_key") or "")
         kind = str(prop.get("kind") or "text")
         if key == "forecast.solar_remaining_today_kwh":
+            # Forecast.Solar exposes remaining-today as an ordinary sensor state in
+            # current HA versions. E0.12.1 looked only at optional attributes and
+            # therefore discarded two valid accepted bindings as UNAVAILABLE.
+            state_value = _unit_to_kwh(raw, unit)
+            if state_value is not None:
+                return state_value
             for name in ("remaining_today_energy", "remaining_today", "energy_remaining_today", "remaining_today_kwh"):
                 value = number(attrs.get(name))
                 if value is not None:
