@@ -27,6 +27,7 @@ from ..compat_core import (
 )
 from ..semantic import property_definitions
 from .consumer_assets import normalize_mobility_consumers
+from .event_flow import SourceEventCoalescer
 from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
 from .producers import mobility_entity_ids, read_mobility_energy_assets
@@ -108,6 +109,7 @@ class EnergyRuntime:
         self._callbacks: list[Callable[[], None]] = []
         self._topology_callbacks: list[Callable[[], None]] = []
         self._topology_signature: tuple[Any, ...] | None = None
+        self.event_flow = SourceEventCoalescer(hass, self._recompute)
 
     @staticmethod
     def _empty_snapshot() -> dict[str, Any]:
@@ -203,8 +205,8 @@ class EnergyRuntime:
         self._recompute()
 
     @callback
-    def _handle_state_change(self, _event) -> None:
-        self._recompute()
+    def _handle_state_change(self, event) -> None:
+        self.event_flow.handle(event)
 
     def _producer_assets(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, bool], dict[str, dict[str, Any]]]:
         rows, connections, attrs = read_mobility_energy_assets(self.hass)
@@ -298,7 +300,6 @@ class EnergyRuntime:
         return normalizer(key, value, context)
 
     def _populate_direct_facts(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
-        # Battery facts first: linked battery flow can correct inverter-side PV power.
         ordered = sorted(assets, key=lambda row: 0 if row.get("object_class") == "battery_unit" else 1)
         for asset in ordered:
             for prop in asset.get("properties") or []:
@@ -319,7 +320,6 @@ class EnergyRuntime:
                         asset.get("asset_id"), prop.get("property_key"), exc,
                     )
 
-        # Small derived-property set; no concept-specific source matching here.
         for asset in assets:
             props = _properties(asset)
             aid = str(asset.get("asset_id") or "")
@@ -532,6 +532,7 @@ class EnergyRuntime:
         self._notify()
 
     async def async_stop(self) -> None:
+        self.event_flow.stop()
         if callable(self._unsubscribe):
             self._unsubscribe()
         self._unsubscribe = None

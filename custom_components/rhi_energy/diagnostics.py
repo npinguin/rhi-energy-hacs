@@ -225,6 +225,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
                 }),
             },
         },
+        "event_flow": (runtime.event_flow.snapshot() if runtime and hasattr(runtime, "event_flow") else {}),
         "public_surface": {
             "expected_entity_count": len(compatibility_entities),
             "product_entity_count": len(LEGACY_PUBLIC_ENTITIES),
