@@ -1,8 +1,8 @@
 """Constants for RHI Energy V2 structural closure on Shared Baseline 1.8.1."""
 DOMAIN = "rhi_energy"
 DOMAIN_ID = "energy"
-RELEASE = "E0.12.5"
-RELEASE_NAME = "RUNTIME_BOUNDARY_HARDENING"
+RELEASE = "E0.12.6"
+RELEASE_NAME = "FOUNDATION_1_8_2_LIFECYCLE_COMPATIBILITY"
 SHARED_BASELINE_ID = "RHI_SHARED_ARCHITECTURE_BASELINE"
 SHARED_BASELINE_VERSION = "1.8.1"
 SHARED_BASELINE_CHECKSUM = "sha256:e76a3fb3539f9bc8b2b1b07976cf1372b39319b97887465669d4c452c07f7e52"
@@ -57,6 +57,8 @@ LEGACY_DIAGNOSTIC_ENTITIES = (
     "sensor.energy_home_intelligence_contract_standard_health",
 )
 HEALTH_STATES=("OK","DEGRADED","STALE","INVALID","UNKNOWN")
+# F1.8.2 is a backward-compatible Foundation implementation patch on immutable
+# Shared Baseline 1.8.1. Keep the minimum at F1.8.1 so Energy remains rollback-safe.
 FOUNDATION_MIN_RELEASE="F1.8.1"
 FOUNDATION_HANDOFF_REQUIRED_FIELDS=("source_identity","technical_capability","evidence")
 COMMAND_TIMEOUT_SECONDS=120

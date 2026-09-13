@@ -6,7 +6,7 @@ bindings, planning evidence and V1 projection details remain in Energy diagnosti
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .const import (
     DOMAIN,
@@ -235,22 +235,32 @@ class EnergyDomainSupervision:
         }
 
 
-def register_domain_supervision(hass: Any, provider: EnergyDomainSupervision) -> None:
-    """Register through Foundation-owned 1.8.1 registry mechanics."""
+def register_domain_supervision(
+    hass: Any, provider: EnergyDomainSupervision
+) -> Callable[[], None]:
+    """Register supervision and return the generation owned by this Energy load."""
     from custom_components.rhi_foundation.shared_registry import (
         register_domain_supervisory_status_provider,
     )
 
-    register_domain_supervisory_status_provider(
+    unsubscribe = register_domain_supervisory_status_provider(
         hass,
         domain_id=DOMAIN_ID,
         publisher_domain=DOMAIN,
         provider=provider,
     )
+    if callable(unsubscribe):
+        return unsubscribe
+
+    # Foundation 1.8.1 compatibility: registration returned None.
+    def _legacy_unsubscribe() -> None:
+        unregister_domain_supervision(hass, provider)
+
+    return _legacy_unsubscribe
 
 
 def unregister_domain_supervision(hass: Any, provider: EnergyDomainSupervision) -> None:
-    """Unregister through Foundation-owned 1.8.1 registry mechanics."""
+    """Legacy/admin cleanup through Foundation-owned registry mechanics."""
     from custom_components.rhi_foundation.shared_registry import (
         unregister_domain_supervisory_status_provider,
     )

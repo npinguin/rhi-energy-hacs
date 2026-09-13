@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Callable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -10,6 +11,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from .builders.build_manager import EnergyBuildManager
 from .const import (
     DOMAIN,
+    DOMAIN_ID,
     FOUNDATION_MIN_RELEASE,
     PLATFORMS,
     RELEASE,
@@ -69,23 +71,40 @@ def _shared_registry_api():
 
 
 def _ensure_publication_provider(hass: HomeAssistant) -> EnergyBuildSpecificationProvider:
-    """Register Energy's bounded config-time publication independently of domain runtime build state."""
+    """Register Energy's config-time publication and own its provider generation."""
     domain_state = hass.data.setdefault(DOMAIN, {})
     existing = domain_state.get(_PUBLICATION_STATE_KEY)
-    if isinstance(existing, dict) and isinstance(existing.get("provider"), EnergyBuildSpecificationProvider):
+    if (
+        isinstance(existing, dict)
+        and isinstance(existing.get("provider"), EnergyBuildSpecificationProvider)
+        and existing.get("registered") is True
+    ):
         return existing["provider"]
 
-    provider = EnergyBuildSpecificationProvider.load()
-    register_provider, _ = _shared_registry_api()
-    register_provider(
+    provider = (
+        existing.get("provider")
+        if isinstance(existing, dict)
+        and isinstance(existing.get("provider"), EnergyBuildSpecificationProvider)
+        else EnergyBuildSpecificationProvider.load()
+    )
+    register_provider, unregister_provider = _shared_registry_api()
+    unsubscribe = register_provider(
         hass,
         publisher_domain=DOMAIN,
         provider=provider,
         publication_revision=provider.publication_revision,
     )
+    if not callable(unsubscribe):
+        # Foundation 1.8.1 source compatibility: its registration API returned None.
+        def _legacy_unsubscribe() -> None:
+            unregister_provider(hass, publisher_domain=DOMAIN)
+
+        unsubscribe = _legacy_unsubscribe
     domain_state[_PUBLICATION_STATE_KEY] = {
         "provider": provider,
         "diagnostic": provider.diagnostic_record(),
+        "unsubscribe": unsubscribe,
+        "registered": True,
     }
     _LOGGER.info(
         "RHI Energy %s published %s DomainBuildSpecifications revision=%s",
@@ -94,6 +113,18 @@ def _ensure_publication_provider(hass: HomeAssistant) -> EnergyBuildSpecificatio
         provider.publication_revision,
     )
     return provider
+
+
+def _unregister_publication_provider(hass: HomeAssistant) -> None:
+    """Release only the provider generation owned by this Energy load."""
+    state = hass.data.setdefault(DOMAIN, {}).get(_PUBLICATION_STATE_KEY)
+    if not isinstance(state, dict) or state.get("registered") is not True:
+        return
+    unsubscribe = state.get("unsubscribe")
+    if callable(unsubscribe):
+        unsubscribe()
+    state["unsubscribe"] = None
+    state["registered"] = False
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -126,6 +157,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "provider": provider, "store": store, "build_manager": manager, "runtime": runtime,
             "metering": metering, "interaction": interaction, "public_projector": projector,
             "services": services, "migration": migration, "supervision": supervision,
+            "supervision_unsubscribe": None,
             "execution_model": "compiled_model_direct_source_listeners",
             "shared_baseline_version": SHARED_BASELINE_VERSION,
         }
@@ -136,10 +168,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await interaction.async_start()
         projector.start()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        # Baseline 1.8.1 supervision is structural, not telemetry-driven. Register
-        # only after Energy has a coherent initial build/runtime/public projection so
-        # Foundation never snapshots the transient pre-build state as the domain truth.
-        register_domain_supervision(hass, supervision)
+        # Shared Baseline 1.8.1 supervision is structural, not telemetry-driven.
+        # Foundation 1.8.2 additionally makes provider lifetime generation-safe.
+        state["supervision_unsubscribe"] = register_domain_supervision(hass, supervision)
     except Exception:
         _LOGGER.exception("RHI Energy setup failed")
         await projector.async_stop()
@@ -148,11 +179,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await runtime.async_stop()
         await manager.async_stop()
         await async_unregister_services(hass, services)
-        unregister_domain_supervision(hass, supervision)
+        state = (hass.data.get(DOMAIN) or {}).get(entry.entry_id) or {}
+        supervision_unsubscribe = state.get("supervision_unsubscribe")
+        if callable(supervision_unsubscribe):
+            supervision_unsubscribe()
+        else:
+            unregister_domain_supervision(hass, supervision)
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-        # Do not unregister the DomainBuildSpecification provider here. Publication
-        # is an independent configuration-time contract and remains available so
-        # Foundation can diagnose/configure the domain after a runtime setup failure.
+        # Keep DBS publication registered after a runtime setup failure. It is an
+        # independent configuration-time contract and lets Foundation diagnose/configure.
         raise
     _LOGGER.info("RHI Energy %s setup complete", RELEASE)
     return True
@@ -164,14 +199,36 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
     state = hass.data.get(DOMAIN, {}).pop(entry.entry_id, {})
     supervision = state.get("supervision")
-    if isinstance(supervision, EnergyDomainSupervision):
+    supervision_unsubscribe = state.get("supervision_unsubscribe")
+    if callable(supervision_unsubscribe):
+        supervision_unsubscribe()
+    elif isinstance(supervision, EnergyDomainSupervision):
         unregister_domain_supervision(hass, supervision)
     for key in ("entity_projection", "public_projector", "interaction", "metering", "runtime", "build_manager"):
         obj = state.get(key)
         if obj is not None and hasattr(obj, "async_stop"):
             await obj.async_stop()
     await async_unregister_services(hass, state.get("services"))
-    # DomainBuildSpecification publication belongs to the loaded integration domain,
-    # not to one config-entry runtime instance. Keep it registered across entry
-    # reload/unload so Foundation never observes a spurious provider disappearance.
+    # Provider absence during unload/reload is structural availability only. Foundation
+    # 1.8.2 preserves persisted Energy technical intent; async_setup_entry re-registers
+    # the provider generation before rebuilding the Energy runtime.
+    _unregister_publication_provider(hass)
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove Foundation-owned Energy technical intent only on genuine entry deletion."""
+    try:
+        from custom_components.rhi_foundation.shared_registry import (
+            async_remove_domain_configuration,
+        )
+    except (ImportError, AttributeError):
+        # Foundation 1.8.1 has no explicit domain-removal API. Runtime compatibility
+        # remains intact; stale technical intent can still be removed from Foundation.
+        _LOGGER.info("Foundation does not expose domain-scoped Energy removal yet")
+        return
+    await async_remove_domain_configuration(
+        hass,
+        domain_id=DOMAIN_ID,
+        publisher_domain=DOMAIN,
+    )
