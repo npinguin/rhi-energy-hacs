@@ -1,0 +1,113 @@
+name: Versioned HACS Releases
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'custom_components/rhi_energy/**'
+      - 'DISTRIBUTION_SOURCE.json'
+      - '.github/workflows/versioned-releases.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GH_REPO: npinguin/rhi-energy-hacs
+
+jobs:
+  validate:
+    name: Validate installable distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+      - uses: home-assistant/actions/hassfest@master
+
+  release:
+    name: Publish immutable HACS versions
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish current version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(python - <<'PY'
+          import json
+          print(json.load(open('custom_components/rhi_energy/manifest.json'))['version'])
+          PY
+          )
+          TAG="v${VERSION}"
+          SHA=$(git rev-parse HEAD)
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            EXISTING=$(git rev-list -n 1 "${TAG}")
+            echo "${TAG} already exists at ${EXISTING}; immutable tag retained."
+          else
+            git config user.name 'RHI Release Bot'
+            git config user.email 'nicky.wessels@gmail.com'
+            git tag -a "${TAG}" "${SHA}" -m "RHI Energy ${TAG}"
+            git push origin "${TAG}"
+          fi
+
+          if ! gh release view "${TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release create "${TAG}" --repo "${GH_REPO}" \
+              --title "RHI Energy ${VERSION}" \
+              --notes "Versioned HACS test distribution for RHI Energy ${TAG}. Install and rollback package is served from the public rhi-energy-hacs repository. Production/stable approval remains governed separately by the private engineering repository."
+          fi
+
+      - name: Backfill previously validated Energy versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Only historical public-mirror commits that already passed the
+          # Validate HACS Distribution workflow are eligible for backfill.
+          while IFS=' ' read -r VERSION SHA; do
+            TAG="v${VERSION}"
+
+            RESULT=$(gh api "repos/${GH_REPO}/actions/runs?head_sha=${SHA}&per_page=20" \
+              --jq '[.workflow_runs[] | select(.name=="Validate HACS Distribution")][0].conclusion // ""')
+            if [ "${RESULT}" != "success" ]; then
+              echo "Refusing to publish ${TAG}: historical HACS validation is ${RESULT:-missing}."
+              exit 1
+            fi
+
+            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+              echo "${TAG} already exists; immutable tag retained."
+            else
+              git config user.name 'RHI Release Bot'
+              git config user.email 'nicky.wessels@gmail.com'
+              git tag -a "${TAG}" "${SHA}" -m "RHI Energy ${TAG}"
+              git push origin "${TAG}"
+            fi
+
+            if ! gh release view "${TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+              gh release create "${TAG}" --repo "${GH_REPO}" \
+                --title "RHI Energy ${VERSION}" \
+                --notes "Versioned HACS rollback distribution for RHI Energy ${TAG}. This exact public-mirror commit previously passed HACS distribution validation."
+            fi
+          done <<'EOF'
+          0.11.3 a097868cf93ddd38458fbbd4592b7e4a51e7a791
+          0.11.2 92e6418142b1c349b52e7e4845e12088cb178010
+          EOF
+
+      - name: Summary
+        if: always()
+        run: |
+          echo '## RHI Energy versioned HACS releases' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Package authority: npinguin/rhi-energy-hacs' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Current version: immutable GitHub tag/release' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Rollback versions: immutable GitHub tags/releases' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Stable production approval: separate engineering gate' >> "$GITHUB_STEP_SUMMARY"
