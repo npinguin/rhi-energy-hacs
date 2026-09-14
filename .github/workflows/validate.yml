@@ -10,16 +10,90 @@ permissions:
   contents: read
 
 jobs:
-  hacs:
+  distribution-integrity:
+    name: Distribution integrity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hacs/action@main
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-python@ad3497abcd142e169a10aac37abd5175c44f33c4
+        with:
+          python-version: '3.14'
+      - name: Verify provenance and runtime aggregate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import re
+          from pathlib import Path
+
+          allowed_root = {
+              '.github',
+              'DISTRIBUTION_SOURCE.json',
+              'LICENSE',
+              'README.md',
+              'brand',
+              'custom_components',
+              'hacs.json',
+          }
+          actual_root = {p.name for p in Path('.').iterdir() if p.name != '.git'}
+          if actual_root != allowed_root:
+              raise SystemExit(
+                  f'public distribution root drift: expected {sorted(allowed_root)}, got {sorted(actual_root)}'
+              )
+
+          license_text = Path('LICENSE').read_text(encoding='utf-8')
+          if not license_text.startswith('GNU GENERAL PUBLIC LICENSE\nVersion 3'):
+              raise SystemExit('public distribution LICENSE is not GPLv3')
+
+          runtime = Path('custom_components/rhi_energy')
+          manifest = json.loads((runtime / 'manifest.json').read_text(encoding='utf-8'))
+          provenance = json.loads(Path('DISTRIBUTION_SOURCE.json').read_text(encoding='utf-8'))
+          version = str(manifest['version'])
+
+          if provenance.get('manifest_version') != version:
+              raise SystemExit('distribution manifest/provenance version mismatch')
+          if provenance.get('source_release') != f'E{version}':
+              raise SystemExit('distribution release identity mismatch')
+          if provenance.get('channel') not in ('candidate', 'release'):
+              raise SystemExit('invalid distribution channel')
+          expected_approved = provenance.get('channel') == 'release'
+          if provenance.get('approved_release') is not expected_approved:
+              raise SystemExit('distribution approval/channel mismatch')
+          if provenance.get('distribution_license') != 'GPL-3.0-only':
+              raise SystemExit('distribution license drift')
+
+          hashes = {
+              p.relative_to(runtime).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in runtime.rglob('*') if p.is_file()
+          }
+          aggregate = hashlib.sha256(
+              ''.join(f'{key}:{hashes[key]}\n' for key in sorted(hashes)).encode()
+          ).hexdigest()
+          if provenance.get('runtime_file_count') != len(hashes):
+              raise SystemExit('runtime file count mismatch')
+          if provenance.get('runtime_aggregate_sha256') != aggregate:
+              raise SystemExit('runtime aggregate checksum mismatch')
+
+          readme = Path('README.md').read_text(encoding='utf-8')
+          if re.search(r'\bE\d+\.\d+\.\d+\b', readme):
+              raise SystemExit('public README contains release-specific stale-prone version text')
+          print(f'distribution integrity PASS: {version}, {len(hashes)} runtime files')
+          PY
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa
         with:
           category: integration
 
   hassfest:
+    name: Hassfest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: home-assistant/actions/hassfest@master
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: home-assistant/actions/hassfest@58bff37c8947f690ace498be413a9b78d6f30f93
