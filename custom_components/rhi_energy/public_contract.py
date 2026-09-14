@@ -233,7 +233,7 @@ def _value_projection(
     import_cost = actuals["import_cost_eur"]
     export_revenue = actuals["export_revenue_eur"]
     net = actuals["net_energy_cost_eur"]
-    complete = actuals["available"]
+    complete = bool(actuals.get("actual_complete", actuals["available"]))
     availability = AVAILABLE if complete else "NOT_EVALUATED"
     rows = [
         prop("value", "value.import_cost_eur", import_cost, "EUR", availability=availability),

@@ -132,7 +132,7 @@ def split_battery_power(power_kw: float | None) -> tuple[float | None, float | N
     return max(0.0, -power_kw), max(0.0, power_kw)
 
 
-def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, battery_kw: float | None, max_home_kw: float | None = None) -> dict[str, Any]:
+def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, battery_kw: float | None, max_home_kw: float = 35.0) -> dict[str, Any]:
     if solar_kw is None or grid_net_kw is None or battery_kw is None:
         return {"power_kw": None, "health": "UNAVAILABLE", "reason": "required_energy_balance_input_missing", "raw_balance_kw": None}
     raw = float(solar_kw) + float(grid_net_kw) + float(battery_kw)
@@ -140,8 +140,8 @@ def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, batter
     if raw < -deadband:
         return {"power_kw": None, "health": "DEGRADED", "reason": "physical_balance_inconsistent_negative_balance_above_deadband", "raw_balance_kw": round(raw, 3)}
     value = 0.0 if raw < 0 else raw
-    if max_home_kw is not None and value > max_home_kw:
-        return {"power_kw": None, "health": "DEGRADED", "reason": "implausible_home_consumption_above_configured_site_limit", "raw_balance_kw": round(raw, 3)}
+    if value > max_home_kw:
+        return {"power_kw": None, "health": "DEGRADED", "reason": "implausible_home_consumption_above_site_limit", "raw_balance_kw": round(raw, 3)}
     return {"power_kw": round(value, 3), "health": "OK", "reason": "derived_from_energy_balance", "raw_balance_kw": round(raw, 3)}
 
 
@@ -158,14 +158,14 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
     bp = number(facts.get("battery.power_kw"))
     soc = number(facts.get("battery.soc_pct"))
     charge, discharge = split_battery_power(bp)
-    complete = all(v is not None for v in (solar, home, gi, ge))
+    complete = all(v is not None for v in (solar, home, gi, ge, charge, discharge))
     if not complete:
         code, title, primary, key = "unavailable", "Energy data unavailable", None, "home_consumption.power_kw"
     elif ge > 0.05:
         code, title, primary, key = "exporting", "Exporting surplus", ge, "grid_export.power_kw"
     elif gi > 0.05:
         code, title, primary, key = "importing", "Importing from grid", gi, "grid_import.power_kw"
-    elif discharge is not None and discharge > 0.05:
+    elif discharge > 0.05:
         code, title, primary, key = "battery_support", "Battery supporting home", home, "home_consumption.power_kw"
     elif solar > 0.05:
         code, title, primary, key = "self_powered", "Solar powering home", home, "home_consumption.power_kw"
@@ -177,7 +177,6 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
         "primary_metric": {"value": round(primary, 3) if primary is not None else None, "unit": "kW", "property_key": key},
         "summary": {
             "solar_power_kw": round(solar, 3) if solar is not None else None,
-            "home_consumption_power_kw": round(home, 3) if home is not None else None,
             "home_power_kw": round(home, 3) if home is not None else None,
             "grid_import_power_kw": round(gi, 3) if gi is not None else None,
             "grid_export_power_kw": round(ge, 3) if ge is not None else None,
@@ -198,7 +197,6 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
             "physical_facts": "domain_property_indexes",
             "ux_recalculation_allowed": False,
         },
-        "optional_battery_flow_available": bp is not None,
         "complete": complete,
     }
 
@@ -771,41 +769,11 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
     d0, remaining, battery_after_d0 = build_horizon("D0", solar_today, remaining, usable_battery)
     d1, remaining, battery_after_d1 = build_horizon("D1", solar_tomorrow, remaining, battery_after_d0)
     unresolved = round(sum(remaining.values()), 4)
-    baseline_plan = {
-        "contract": "energy_baseline_plan_v1",
-        "horizons": {
-            horizon["horizon_id"]: {
-                "supply": deepcopy(horizon.get("supply") or {}),
-                "home_demand_kwh": (horizon.get("demand") or {}).get("home_kwh"),
-                "balance": deepcopy(horizon.get("balance") or {}),
-                "quality": deepcopy(horizon.get("quality") or {}),
-            }
-            for horizon in (d0, d1)
-        },
-    }
-    flexible_plan = {
-        "contract": "energy_flexible_plan_v1",
-        "participating_asset_count": len(active_assets),
-        "participating_asset_ids": [str(asset.get("asset_id")) for asset in active_assets if asset.get("asset_id")],
-        "known_need_kwh": round(sum(original_need.values()), 4),
-        "unresolved_need_kwh": unresolved,
-        "horizons": {
-            horizon["horizon_id"]: {
-                "scheduled_kwh": (horizon.get("demand") or {}).get("flexible_scheduled_kwh"),
-                "deferred_kwh": (horizon.get("demand") or {}).get("flexible_deferred_kwh"),
-                "candidates": deepcopy(horizon.get("candidates") or []),
-                "quality": deepcopy(horizon.get("quality") or {}),
-            }
-            for horizon in (d0, d1)
-        },
-    }
     return {
         "plan_id": f"deterministic:{now.strftime('%Y%m%d%H%M')}",
         "generated_at": now.isoformat(),
         "planning_horizons": {"D0": d0, "D1": d1},
         "planning_horizons_json": [d0, d1],
-        "baseline_plan": baseline_plan,
-        "flexible_plan": flexible_plan,
         "unresolved_flexible_need_kwh": unresolved,
         "battery_ledger": {"initial_usable_kwh": usable_battery, "after_d0_kwh": battery_after_d0, "after_d1_kwh": battery_after_d1},
         "health": "OK" if d0["quality"]["availability"] == AVAILABLE else "DEGRADED",

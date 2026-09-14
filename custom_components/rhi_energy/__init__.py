@@ -22,7 +22,7 @@ from .runtime.metering import EnergyMetering
 from .migration import async_prepare_legacy_entity_takeover
 from .public_contract import PublicContractProjector
 from .contracts.publication import EnergyBuildSpecificationProvider
-from .runtime.engine import EnergyRuntime
+from .runtime.engine_closure import EnergyRuntime
 from .services import async_register_services, async_unregister_services
 from .runtime.storage import EnergyStore
 from .supervision import (
