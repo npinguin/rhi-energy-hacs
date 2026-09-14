@@ -1,9 +1,10 @@
-"""Active layered Energy compiler for E0.14."""
+"""Active layered Energy compiler with final graph integrity."""
 from __future__ import annotations
 
 try:
     from .layered_model_base import materialize_layered_energy_model as _base
     from .closure_model import close_layered_energy_model as _close
+    from .finalize_layered import finalize_layered_energy_model as _finalize
 except ImportError:
     from pathlib import Path
     import runpy
@@ -14,6 +15,9 @@ except ImportError:
     ]
     _close = runpy.run_path(str(_here / "closure_model.py"))[
         "close_layered_energy_model"
+    ]
+    _finalize = runpy.run_path(str(_here / "finalize_layered.py"))[
+        "finalize_layered_energy_model"
     ]
 
 LAYERED_MODEL_CONTRACT = {
@@ -49,4 +53,4 @@ def materialize_layered_energy_model(model):
             if isinstance(value, bool)
         }
     )
-    return _close(layered)
+    return _finalize(_close(layered))

@@ -20,11 +20,13 @@ _LAYER_KEYS = {
     "dependency_diagnostics",
     "runtime_rules",
     "generation",
+    "layer_health",
+    "materialization_records",
 }
 
 
 def _semantic_model(model: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Strip Phase-1 layer metadata before handing last-good state to L1 compiler."""
+    """Strip derived layer metadata before handing last-good state to L1 compiler."""
     if model is None:
         return None
     out = deepcopy(model)

@@ -20,7 +20,7 @@ from .const import (
 from .runtime.interaction import EnergyInteractionEngine
 from .runtime.metering import EnergyMetering
 from .migration import async_prepare_legacy_entity_takeover
-from .public_contract import PublicContractProjector
+from .public_projector import PublicContractProjector
 from .contracts.publication import EnergyBuildSpecificationProvider
 from .runtime.engine_closure import EnergyRuntime
 from .services import async_register_services, async_unregister_services
