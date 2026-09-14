@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .builders.build_manager import EnergyBuildManager
+from .builders.layered_manager import LayeredEnergyBuildManager as EnergyBuildManager
 from .const import (
     DOMAIN,
     DOMAIN_ID,
