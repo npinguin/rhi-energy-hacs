@@ -6,12 +6,21 @@ from typing import Any
 
 
 def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
-    """Refine native Bx/M1 siblings after Foundation's mechanical match."""
+    """Refine native Bx/M1 siblings after Foundation's mechanical match.
+
+    SolarEdge Modbus Multi exposes the same physical battery through both Bx and
+    DERBx entity families.  Energy uses the Bx family as the single canonical
+    battery-unit identity because power, SoC and maximum-energy evidence share
+    that device.  Accepting DERBx SoC in parallel creates a second logical unit
+    for the same physical battery and makes system aggregation double-count it.
+    """
     unique_id = str((candidate.get("source_identity") or {}).get("unique_id") or "")
     if not unique_id:
         return True
     suffixes = {
         "battery_unit_power": r"_B[1-4]_dc_power$",
+        "battery_unit_soc": r"_B[1-4]_battery_soe$",
+        "battery_capacity": r"_B[1-4]_max_energy$",
         "battery_status": r"_B[1-4]_status$",
         "grid_net_power": r"_M1_ac_power$",
         "grid_import_energy": r"_M1_imported_kwh$",
@@ -20,6 +29,8 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
     }
     if input_id in suffixes:
         family_marker = "_B" if input_id.startswith("battery_") else "_M1_"
+        if input_id == "battery_unit_soc" and "_DERB" in unique_id:
+            return False
         return family_marker not in unique_id or re.search(suffixes[input_id], unique_id) is not None
     if input_id == "solar_power":
         return re.search(r"_B[1-4]_", unique_id) is None and not unique_id.endswith("_inverted")

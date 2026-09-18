@@ -8,7 +8,7 @@ import hashlib, json
 from typing import Any
 
 
-def _node(asset_id: str, concept_id: str, layer: str, *, status: str = "READY", sources=(), reason=None):
+def _node(asset_id: str, concept_id: str, layer: str, *, status: str = "INCOMPLETE", sources=(), reason=None):
     row = {"asset_id": asset_id, "concept_id": concept_id, "layer": layer, "owner": "rhi_energy", "status": status, "source_asset_ids": sorted(set(sources))}
     if reason:
         row["reason"] = reason
@@ -40,18 +40,19 @@ def _systems(model: dict[str, Any]):
     grid_id = grids[0] if grids else None
     forecasts = _assets(model, "solar_forecast")
     prices = _assets(model, "price_source")
+    # System/planning/intelligence readiness is runtime evidence, never topology existence.
     systems = [
-        _node(battery_id, "battery_system", "system", status="READY" if battery_units else "INCOMPLETE", sources=battery_units, reason=None if battery_units else "battery_units_unavailable"),
-        _node(solar_id, "solar_production_system", "system", status="READY" if inverters else "INCOMPLETE", sources=inverters, reason=None if inverters else "solar_inverters_unavailable"),
-        _node("site_energy_balance:home", "site_energy_balance", "system", status="READY" if grid_id and inverters else "INCOMPLETE", sources=[x for x in (solar_id, battery_id, grid_id) if x], reason=None if grid_id and inverters else "required_balance_inputs_incomplete"),
-        _node("home_consumption:home", "home_consumption", "system", status="READY" if grid_id and inverters else "INCOMPLETE", sources=["site_energy_balance:home"]),
-        _node("solar_forecast_system:home", "solar_forecast_system", "system", status="READY" if forecasts else "INCOMPLETE", sources=forecasts, reason=None if forecasts else "forecast_source_unavailable"),
-        _node("pricing_system:home", "pricing_system", "system", status="READY" if prices else "INCOMPLETE", sources=prices, reason=None if prices else "price_source_unavailable"),
-        _node("flexible_load_system:home", "flexible_load_system", "system", status="INCOMPLETE", reason="producer_inventory_runtime_bound"),
-        _node("connection_system:home", "connection_system", "system", status="INCOMPLETE", reason="producer_inventory_runtime_bound"),
-        _node("metering_system:home", "metering_system", "system", sources=["site_energy_balance:home"]),
-        _node("strategy_system:home", "strategy_system", "system"),
-        _node("value_accounting_system:home", "value_accounting_system", "system", status="INCOMPLETE", sources=["metering_system:home", "pricing_system:home"], reason="counterfactual_value_not_evaluated"),
+        _node(battery_id, "battery_system", "system", sources=battery_units, reason="runtime_evidence_not_evaluated"),
+        _node(solar_id, "solar_production_system", "system", sources=inverters, reason="runtime_evidence_not_evaluated"),
+        _node("site_energy_balance:home", "site_energy_balance", "system", sources=[x for x in (solar_id, battery_id, grid_id) if x], reason="runtime_evidence_not_evaluated"),
+        _node("home_consumption:home", "home_consumption", "system", sources=["site_energy_balance:home"], reason="runtime_evidence_not_evaluated"),
+        _node("solar_forecast_system:home", "solar_forecast_system", "system", sources=forecasts, reason="runtime_evidence_not_evaluated"),
+        _node("pricing_system:home", "pricing_system", "system", sources=prices, reason="runtime_evidence_not_evaluated"),
+        _node("flexible_load_system:home", "flexible_load_system", "system", reason="producer_inventory_runtime_bound"),
+        _node("connection_system:home", "connection_system", "system", reason="producer_inventory_runtime_bound"),
+        _node("metering_system:home", "metering_system", "system", sources=["site_energy_balance:home"], reason="runtime_evidence_not_evaluated"),
+        _node("strategy_system:home", "strategy_system", "system", reason="runtime_evidence_not_evaluated"),
+        _node("value_accounting_system:home", "value_accounting_system", "system", sources=["metering_system:home", "pricing_system:home"], reason="runtime_evidence_not_evaluated"),
     ]
     for source in battery_units: edges.append(_edge(source, battery_id, "aggregate_member"))
     for source in inverters: edges.append(_edge(source, solar_id, "aggregate_member"))
@@ -64,17 +65,18 @@ def _systems(model: dict[str, Any]):
 
 def _planning(battery_id: str):
     rows = [
-        _node("planning_model:home", "planning_model", "planning"),
-        _node("planning_horizon:D0", "planning_horizon", "planning"), _node("planning_horizon:D1", "planning_horizon", "planning"),
-        _node("planning_supply:solar", "planning_supply", "planning", sources=["solar_forecast_system:home"]),
-        _node("planning_supply:grid", "planning_supply", "planning", sources=["site_energy_balance:home"]),
-        _node("planning_storage:battery", "planning_asset", "planning", sources=[battery_id]),
-        _node("planning_demand:home", "planning_demand", "planning", sources=["home_consumption:home"]),
-        _node("planning_demand:flexible", "planning_demand", "planning", status="INCOMPLETE", sources=["flexible_load_system:home"], reason="producer_inventory_runtime_bound"),
-        _node("planning_pricing:home", "planning_pricing", "planning", sources=["pricing_system:home"]),
-        _node("constraint_set:site", "constraint_set", "planning", sources=["strategy_system:home"]),
-        _node("energy_need:flexible", "energy_need", "planning", status="INCOMPLETE", sources=["flexible_load_system:home"]),
-        _node("allocation_set:operational", "allocation_set", "planning", status="INCOMPLETE", reason="planner_evaluation_required"),
+        _node("planning_model:home", "planning_model", "planning", reason="runtime_evidence_not_evaluated"),
+        _node("planning_horizon:D0", "planning_horizon", "planning", reason="runtime_evidence_not_evaluated"),
+        _node("planning_horizon:D1", "planning_horizon", "planning", reason="runtime_evidence_not_evaluated"),
+        _node("planning_supply:solar", "planning_supply", "planning", sources=["solar_forecast_system:home"], reason="runtime_evidence_not_evaluated"),
+        _node("planning_supply:grid", "planning_supply", "planning", sources=["site_energy_balance:home"], reason="runtime_evidence_not_evaluated"),
+        _node("planning_storage:battery", "planning_asset", "planning", sources=[battery_id], reason="runtime_evidence_not_evaluated"),
+        _node("planning_demand:home", "planning_demand", "planning", sources=["home_consumption:home"], reason="runtime_evidence_not_evaluated"),
+        _node("planning_demand:flexible", "planning_demand", "planning", sources=["flexible_load_system:home"], reason="producer_inventory_runtime_bound"),
+        _node("planning_pricing:home", "planning_pricing", "planning", sources=["pricing_system:home"], reason="runtime_evidence_not_evaluated"),
+        _node("constraint_set:site", "constraint_set", "planning", sources=["strategy_system:home"], reason="runtime_evidence_not_evaluated"),
+        _node("energy_need:flexible", "energy_need", "planning", sources=["flexible_load_system:home"], reason="producer_inventory_runtime_bound"),
+        _node("allocation_set:operational", "allocation_set", "planning", reason="planner_evaluation_required"),
     ]
     edges = [_edge("planning_model:home", h, "contains") for h in ("planning_horizon:D0", "planning_horizon:D1")]
     inputs = ["planning_supply:solar", "planning_supply:grid", "planning_storage:battery", "planning_demand:home", "planning_demand:flexible", "planning_pricing:home", "constraint_set:site", "energy_need:flexible"]
@@ -86,7 +88,7 @@ def _planning(battery_id: str):
 
 
 def _intelligence():
-    rows = [_node("operational_plan:home", "operational_plan", "intelligence", status="INCOMPLETE"), _node("energy_outlook:home", "energy_outlook", "intelligence", status="INCOMPLETE"), _node("cost_outlook:home", "cost_outlook", "intelligence", status="INCOMPLETE"), _node("resilience_state:home", "resilience_state", "intelligence", status="INCOMPLETE"), _node("optimization_opportunity:home", "optimization_opportunity", "intelligence", status="INCOMPLETE"), _node("energy_intelligence:home", "energy_intelligence", "intelligence", status="INCOMPLETE"), _node("planning_experience:home", "planning_experience", "intelligence", status="INCOMPLETE")]
+    rows = [_node("operational_plan:home", "operational_plan", "intelligence"), _node("energy_outlook:home", "energy_outlook", "intelligence"), _node("cost_outlook:home", "cost_outlook", "intelligence"), _node("resilience_state:home", "resilience_state", "intelligence"), _node("optimization_opportunity:home", "optimization_opportunity", "intelligence"), _node("energy_intelligence:home", "energy_intelligence", "intelligence"), _node("planning_experience:home", "planning_experience", "intelligence")]
     edges = [_edge("allocation_set:operational", "operational_plan:home", "intelligence_input"), _edge("operational_plan:home", "energy_outlook:home", "outlook_input"), _edge("solar_forecast_system:home", "energy_outlook:home", "outlook_input"), _edge("pricing_system:home", "cost_outlook:home", "outlook_input"), _edge("operational_plan:home", "cost_outlook:home", "outlook_input"), _edge("strategy_system:home", "resilience_state:home", "resilience_input"), _edge("energy_outlook:home", "energy_intelligence:home", "intelligence_input"), _edge("cost_outlook:home", "energy_intelligence:home", "intelligence_input"), _edge("resilience_state:home", "energy_intelligence:home", "intelligence_input"), _edge("energy_intelligence:home", "optimization_opportunity:home", "opportunity_input"), _edge("operational_plan:home", "planning_experience:home", "experience_input"), _edge("energy_intelligence:home", "planning_experience:home", "experience_input")]
     return rows, edges
 

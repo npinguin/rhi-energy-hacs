@@ -55,24 +55,35 @@ def grid_direction(facts):
 
 
 def close_current_energy_facts(facts, flexible_assets, producer_available: bool):
-    """Split total site demand into frozen R1 site/home/flexible semantics."""
+    """Close canonical Site/Home/Flexible consumption without inventing zeroes.
+
+    The base runtime derives physical total demand from solar/grid/stationary-storage
+    balance and exposes that provisional value as ``home_consumption.power_kw``.
+    At the V2 closure boundary that value becomes Site Consumption.  Home Consumption
+    is the residual after the domain-owned Mobility flexible-load publication.  This
+    preserves one physical truth while keeping the frozen R1 split explicit.
+    """
     out = deepcopy(facts)
-    site = _number(out.get("home_consumption.power_kw"))
+    physical_site = _number(out.get("site_consumption.power_kw"))
+    if physical_site is None:
+        physical_site = _number(out.get("home_consumption.power_kw"))
     flexible = complete_flexible_power(flexible_assets, producer_available)
     home = None
     inconsistent = False
-    if site is not None and flexible is not None:
-        residual = site - flexible
+    if physical_site is not None and flexible is not None:
+        residual = physical_site - flexible
         if residual >= -0.08:
             home = round(max(0.0, residual), 6)
         else:
             inconsistent = True
-    out["site_consumption.power_kw"] = site
+    out["site_consumption.power_kw"] = physical_site
     out["flexible_loads.power_kw"] = flexible
     out["home_consumption.power_kw"] = home
-    out["consumption.power_kw"] = site
+    out["consumption.power_kw"] = physical_site
     out["consumption.health"] = (
-        "OK" if site is not None and home is not None else "DEGRADED" if site is not None else "UNAVAILABLE"
+        "OK" if physical_site is not None and home is not None
+        else "DEGRADED" if physical_site is not None
+        else "UNAVAILABLE"
     )
     out["battery.state"] = battery_state(out)
     out["grid.flow_direction"] = grid_direction(out)

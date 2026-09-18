@@ -11,21 +11,46 @@ def _node(asset_id: str, concept_id: str, layer: str, status: str = "READY", rea
 
 
 def close_layered_energy_model(layered: dict[str, Any]) -> dict[str, Any]:
-    """Add the E0.14 closure concepts without mutating source topology."""
+    """Add closure concepts without manufacturing readiness.
+
+    Closure may add topology/dependency metadata, but it may not promote a concept to
+    READY merely because a node exists. Runtime/public projections remain downstream
+    of canonical dependency truth.
+    """
     systems = list(layered.get("system_assets") or [])
     planning = list(layered.get("planning_assets") or [])
     intelligence = list(layered.get("intelligence_assets") or [])
     deps = list(layered.get("dependencies") or [])
 
     system_ids = {str(x.get("concept_id")): str(x.get("asset_id")) for x in systems if isinstance(x, dict)}
+    balance = next((x for x in systems if isinstance(x, dict) and x.get("concept_id") == "site_energy_balance"), None)
     if "grid_system" not in system_ids:
-        systems.append(_node("grid_system:home", "grid_system", "system" if any(x.get("concept_id") == "site_energy_balance" and x.get("status") == "READY" for x in systems if isinstance(x, dict)) else "system", "READY"))
+        balance_ready = bool(balance and balance.get("status") == "READY")
+        systems.append(
+            _node(
+                "grid_system:home",
+                "grid_system",
+                "system",
+                "READY" if balance_ready else "INCOMPLETE",
+                None if balance_ready else "site_energy_balance_incomplete",
+            )
+        )
+
     for concept, aid in (
         ("baseline_energy_plan", "baseline_plan:home"),
         ("flexible_load_plan", "flexible_plan:home"),
     ):
         if not any(x.get("concept_id") == concept for x in planning if isinstance(x, dict)):
-            planning.append(_node(aid, concept, "planning", "INCOMPLETE" if concept == "flexible_load_plan" else "READY", "producer_needs_or_constraints_incomplete" if concept == "flexible_load_plan" else None))
+            planning.append(
+                _node(
+                    aid,
+                    concept,
+                    "planning",
+                    "INCOMPLETE",
+                    "planning_dependencies_not_evaluated",
+                )
+            )
+
     if not any(x.get("concept_id") == "energy_retrospective" for x in intelligence if isinstance(x, dict)):
         intelligence.append(_node("retrospective:home", "energy_retrospective", "intelligence", "INCOMPLETE", "period_evidence_incomplete"))
 

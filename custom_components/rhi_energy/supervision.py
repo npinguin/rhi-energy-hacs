@@ -186,8 +186,8 @@ class EnergyDomainSupervision:
         elif compatibility_functional_status != "OK":
             issues.append(_issue(
                 "energy:compatibility:v1_feature_parity", "COMPATIBILITY",
-                "V1_FEATURE_PARITY_FUNCTIONALLY_INCOMPLETE", blocking=False,
-                severity="WARNING", scope=degraded_public_entities[:12] or ["R1.89.44_CONTRACT"],
+                "V1_FEATURE_PARITY_FUNCTIONALLY_INCOMPLETE", blocking=True,
+                severity="ERROR", scope=degraded_public_entities[:12] or ["R1.89.44_CONTRACT"],
             ))
         if mobility_expected and not mobility_available:
             issues.append(_issue(
