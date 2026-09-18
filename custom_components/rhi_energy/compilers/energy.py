@@ -295,16 +295,20 @@ def _bind_many(
 def _compile_battery(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "battery_system")
     measurement_ids = ["battery_unit_power", "battery_unit_soc", "battery_capacity"]
-    device_ids = sorted(
+    # A stationary battery unit must be anchored by physical power/capacity evidence.
+    # SOC-only companion devices (for example SolarEdge DERB telemetry) enrich an
+    # anchored unit but may never materialize an additional stationary battery.
+    anchor_ids = sorted(
         {
             _candidate_device_id(candidate)
-            for input_id in measurement_ids
+            for input_id in ("battery_unit_power", "battery_capacity")
             for candidate in inputs.get(input_id, [])
             if _candidate_device_id(candidate)
         }
     )
-    if not device_ids:
+    if not anchor_ids:
         raise ValueError("no_measurement_anchor")
+    device_ids = anchor_ids
     builder_id = str(build_input.get("builder_id") or "battery")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
     system_id = f"battery_system_{_hash([integration, builder_id], 8)}"

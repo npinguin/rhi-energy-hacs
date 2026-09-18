@@ -109,6 +109,8 @@ class EnergyRuntime:
         self._callbacks: list[Callable[[], None]] = []
         self._topology_callbacks: list[Callable[[], None]] = []
         self._topology_signature: tuple[Any, ...] | None = None
+        self._binding_index_cache: dict[str, dict[str, Any]] = {}
+        self._entity_ids_cache: tuple[str, ...] = ()
         self.event_flow = SourceEventCoalescer(hass, self._recompute)
 
     @staticmethod
@@ -165,11 +167,8 @@ class EnergyRuntime:
             cb()
 
     def _binding_index(self) -> dict[str, dict[str, Any]]:
-        return {
-            str(row.get("binding_id")): row
-            for row in (self.model or {}).get("accepted_bindings", [])
-            if isinstance(row, dict) and row.get("binding_id")
-        }
+        """Return the structurally prebound lookup; never rebuild it on telemetry."""
+        return self._binding_index_cache
 
     def _read(self, binding_id: str | None) -> tuple[Any, str | None, dict[str, Any]]:
         binding = self._binding_index().get(str(binding_id or "")) or {}
@@ -198,10 +197,17 @@ class EnergyRuntime:
             self._unsubscribe()
         self._unsubscribe = None
         self.model = model
+        self._binding_index_cache = {
+            str(row.get("binding_id")): row
+            for row in (model or {}).get("accepted_bindings", [])
+            if isinstance(row, dict) and row.get("binding_id")
+        }
+        self._entity_ids_cache = tuple(self._entity_ids()) if model is not None else ()
         if model is not None:
-            ids = self._entity_ids()
-            if ids:
-                self._unsubscribe = async_track_state_change_event(self.hass, ids, self._handle_state_change)
+            if self._entity_ids_cache:
+                self._unsubscribe = async_track_state_change_event(
+                    self.hass, self._entity_ids_cache, self._handle_state_change
+                )
         self._recompute()
 
     @callback

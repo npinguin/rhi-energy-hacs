@@ -60,6 +60,23 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
         if isinstance(operating_state, str) and operating_state.strip().lower() in _UNKNOWN:
             operating_state = None
         command_refs = deepcopy(asset.get("command_refs") or {})
+        # Mobility is the sole physical charging-capability authority. Energy
+        # consumes the published kW envelope as-is and never reconstructs it
+        # from producer-internal electrical telemetry or source-integration data.
+        envelope = asset.get("effective_charging_envelope")
+        if not isinstance(envelope, dict):
+            envelope = asset.get("effective_power_capability")
+        envelope = deepcopy(envelope) if isinstance(envelope, dict) else {}
+        envelope_ready = bool(
+            envelope
+            and envelope.get("available", envelope.get("ready", True)) is not False
+        )
+        envelope_min_kw = number(
+            envelope.get("min_power_kw", envelope.get("minimum_power_kw"))
+        ) if envelope_ready else None
+        envelope_max_kw = number(
+            envelope.get("max_power_kw", envelope.get("maximum_power_kw"))
+        ) if envelope_ready else None
         normalized = {
             **deepcopy(asset),
             "asset_id": str(asset["asset_id"]),
@@ -69,8 +86,14 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
             "power_kw": power,
             "energy_to_target_kwh": number(first("energy_to_target_kwh", "required_energy_kwh", "energy_need_kwh")),
             "requested_power_kw": number(first("requested_power_kw", "requested_charge_power_kw")),
-            "min_power_kw": number(first("min_power_kw", "minimum_power_kw")),
-            "max_power_kw": number(first("max_power_kw", "maximum_power_kw")),
+            "min_power_kw": envelope_min_kw,
+            "max_power_kw": envelope_max_kw,
+            "effective_charging_envelope": envelope,
+            "requested_power_execution_ready": bool(
+                envelope_ready
+                and envelope_max_kw is not None
+                and (command_refs.get("adjust_power") or command_refs.get("set_power"))
+            ),
             "minimum_runtime_minutes": number(first("minimum_runtime_minutes", "min_runtime_minutes")),
             "operating_state": operating_state,
             "availability_state": first("availability_state", "availability") or "AVAILABLE",
