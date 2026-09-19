@@ -7,7 +7,7 @@ one canonical snapshot. Integration quirks are isolated in ``adapters/``.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -31,7 +31,6 @@ from .event_flow import SourceEventCoalescer
 from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
 from .producers import mobility_entity_ids, read_mobility_energy_assets
-from .selection import select_canonical_provider
 
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
@@ -390,35 +389,21 @@ class EnergyRuntime:
             facts["solar_optimizer.count"] = len(optimizers)
             facts["solar_optimizer.health"] = "OK" if known == len(optimizers) else "DEGRADED"
 
-    def _preferred_source(self, concept: str) -> str | None:
-        value = (((self.store.data.get("settings") or {}).get("sources") or {}).get(concept))
-        return str(value) if value not in {None, "", "auto"} else None
-
     def _canonicalize(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
-        primary = {
-            "battery_system": "battery.power_kw",
-            "grid_connection": "grid.net_power_kw",
-            "solar_production": "solar.power_kw",
-            "solar_forecast": "forecast.solar_today_kwh",
-        }
-        for concept, primary_key in primary.items():
+        """Project compile-selected logical objects into canonical Energy facts.
+
+        Structural selection is complete before runtime activation. Runtime never
+        arbitrates providers or reinterprets source ownership.
+        """
+        canonical_classes = ("battery_system", "grid_connection", "solar_production", "solar_forecast")
+        for concept in canonical_classes:
             rows = [row for row in assets if row.get("object_class") == concept]
-            readiness: dict[str, bool] = {}
-            for row in rows:
-                props = _properties(row)
-                primary_prop = props.get(primary_key)
-                primary_value = facts.get((primary_prop or {}).get("fact_key")) if primary_prop else None
-                if concept == "solar_forecast" and primary_value is None:
-                    power_prop = props.get("forecast.solar_power_kw")
-                    primary_value = facts.get((power_prop or {}).get("fact_key")) if power_prop else None
-                readiness[str(row.get("asset_id") or "")] = primary_value is not None
-            selected, selection_issue = select_canonical_provider(
-                concept, rows, readiness, facts, self._preferred_source(concept)
-            )
-            if selection_issue:
-                issues.append(selection_issue)
-            if not selected:
+            if len(rows) > 1:
+                issues.append(f"{concept}:multiple_compiled_canonical_objects")
                 continue
+            if not rows:
+                continue
+            selected = rows[0]
             for prop in selected.get("properties") or []:
                 key = str(prop.get("property_key") or "")
                 if key:
@@ -432,20 +417,21 @@ class EnergyRuntime:
         if len(import_rows) == 1:
             row = import_rows[0]
             prop = _properties(row).get("pricing.spot_eur_kwh") or {}
-            facts.update({"pricing.import_price_current_eur_kwh": facts.get(prop.get("fact_key")), "pricing.spot_eur_kwh": facts.get(prop.get("fact_key"))})
+            facts["pricing.import_price_current_eur_kwh"] = facts.get(prop.get("fact_key"))
+            facts["pricing.spot_eur_kwh"] = facts.get(prop.get("fact_key"))
             facts["price_source.source_id"] = row.get("asset_id")
             facts["price_source.source_integration"] = row.get("integration_domain")
         elif len(import_rows) > 1:
-            issues.append("price_source:multiple_import_sources:selection_required")
+            issues.append("price_source:multiple_compiled_import_objects")
         if len(export_rows) == 1:
             row = export_rows[0]
             prop = _properties(row).get("pricing.spot_eur_kwh") or {}
-            facts.update({"pricing.export_price_current_eur_kwh": facts.get(prop.get("fact_key")), "pricing.export_spot_eur_kwh": facts.get(prop.get("fact_key"))})
+            facts["pricing.export_price_current_eur_kwh"] = facts.get(prop.get("fact_key"))
+            facts["pricing.export_spot_eur_kwh"] = facts.get(prop.get("fact_key"))
             facts["pricing.export_source_id"] = row.get("asset_id")
         elif len(export_rows) > 1:
-            issues.append("price_source:multiple_export_sources:selection_required")
+            issues.append("price_source:multiple_compiled_export_objects")
 
-        # Compatibility aliases retained outside the object model.
         facts["metering.grid_import_total_kwh"] = facts.get("grid_import.energy_total_kwh")
         facts["metering.grid_export_total_kwh"] = facts.get("grid_export.energy_total_kwh")
         facts["battery.health"] = "OK" if facts.get("battery.power_kw") is not None else "DEGRADED" if any(row.get("object_class") == "battery_system" for row in assets) else "UNKNOWN"
@@ -500,12 +486,36 @@ class EnergyRuntime:
             self._physical_input("grid_connection", "grid.net_power_kw", facts),
             self._physical_input("battery_system", "battery.power_kw", facts),
         )
-        facts["home_consumption.power_kw"] = consumption["power_kw"]
-        facts["consumption.power_kw"] = consumption["power_kw"]
-        facts["consumption.health"] = consumption["health"]
-
+        # Physical balance yields Site Consumption. Home Consumption is the
+        # residual after the complete Mobility-owned flexible-load publication.
+        facts["site_consumption.power_kw"] = consumption["power_kw"]
         consumers, connections, producer_availability, producer_metadata = self._producer_assets()
         flexible = normalize_mobility_consumers(consumers)
+        producer_available = bool(producer_availability.get("mobility"))
+        flexible_values = [
+            row.get("power_kw") for row in flexible
+            if isinstance(row, dict) and row.get("asset_id")
+        ]
+        flexible_complete = producer_available and all(value is not None for value in flexible_values)
+        flexible_power = (
+            round(sum(float(value) for value in flexible_values), 6)
+            if flexible_complete else None
+        )
+        home_power = None
+        if consumption["power_kw"] is not None and flexible_power is not None:
+            residual = float(consumption["power_kw"]) - flexible_power
+            if residual >= -0.08:
+                home_power = round(max(0.0, residual), 6)
+            else:
+                runtime_issues.append("consumption_split_inconsistent:flexible_exceeds_site")
+        facts["flexible_loads.power_kw"] = flexible_power
+        facts["home_consumption.power_kw"] = home_power
+        facts["consumption.power_kw"] = consumption["power_kw"]
+        facts["consumption.health"] = (
+            "OK" if consumption["power_kw"] is not None and home_power is not None
+            else "DEGRADED" if consumption["power_kw"] is not None
+            else "UNAVAILABLE"
+        )
         settings = deepcopy(self.store.data.get("settings") or {})
         settings["baseload_profile"] = deepcopy((self.store.data.get("metering") or {}).get("baseload_profile") or {})
         now_local = datetime.now(ZoneInfo(self.hass.config.time_zone))
@@ -531,6 +541,15 @@ class EnergyRuntime:
             "intelligence": intel,
             "overview": overview,
             "compiled_model_revision": self.model.get("compiled_model_revision"),
+            "snapshot_revision": int(self.snapshot.get("snapshot_revision") or 0) + 1,
+            "observed_at": datetime.now(UTC).isoformat(),
+            "generation": deepcopy(self.model.get("generation") or {}),
+            "layer_health": deepcopy(self.model.get("layer_health") or {}),
+            "system_assets": deepcopy(self.model.get("system_assets") or []),
+            "planning_assets": deepcopy(self.model.get("planning_assets") or []),
+            "intelligence_assets": deepcopy(self.model.get("intelligence_assets") or []),
+            "model_fingerprint": self.model.get("model_fingerprint"),
+            "dependency_diagnostics": deepcopy(self.model.get("dependency_diagnostics") or {}),
             "runtime_issues": runtime_issues,
             "degraded_logical_assets": degraded_assets[:40],
         }

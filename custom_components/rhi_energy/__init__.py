@@ -22,7 +22,7 @@ from .runtime.metering import EnergyMetering
 from .migration import async_prepare_legacy_entity_takeover
 from .public_projector import PublicContractProjector
 from .contracts.publication import EnergyBuildSpecificationProvider
-from .runtime.engine_closure import EnergyRuntime
+from .runtime.engine_base import EnergyRuntime
 from .services import async_register_services, async_unregister_services
 from .runtime.storage import EnergyStore
 from .supervision import (
@@ -158,7 +158,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "metering": metering, "interaction": interaction, "public_projector": projector,
             "services": services, "migration": migration, "supervision": supervision,
             "supervision_unsubscribe": None,
-            "execution_model": "compiled_model_direct_source_listeners",
+            "execution_model": "prebound_canonical_v2_runtime",
             "shared_baseline_version": SHARED_BASELINE_VERSION,
         }
         hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
