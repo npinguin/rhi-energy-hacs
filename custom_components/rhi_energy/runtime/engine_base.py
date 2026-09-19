@@ -191,7 +191,7 @@ class EnergyRuntime:
         return sorted({str(value) for value in ids if value})
 
     def activate_model(self, model: dict[str, Any] | None) -> None:
-        _LOGGER.debug("Activating Energy compiled model revision=%s", (model or {}).get("compiled_model_revision"))
+        _LOGGER.debug("Activating Energy domain binding model revision=%s", (model or {}).get("compiled_model_revision"))
         if callable(self._unsubscribe):
             self._unsubscribe()
         self._unsubscribe = None
@@ -295,7 +295,7 @@ class EnergyRuntime:
         if key == "solar.power_kw" and asset.get("object_class") == "solar_inverter":
             inverter_device = str(asset.get("device_registry_id") or "")
             linked = next(
-                (row for row in assets if row.get("object_class") == "battery_unit" and str(row.get("via_device_registry_id") or "") == inverter_device),
+                (row for row in assets if row.get("object_class") == "battery" and str(row.get("via_device_registry_id") or "") == inverter_device),
                 None,
             )
             if linked is not None:
@@ -305,7 +305,7 @@ class EnergyRuntime:
         return normalizer(key, value, context)
 
     def _populate_direct_facts(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
-        ordered = sorted(assets, key=lambda row: 0 if row.get("object_class") == "battery_unit" else 1)
+        ordered = sorted(assets, key=lambda row: 0 if row.get("object_class") == "battery" else 1)
         for asset in ordered:
             for prop in asset.get("properties") or []:
                 if not prop.get("binding_id") and not prop.get("binding_ids"):
@@ -334,7 +334,7 @@ class EnergyRuntime:
                     facts[str(props["grid_import.power_kw"].get("fact_key"))] = max(float(net), 0.0) if isinstance(net, (int, float)) else None
                 if "grid_export.power_kw" in props:
                     facts[str(props["grid_export.power_kw"].get("fact_key"))] = max(-float(net), 0.0) if isinstance(net, (int, float)) else None
-            if asset.get("object_class") == "battery_unit":
+            if asset.get("object_class") == "battery":
                 capacity = facts.get((props.get("battery.capacity_kwh") or {}).get("fact_key"))
                 soc = facts.get((props.get("battery.soc_pct") or {}).get("fact_key"))
                 if "battery.available_kwh" in props:
@@ -348,7 +348,7 @@ class EnergyRuntime:
         # Battery systems aggregate only complete unit evidence.
         for system in [row for row in assets if row.get("object_class") == "battery_system"]:
             sid = str(system.get("asset_id") or "")
-            units = self._children(assets, sid, "battery_unit")
+            units = self._children(assets, sid, "battery")
             pvals = [facts.get(f"{u.get('asset_id')}.power_kw") for u in units]
             cvals = [facts.get(f"{u.get('asset_id')}.capacity_kwh") for u in units]
             avals = [facts.get(f"{u.get('asset_id')}.available_kwh") for u in units]
@@ -360,8 +360,20 @@ class EnergyRuntime:
             available = facts[f"{sid}.available_kwh"]
             facts[f"{sid}.soc_pct"] = round(float(available) / float(capacity) * 100, 3) if isinstance(capacity, (int, float)) and capacity > 0 and isinstance(available, (int, float)) else None
             facts[f"{sid}.status"] = next(iter(set(svals))) if units and all(value is not None for value in svals) and len(set(svals)) == 1 else "mixed" if units and all(value is not None for value in svals) else None
-            if units and any(value is None for value in pvals + cvals + avals):
-                issues.append(f"battery_system:{sid}:aggregate_incomplete")
+
+            # Battery System is a canonical Energy object composed exclusively from
+            # normalized Battery objects.  Never re-read or reinterpret integration
+            # sources here.
+            facts["battery.power_kw"] = facts[f"{sid}.power_kw"]
+            facts["battery.capacity_kwh"] = facts[f"{sid}.capacity_kwh"]
+            facts["battery.available_kwh"] = facts[f"{sid}.available_kwh"]
+            facts["battery.soc_pct"] = facts[f"{sid}.soc_pct"]
+            facts["battery.status"] = facts[f"{sid}.status"]
+            facts["battery_system.source_id"] = sid
+            if units and any(value is None for value in pvals):
+                issues.append(f"battery_system:{sid}:power_aggregate_incomplete")
+            if units and any(value is None for value in cvals + avals):
+                issues.append(f"battery_system:{sid}:energy_aggregate_incomplete")
 
         # Solar systems aggregate inverter facts only when every participating inverter is known.
         for system in [row for row in assets if row.get("object_class") == "solar_production"]:
@@ -373,8 +385,14 @@ class EnergyRuntime:
             facts[f"{sid}.power_kw"] = complete_numeric_sum(powers, expected_count=len(inverters))
             facts[f"{sid}.energy_today_kwh"] = complete_numeric_sum(energies, expected_count=len(inverters))
             facts[f"{sid}.status"] = next(iter(set(statuses))) if inverters and all(value is not None for value in statuses) and len(set(statuses)) == 1 else "mixed" if inverters and all(value is not None for value in statuses) else None
+
+            # Solar Production composes normalized Solar Inverter objects only.
+            facts["solar.power_kw"] = facts[f"{sid}.power_kw"]
+            facts["solar.energy_today_kwh"] = facts[f"{sid}.energy_today_kwh"]
+            facts["solar.status"] = facts[f"{sid}.status"]
+            facts["solar_production.source_id"] = sid
             if inverters and any(value is None for value in powers):
-                issues.append(f"solar_production:{sid}:aggregate_incomplete")
+                issues.append(f"solar_production:{sid}:power_aggregate_incomplete")
 
         meters = [row for row in assets if row.get("object_class") == "gas_meter"]
         gas_values = [facts.get(f"{row.get('asset_id')}.total_m3") for row in meters]
@@ -395,7 +413,10 @@ class EnergyRuntime:
         Structural selection is complete before runtime activation. Runtime never
         arbitrates providers or reinterprets source ownership.
         """
-        canonical_classes = ("battery_system", "grid_connection", "solar_production", "solar_forecast")
+        # Aggregate concepts (Battery System and Solar Production) already publish
+        # canonical facts in _aggregate_objects.  Only directly-bound singleton
+        # concepts are projected here.  This prevents a second interpretation step.
+        canonical_classes = ("grid_connection", "solar_forecast")
         for concept in canonical_classes:
             rows = [row for row in assets if row.get("object_class") == concept]
             if len(rows) > 1:
@@ -451,7 +472,7 @@ class EnergyRuntime:
     def _battery_units(logical_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for asset in logical_assets:
-            if asset.get("object_class") != "battery_unit":
+            if asset.get("object_class") != "battery":
                 continue
             props = _properties(asset)
             rows.append({

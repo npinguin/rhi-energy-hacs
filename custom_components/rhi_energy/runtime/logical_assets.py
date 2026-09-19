@@ -201,14 +201,14 @@ def _build_compiled_assets(
             if not uid:
                 continue
             out.append(_asset(
-                uid, "battery_unit", str(unit.get("display_name") or "Battery Unit"),
+                uid, "battery", str(unit.get("display_name") or "Battery"),
                 builder_id=builder, integration_domain=integration,
                 normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
                 parent_asset_id=aid,
                 selected_device_ids=[str(unit.get("device_registry_id"))] if unit.get("device_registry_id") else [],
                 device_registry_id=str(unit.get("device_registry_id") or "") or None,
                 via_device_registry_id=str(unit.get("via_device_registry_id") or "") or None,
-                properties=_properties("battery_system", uid, unit.get("bindings") or {}, binding_index),
+                properties=_properties("battery", uid, unit.get("bindings") or {}, binding_index),
             ))
 
     # One provider object + optional phase children.

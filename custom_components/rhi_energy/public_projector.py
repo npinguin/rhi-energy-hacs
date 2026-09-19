@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from .public_contract import PublicContractProjector as BaseProjector, project_all
-from .public_v2_parity import build_public_contract_v2, published_v2
+from .public_v2 import build_public_contract_v2, published_v2
 from .v1_parity import close_v1_projection
 
 

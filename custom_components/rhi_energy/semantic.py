@@ -26,9 +26,37 @@ class SemanticDefinition(TypedDict, total=False):
     many: bool
 
 
+# Shared RHI domain-framework vocabulary.  These terms have one meaning across
+# Mobility and Energy; domains differ only in their registered concepts and
+# derivations.
+FRAMEWORK_TERMS: Final[tuple[str, ...]] = (
+    "SelectedDomainBuildInput",
+    "Domain Binding",
+    "Canonical Registry",
+    "Normalizer",
+    "Canonical Fact",
+    "Domain Derivation",
+    "Canonical Snapshot",
+    "Public Projection",
+)
+
+# Canonical object registry.  Integration/source names are deliberately absent:
+# sources bind to these objects, while domain objects compose only from canonical
+# objects.  A Battery System therefore contains Battery objects, never SolarEdge,
+# BYD, entity IDs or integration devices.
+CANONICAL_OBJECT_REGISTRY: Final[dict[str, dict[str, Any]]] = {
+    "battery": {"owner": "energy", "member_of": ("battery_system",)},
+    "battery_system": {"owner": "energy", "members": "battery"},
+    "solar_inverter": {"owner": "energy", "member_of": ("solar_production",)},
+    "solar_production": {"owner": "energy", "members": "solar_inverter"},
+    "grid_connection": {"owner": "energy"},
+    "home_consumption": {"owner": "energy", "derived": True},
+    "flexible_load": {"owner": "energy", "source_domain": "mobility", "cross_domain": True},
+}
+
 OBJECT_CLASS_LABELS: Final[dict[str, str]] = {
     "battery_system": "Home Battery System",
-    "battery_unit": "Battery Unit",
+    "battery": "Battery",
     "grid_connection": "Grid Connection",
     "grid_phase": "Grid Phase",
     "solar_production": "Solar Production",
@@ -48,7 +76,7 @@ OBJECT_CLASS_LABELS: Final[dict[str, str]] = {
 # - child: child object per technical group (phase/optimizer)
 # - derived/runtime: no Foundation input; generated from canonical Energy runtime truth
 PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
-    "battery_system": (
+    "battery": (
         {"input_id":"battery_unit_power","role":"power","property_key":"battery.power_kw","fact_key":"battery.power_kw","name":"Power","unit":"kW","kind":"power","required":True,"platform":"sensor","object_scope":"device","many":False},
         {"input_id":"battery_unit_soc","role":"soc","property_key":"battery.soc_pct","fact_key":"battery.soc_pct","name":"State of charge","unit":"%","kind":"battery","required":True,"platform":"sensor","object_scope":"device","many":False},
         {"input_id":"battery_capacity","role":"capacity","property_key":"battery.capacity_kwh","fact_key":"battery.capacity_kwh","name":"Capacity","unit":"kWh","kind":"energy","required":True,"platform":"sensor","object_scope":"device","many":False},
