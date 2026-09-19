@@ -1,4 +1,4 @@
-"""ENTSO-E market-role conventions isolated from the semantic compiler."""
+"""ENTSO-E market-role conventions isolated from the semantic acceptance."""
 from __future__ import annotations
 
 from typing import Any

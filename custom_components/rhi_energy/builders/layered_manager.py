@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from .build_manager import EnergyBuildManager as _SemanticBuildManager
-from ..compilers.layered_model import materialize_layered_energy_model
+from ..model.layered import materialize_layered_energy_model
 from ..const import SELECTED_BUILD_INPUTS_CHANGED_EVENT
 
 _LAYER_KEYS = {
@@ -26,7 +26,7 @@ _LAYER_KEYS = {
 
 
 def _semantic_model(model: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Strip derived layer metadata before handing last-good state to L1 compiler."""
+    """Strip derived layer metadata before handing last-good state to semantic acceptance."""
     if model is None:
         return None
     out = deepcopy(model)
@@ -50,7 +50,7 @@ def _registry_revisions(manager: _SemanticBuildManager) -> tuple[int, int]:
 
 
 class LayeredEnergyBuildManager(_SemanticBuildManager):
-    """Compile and atomically activate one complete Energy generation at a time."""
+    """Materialize and atomically activate one complete Energy generation at a time."""
 
     def __init__(self, hass) -> None:
         super().__init__(hass)
@@ -61,12 +61,12 @@ class LayeredEnergyBuildManager(_SemanticBuildManager):
         model.update(materialize_layered_energy_model(model))
         generation = {
             "generation_id": (
-                f"energy:{model.get('compiled_model_revision')}:"
+                f"energy:{model.get('domain_model_revision')}:"
                 f"{model.get('model_fingerprint')}"
             ),
-            "compiled_model_revision": model.get("compiled_model_revision"),
-            "compiled_from_configuration_revision": self.configuration_revision,
-            "compiled_from_build_input_revision": self.build_input_revision,
+            "domain_model_revision": model.get("domain_model_revision"),
+            "accepted_from_configuration_revision": self.configuration_revision,
+            "accepted_from_build_input_revision": self.build_input_revision,
             "state": "ACTIVE",
         }
         model["generation"] = generation
@@ -75,7 +75,7 @@ class LayeredEnergyBuildManager(_SemanticBuildManager):
 
     def rebuild(self, reason: str) -> bool:
         configuration_revision, build_input_revision = _registry_revisions(self)
-        active_generation = self.compiled_model
+        active_generation = self.domain_model
 
         if (
             active_generation is not None
@@ -102,10 +102,10 @@ class LayeredEnergyBuildManager(_SemanticBuildManager):
         model_callbacks = self._model_callbacks
         self._callbacks = []
         self._model_callbacks = []
-        self.compiled_model = _semantic_model(active_generation)
+        self.domain_model = _semantic_model(active_generation)
         try:
             accepted = super().rebuild(reason)
-            candidate = self.compiled_model
+            candidate = self.domain_model
         finally:
             self._callbacks = callbacks
             self._model_callbacks = model_callbacks
@@ -113,13 +113,13 @@ class LayeredEnergyBuildManager(_SemanticBuildManager):
         if not accepted or candidate is None:
             # A failed candidate may update diagnostics, never the active topology.
             if active_generation is not None:
-                self.compiled_model = active_generation
+                self.domain_model = active_generation
             self._notify()
             return False
 
         candidate = self._activate_layers(candidate)
         changed = candidate != active_generation
-        self.compiled_model = candidate
+        self.domain_model = candidate
         if changed:
             self._notify_model()
         self._notify()

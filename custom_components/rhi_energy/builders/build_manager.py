@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from homeassistant.core import Event, HomeAssistant
 
-from ..compilers.energy import compile_energy_build_inputs
+from ..semantic_acceptance import accept_energy_selected_inputs
 from ..const import BUILD_INPUT_REGISTRY_KEY, SELECTED_BUILD_INPUTS_CHANGED_EVENT
 
 _LOGGER = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ def _selected_handoff_complete(entry: dict[str, Any]) -> bool:
             if not all(_candidate_and_match_complete(candidate, item) for item in candidate_matches):
                 return False
     # Zero candidates is a structurally valid handoff. Semantic applicability is
-    # evaluated by the Energy compiler from selection intent + discovery assessment.
+    # evaluated by the Energy semantic acceptance from selection intent + discovery assessment.
     return True
 
 
@@ -154,7 +154,7 @@ def _builder_assessment(entry: dict[str, Any], *, structural_valid: bool = True)
         status = "ABSENT"
     elif mode == "all_matching" and required_candidate_count == 0:
         # Auxiliary-only evidence is worth normalizing/diagnosing, but it cannot prove
-        # a complete runtime instance. The compiler may safely publish a degraded subset.
+        # a complete runtime instance. The semantic acceptance may safely materialize a degraded subset.
         status = "DEGRADED"
     elif discovery.get("required_inputs_complete") and not discovery.get("review_required") and discovery.get("topology_state") == "unambiguous":
         status = "READY"
@@ -186,8 +186,8 @@ def _builder_assessment(entry: dict[str, Any], *, structural_valid: bool = True)
     }
 
 
-def _materialize_compiler_input(entry: dict[str, Any]) -> dict[str, Any]:
-    """Create Energy-local compiler view solely from SelectedDomainBuildInput 1.2.0.
+def _materialize_semantic_acceptance_input(entry: dict[str, Any]) -> dict[str, Any]:
+    """Create Energy-local semantic-acceptance view solely from SelectedDomainBuildInput 1.2.0.
 
     Each selected Foundation candidate is augmented with the exact domain-owned raw
     match that selected it. No HA registry scan and no Foundation-private state is read.
@@ -223,7 +223,7 @@ class EnergyBuildManager:
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
-        self.compiled_model: dict[str, Any] | None = None
+        self.domain_model: dict[str, Any] | None = None
         self.foundation_status = "UNKNOWN"
         self.build_health = "UNKNOWN"
         self.reason = "selected_domain_build_input_missing"
@@ -253,7 +253,7 @@ class EnergyBuildManager:
 
     def _notify_model(self) -> None:
         for cb in tuple(self._model_callbacks):
-            cb(self.compiled_model)
+            cb(self.domain_model)
 
     def _current_entry(self) -> dict[str, Any]:
         registry = self.hass.data.get(BUILD_INPUT_REGISTRY_KEY, {}) or {}
@@ -268,13 +268,13 @@ class EnergyBuildManager:
         return bool(
             self.handoff_present
             and self.foundation_status == "OK"
-            and self.compiled_model is not None
+            and self.domain_model is not None
             and self.build_health in {"OK", "DEGRADED"}
         )
 
     def _deactivate_for_removed_handoff(self) -> None:
-        changed = self.compiled_model is not None
-        self.compiled_model = None
+        changed = self.domain_model is not None
+        self.domain_model = None
         self.foundation_status = "UNKNOWN"
         self.build_health = "UNKNOWN"
         self.reason = "selected_domain_build_input_removed"
@@ -295,8 +295,8 @@ class EnergyBuildManager:
             # never inferred from an old revision. Retain last-good runtime only as STALE.
             self.handoff_present = False
             self.foundation_status = "UNKNOWN"
-            self.build_health = "STALE" if self.compiled_model else "UNKNOWN"
-            self.configuration_status = "STALE" if self.compiled_model else "UNCONFIGURED"
+            self.build_health = "STALE" if self.domain_model else "UNKNOWN"
+            self.configuration_status = "STALE" if self.domain_model else "UNCONFIGURED"
             self.reason = "selected_domain_build_input_missing"
             self.builder_assessments = {}
             self.affected_scope = []
@@ -320,7 +320,7 @@ class EnergyBuildManager:
         if wrong_contract:
             self.foundation_status = "INVALID"
             self.configuration_status = "INVALID"
-            self.build_health = "STALE" if self.compiled_model else "INVALID"
+            self.build_health = "STALE" if self.domain_model else "INVALID"
             self.reason = "selected_build_input_contract_version_unsupported"
             self.builder_assessments = {
                 str(item.get("builder_id") or "unknown"): _builder_assessment(item, structural_valid=False)
@@ -344,7 +344,7 @@ class EnergyBuildManager:
                 preflight_issues.append(f"{builder_id}:selected_build_input_raw_match_evidence_invalid")
                 continue
             if item.get("builder_id"):
-                payload[builder_id] = _materialize_compiler_input(item)
+                payload[builder_id] = _materialize_semantic_acceptance_input(item)
 
         # Configuration is valid once the authoritative registry entry and supported
         # contracts are present. Per-builder discovery/semantic problems belong to build.
@@ -353,30 +353,30 @@ class EnergyBuildManager:
         self.builder_assessments = assessments
 
         try:
-            model = compile_energy_build_inputs(
+            model = accept_energy_selected_inputs(
                 payload,
-                self.compiled_model,
+                self.domain_model,
                 preflight_issues=preflight_issues,
             )
         except Exception as exc:
             # Atomic safety: never replace previous known-good model after an unexpected
-            # compiler failure. Normal per-builder failures are returned as model issues.
-            self.build_health = "STALE" if self.compiled_model else "INVALID"
-            self.reason = str(exc).split(":", 1)[0] or "semantic_compile_failed"
+            # semantic acceptance failure. Normal per-builder failures are returned as model issues.
+            self.build_health = "STALE" if self.domain_model else "INVALID"
+            self.reason = str(exc).split(":", 1)[0] or "semantic_acceptance_failed"
             self.affected_scope = sorted(structurally_invalid)[:20]
-            _LOGGER.warning("Energy semantic compile blocked during %s: %s", reason, exc)
+            _LOGGER.warning("Energy semantic acceptance blocked during %s: %s", reason, exc)
             self._notify()
             return False
 
         model_issues = [str(value) for value in (model.get("issues") or [])]
-        compile_assessments = model.get("concept_assessments") or {}
-        # Compiler truth refines Foundation discovery truth. Keep both, but expose the
+        acceptance_assessments = model.get("concept_assessments") or {}
+        # Semantic acceptance truth refines Foundation discovery truth. Keep both, but expose the
         # normalization result as the operator-facing status for each builder.
-        for builder_id, compile_row in compile_assessments.items():
+        for builder_id, acceptance_row in acceptance_assessments.items():
             if builder_id not in self.builder_assessments:
                 self.builder_assessments[builder_id] = {"builder_id": builder_id}
-            self.builder_assessments[builder_id]["normalization"] = deepcopy(compile_row)
-            self.builder_assessments[builder_id]["status"] = compile_row.get("status") or self.builder_assessments[builder_id].get("status")
+            self.builder_assessments[builder_id]["normalization"] = deepcopy(acceptance_row)
+            self.builder_assessments[builder_id]["status"] = acceptance_row.get("status") or self.builder_assessments[builder_id].get("status")
 
         affected = sorted({
             builder_id
@@ -385,23 +385,23 @@ class EnergyBuildManager:
         })
         self.affected_scope = affected[:20]
 
-        changed = model != self.compiled_model
-        self.compiled_model = model
+        changed = model != self.domain_model
+        self.domain_model = model
         if not model_issues:
             self.build_health = "OK"
-            self.reason = "compiled_model_ready"
+            self.reason = "domain_model_ready"
         else:
             # Structural/configuration defects are handled before compilation. Once the
             # handoff is structurally valid, per-concept defects are a degraded build,
             # never a reason to suppress safely normalized unrelated concepts.
             self.build_health = "DEGRADED"
-            self.reason = "partial_concept_compile"
+            self.reason = "partial_semantic_acceptance"
         self.last_success = reason if self.build_health in {"OK", "DEGRADED"} else self.last_success
 
         if changed:
             _LOGGER.info(
-                "Energy compiled model activated revision=%s concepts=%s absent=%s issues=%s reason=%s",
-                model.get("compiled_model_revision"),
+                "Energy domain model activated revision=%s concepts=%s absent=%s issues=%s reason=%s",
+                model.get("domain_model_revision"),
                 sorted((model.get("concepts") or {}).keys()),
                 model.get("explicitly_absent_concepts") or [],
                 len(model_issues),

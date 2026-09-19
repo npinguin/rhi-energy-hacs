@@ -163,7 +163,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         }
         hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
         await manager.async_start()
-        runtime.activate_model(manager.compiled_model)
+        runtime.activate_model(manager.domain_model)
         await metering.async_start()
         await interaction.async_start()
         projector.start()

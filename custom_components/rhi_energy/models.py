@@ -35,7 +35,7 @@ class SourceIdentity(TypedDict, total=False):
     unique_id: str
 
 
-class AcceptedBinding(TypedDict):
+class AcceptedSourceBinding(TypedDict):
     kind: str
     contract_version: str
     binding_id: str
@@ -108,12 +108,12 @@ class LogicalAsset(TypedDict, total=False):
     market_role: str
 
 
-class CompiledEnergyModel(TypedDict, total=False):
+class EnergyDomainModel(TypedDict, total=False):
     kind: str
     contract_version: str
     domain_id: str
     concepts: dict[str, Any]
-    accepted_bindings: list[AcceptedBinding]
+    accepted_bindings: list[AcceptedSourceBinding]
     logical_assets: list[LogicalAsset]
     explicitly_absent_concepts: list[str]
     concept_assessments: dict[str, dict[str, Any]]
@@ -121,7 +121,7 @@ class CompiledEnergyModel(TypedDict, total=False):
     issues: list[str]
     source_revisions: list[Any]
     normalization: dict[str, Any]
-    compiled_model_revision: int
+    domain_model_revision: int
 
 
 class CanonicalFact(TypedDict, total=False):

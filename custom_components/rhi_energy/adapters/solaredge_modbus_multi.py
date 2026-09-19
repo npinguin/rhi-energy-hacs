@@ -33,9 +33,15 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
             return False
         return family_marker not in unique_id or re.search(suffixes[input_id], unique_id) is not None
     if input_id == "solar_power":
-        return re.search(r"_B[1-4]_", unique_id) is None and not unique_id.endswith("_inverted")
+        return (
+            re.search(r"_(?:B|DERB)[1-4]_", unique_id) is None
+            and not unique_id.endswith("_inverted")
+        )
     if input_id == "inverter_status":
-        return unique_id.endswith("_status") and re.search(r"_B[1-4]_", unique_id) is None
+        return (
+            unique_id.endswith("_status")
+            and re.search(r"_(?:B|DERB)[1-4]_", unique_id) is None
+        )
     return True
 
 

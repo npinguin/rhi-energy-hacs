@@ -162,7 +162,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     runtime = state.get("runtime")
     store = state.get("store")
     provider = state.get("provider")
-    model = (getattr(manager, "compiled_model", None) or {}) if manager else {}
+    model = (getattr(manager, "domain_model", None) or {}) if manager else {}
     snap = (getattr(runtime, "snapshot", {}) or {}) if runtime else {}
     facts = snap.get("facts") or {}
     store_data = (getattr(store, "data", {}) or {}) if store else {}
@@ -291,7 +291,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "runtime_rules": deepcopy(model.get("runtime_rules") or {}),
         },
         "compile": {
-            "compiled_model_revision": model.get("compiled_model_revision"),
+            "domain_model_revision": model.get("domain_model_revision"),
             "concepts": sorted((model.get("concepts") or {}).keys()),
             "concept_assessments": deepcopy(model.get("concept_assessments") or {}),
             "technical_observations": deepcopy(model.get("technical_observations") or {}),

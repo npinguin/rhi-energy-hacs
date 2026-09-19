@@ -10,7 +10,7 @@ from .v1_parity import close_v1_projection
 class PublicContractProjector(BaseProjector):
     def recompute(self) -> None:
         snapshot = deepcopy(self.runtime.snapshot)
-        model = self.manager.compiled_model or {}
+        model = self.manager.domain_model or {}
         battery = (model.get("concepts") or {}).get("battery_system") or {}
         snapshot["battery_reserve_write_supported"] = bool(battery.get("reserve_binding"))
         snapshot["settings"] = deepcopy(self.store.data.get("settings") or {})

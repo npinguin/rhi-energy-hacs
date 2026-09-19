@@ -79,7 +79,7 @@ def build_public_contract_v2(
         "domain_id": "energy",
         "release": RELEASE,
         "generated_at": datetime.now(UTC).isoformat(),
-        "compiled_model_revision": model.get("compiled_model_revision"),
+        "domain_model_revision": model.get("domain_model_revision"),
         "generation": deepcopy(model.get("generation") or {}),
         "layers": {
             "contract_version": model.get("layer_contract_version"),

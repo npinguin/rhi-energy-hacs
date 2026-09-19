@@ -470,7 +470,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     """Return object_id -> {state, attributes} for the complete legacy surface."""
     snap = compatibility_snapshot(snapshot)
     snap["settings"] = deepcopy(store_data.get("settings") or {})
-    model = getattr(manager, "compiled_model", None) or {}
+    model = getattr(manager, "domain_model", None) or {}
     concepts = model.get("concepts") or {}
     battery_system = concepts.get("battery_system") or {}
     snap["battery_reserve_write_supported"] = bool(battery_system.get("reserve_binding"))
@@ -826,7 +826,7 @@ class PublicContractProjector:
         # Add structural evidence that belongs to runtime/model without putting
         # Foundation into the measurement fast path.
         snapshot=deepcopy(self.runtime.snapshot)
-        model=self.manager.compiled_model or {}
+        model=self.manager.domain_model or {}
         bsys=(model.get("concepts") or {}).get("battery_system") or {}
         reserve_id=bsys.get("reserve_binding")
         snapshot["battery_reserve_write_supported"]=bool(reserve_id)

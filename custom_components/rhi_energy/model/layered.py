@@ -1,29 +1,29 @@
-"""Active layered Energy compiler with final graph integrity."""
+"""Active layered Energy model materialization with final graph integrity."""
 from __future__ import annotations
 
 try:
-    from .layered_model_base import materialize_layered_energy_model as _base
-    from .closure_model import close_layered_energy_model as _close
-    from .finalize_layered import finalize_layered_energy_model as _finalize
+    from .layered_base import materialize_layered_energy_model as _base
+    from .closure import close_layered_energy_model as _close
+    from .finalize import finalize_layered_energy_model as _finalize
 except ImportError:
     from pathlib import Path
     import runpy
 
     _here = Path(__file__).resolve().parent
-    _base = runpy.run_path(str(_here / "layered_model_base.py"))[
+    _base = runpy.run_path(str(_here / "layered_base.py"))[
         "materialize_layered_energy_model"
     ]
-    _close = runpy.run_path(str(_here / "closure_model.py"))[
+    _close = runpy.run_path(str(_here / "closure.py"))[
         "close_layered_energy_model"
     ]
-    _finalize = runpy.run_path(str(_here / "finalize_layered.py"))[
+    _finalize = runpy.run_path(str(_here / "finalize.py"))[
         "finalize_layered_energy_model"
     ]
 
 LAYERED_MODEL_CONTRACT = {
     "runtime_may_mutate_topology": False,
     "runtime_may_discover_assets": False,
-    "telemetry_may_trigger_compile": False,
+    "telemetry_may_trigger_structural_rebuild": False,
     "structural_changes_require_new_generation": True,
     "compatibility_projection_may_create_semantics": False,
     "planning_concepts": (

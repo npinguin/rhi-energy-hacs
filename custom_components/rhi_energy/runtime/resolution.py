@@ -45,9 +45,9 @@ def resolve_property(prop: dict[str, Any], value: Any, *, value_revision: int = 
     """Resolve one fixed logical property without source selection or guessing."""
     binding_ids = _binding_ids(prop)
     provenance = _provenance(prop, binding_ids)
-    compiled_status = str(prop.get("status") or "")
+    acceptance_status = str(prop.get("status") or "")
 
-    if compiled_status in {"MISSING", "UNSUPPORTED"}:
+    if acceptance_status in {"MISSING", "UNSUPPORTED"}:
         return {
             "status": "UNRESOLVED",
             "quality": "NOT_ASSESSED",

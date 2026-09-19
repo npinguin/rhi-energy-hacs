@@ -108,7 +108,7 @@ class EnergyPublicV2Sensor(_EnergySensor):
         return {
             "contract_version": contract.get("contract_version"),
             "release": contract.get("release"),
-            "compiled_model_revision": contract.get("compiled_model_revision"),
+            "domain_model_revision": contract.get("domain_model_revision"),
             "summary": contract.get("summary") or {},
             "objects": contract.get("objects") or [],
             "relationships": contract.get("relationships") or [],
@@ -164,7 +164,7 @@ class EnergyBatteryMetricSensor(_RuntimeSensor):
     def extra_state_attributes(self):
         return {
             "health": (self._runtime.snapshot.get("facts") or {}).get("battery.health"),
-            "compiled_model_revision": self._runtime.snapshot.get("compiled_model_revision"),
+            "domain_model_revision": self._runtime.snapshot.get("domain_model_revision"),
         }
 
 
@@ -231,10 +231,10 @@ class EnergyHealthSensor(_DiagnosticSensor):
 
     @property
     def extra_state_attributes(self):
-        model = self._manager.compiled_model or {}
+        model = self._manager.domain_model or {}
         return {
             "reason": self._manager.reason,
-            "revision": model.get("compiled_model_revision") or self._manager.build_input_revision,
+            "revision": model.get("domain_model_revision") or self._manager.build_input_revision,
             "last_success": self._manager.last_success,
             "affected_scope": list(self._manager.affected_scope)[:20],
         }
@@ -288,19 +288,19 @@ class EnergyBuildSensor(_DiagnosticSensor):
         if self._manager.reason in {
             "selected_domain_build_input_missing",
             "selected_domain_build_input_removed",
-        } and self._manager.compiled_model is None:
+        } and self._manager.domain_model is None:
             return "WAITING"
         return self._manager.build_health
 
     @property
     def extra_state_attributes(self):
-        model = self._manager.compiled_model or {}
+        model = self._manager.domain_model or {}
         return {
             "reason": self._manager.reason,
             "revision": self._manager.build_input_revision,
             "last_success": self._manager.last_success,
             "affected_scope": list(self._manager.affected_scope)[:20],
-            "compiled_model_revision": model.get("compiled_model_revision"),
+            "domain_model_revision": model.get("domain_model_revision"),
             "accepted_binding_count": len(model.get("accepted_bindings") or []),
             "configured_concept_count": len(model.get("concepts") or {}),
         }
@@ -369,7 +369,7 @@ class EnergyLogicalEntityManager:
 
     def _inventory(self) -> list[dict]:
         runtime_rows = self._runtime.snapshot.get("logical_assets") or []
-        model_rows = (self._manager.compiled_model or {}).get("logical_assets") or []
+        model_rows = (self._manager.domain_model or {}).get("logical_assets") or []
         rows = runtime_rows if runtime_rows else model_rows
         return [row for row in rows if isinstance(row, dict) and row.get("asset_id")]
 
@@ -459,7 +459,7 @@ class _LogicalEnergySensor(SensorEntity):
         asset = _logical_asset(self._runtime.snapshot, self._asset_id)
         if asset is not None:
             return asset
-        for row in (self._manager.compiled_model or {}).get("logical_assets") or []:
+        for row in (self._manager.domain_model or {}).get("logical_assets") or []:
             if str(row.get("asset_id") or "") == self._asset_id:
                 return row
         return None

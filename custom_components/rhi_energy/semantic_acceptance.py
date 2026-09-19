@@ -1,4 +1,8 @@
-"""Energy-owned semantic compiler for Foundation SelectedDomainBuildInput 1.2.0.
+"""Energy semantic acceptance for Foundation SelectedDomainBuildInput 1.2.0.
+
+This module mirrors the Mobility domain boundary terminology:
+SelectedDomainBuildInput -> semantic acceptance / logical identity ->
+AcceptedSourceBinding. It is configuration/build-time code; runtime never reopens structural acceptance.
 
 Foundation performs technical discovery/matching only. Energy consumes exact selected
 raw matches plus evidence, applies cardinality and target-scope safety independently per
@@ -16,14 +20,14 @@ import json
 from typing import Any
 
 try:
-    from ..adapters import get_candidate_filter, get_market_role_resolver
-    from ..models import AcceptedBinding, CompiledEnergyModel
-    from ..runtime.logical_assets import build_logical_assets
-    from ..semantic import input_definitions
+    from .adapters import get_candidate_filter, get_market_role_resolver
+    from .models import AcceptedSourceBinding, EnergyDomainModel
+    from .runtime.logical_assets import build_logical_assets
+    from .semantic import input_definitions
 except ImportError:  # Direct runpy/static unit-test execution without package context.
     from pathlib import Path as _Path
     import runpy as _runpy
-    _root = _Path(__file__).resolve().parents[1]
+    _root = _Path(__file__).resolve().parent
     build_logical_assets = _runpy.run_path(str(_root / "runtime" / "logical_assets.py"))["build_logical_assets"]
     input_definitions = _runpy.run_path(str(_root / "semantic.py"))["input_definitions"]
     def _adapter_function(integration: str, name: str, default):
@@ -35,8 +39,8 @@ except ImportError:  # Direct runpy/static unit-test execution without package c
         return _adapter_function(str(integration or ""), "accept_candidate", lambda _input_id, _candidate: True)
     def get_market_role_resolver(integration):
         return _adapter_function(str(integration or ""), "market_role", lambda candidate: (candidate.get("semantic_metadata") or {}).get("market_role"))
-    AcceptedBinding = dict  # type: ignore[assignment,misc]
-    CompiledEnergyModel = dict  # type: ignore[assignment,misc]
+    AcceptedSourceBinding = dict  # type: ignore[assignment,misc]
+    EnergyDomainModel = dict  # type: ignore[assignment,misc]
 
 
 def _hash(value: Any, length: int = 12) -> str:
@@ -137,7 +141,7 @@ def _binding(
     role: str,
     candidate: dict[str, Any],
     previous: dict[str, Any] | None = None,
-) -> AcceptedBinding:
+) -> AcceptedSourceBinding:
     source = deepcopy(candidate.get("source_identity") or {})
     selected_match = deepcopy(candidate.get("selected_match") or {})
     candidate_id = str(candidate.get("candidate_id") or "")
@@ -260,7 +264,7 @@ def _safe_inputs(build_input: dict[str, Any], concept: str) -> tuple[dict[str, l
 
 
 def _single_role(
-    bindings: list[AcceptedBinding],
+    bindings: list[AcceptedSourceBinding],
     previous: dict[str, dict[str, Any]],
     asset_id: str,
     role: str,
@@ -277,7 +281,7 @@ def _single_role(
 
 
 def _bind_many(
-    bindings: list[AcceptedBinding],
+    bindings: list[AcceptedSourceBinding],
     previous: dict[str, dict[str, Any]],
     asset_id: str,
     role: str,
@@ -292,8 +296,8 @@ def _bind_many(
     return ids
 
 
-def _compile_battery(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
-    inputs, issues = _safe_inputs(build_input, "battery_system")
+def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
+    inputs, issues = _safe_inputs(build_input, "battery")
     measurement_ids = ["battery_unit_power", "battery_unit_soc", "battery_capacity"]
     # A stationary battery unit must be anchored by physical power/capacity evidence.
     # SOC-only companion devices (for example SolarEdge DERB telemetry) enrich an
@@ -312,9 +316,9 @@ def _compile_battery(build_input: dict[str, Any], previous: dict[str, dict[str, 
     builder_id = str(build_input.get("builder_id") or "battery")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
     system_id = f"battery_system_{_hash([integration, builder_id], 8)}"
-    bindings: list[AcceptedBinding] = []
+    bindings: list[AcceptedSourceBinding] = []
     units: list[dict[str, Any]] = []
-    device_specs = [spec for spec in input_definitions("battery_system") if spec.get("object_scope") == "device"]
+    device_specs = [spec for spec in input_definitions("battery") if spec.get("object_scope") == "device"]
     entity_reserves = [
         candidate
         for candidate in inputs.get("reserve_write_surface", [])
@@ -404,12 +408,12 @@ def _compile_battery(build_input: dict[str, Any], previous: dict[str, dict[str, 
     )
 
 
-def _compile_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
+def _accept_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "grid_connection")
     builder_id = str(build_input.get("builder_id") or "grid")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
     asset_id = f"grid_{_hash([integration, builder_id], 8)}"
-    bindings: list[AcceptedBinding] = []
+    bindings: list[AcceptedSourceBinding] = []
     roles: dict[str, Any] = {}
     for spec in input_definitions("grid_connection"):
         role = str(spec.get("role") or "")
@@ -432,18 +436,25 @@ def _compile_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any
     return bindings, {"asset_id": asset_id, "asset_type": "grid_connection", "bindings": roles, "phases": phases, "builder_id": builder_id, "integration_domain": integration, "normalization_status": "READY" if "net_power" in roles and not issues else "DEGRADED"}, issues
 
 
-def _compile_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
+def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "solar_production")
     phase_rows, local = _safe_for(build_input, "phase_power")
     issues.extend(local)
     inputs["phase_power"] = phase_rows
-    anchors = sorted({_candidate_device_id(candidate) for rows in inputs.values() for candidate in rows if _candidate_device_id(candidate)})
+    # A Solar Inverter is a physical production object and therefore requires
+    # authoritative solar-power evidence. Status/energy sibling devices may enrich
+    # an anchored inverter but must never materialize an inverter by themselves.
+    anchors = sorted({
+        _candidate_device_id(candidate)
+        for candidate in inputs.get("solar_power", [])
+        if _candidate_device_id(candidate)
+    })
     if not anchors:
         raise ValueError("no_semantically_safe_input")
     builder_id = str(build_input.get("builder_id") or "solar")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
     system_id = f"solar_{_hash([integration, builder_id], 8)}"
-    bindings: list[AcceptedBinding] = []
+    bindings: list[AcceptedSourceBinding] = []
     inverters: list[dict[str, Any]] = []
     device_specs = [spec for spec in input_definitions("solar_production") if spec.get("object_scope") == "device"]
     for device_id in anchors:
@@ -477,14 +488,14 @@ def _compile_solar(build_input: dict[str, Any], previous: dict[str, dict[str, An
     return bindings, {"asset_id": system_id, "asset_type": "solar_system", "inverters": inverters, "builder_id": builder_id, "integration_domain": integration, "normalization_status": "READY" if all("power" in (item.get("bindings") or {}) for item in inverters) and not issues else "DEGRADED"}, issues
 
 
-def _compile_provider_semantics(
+def _accept_provider_semantics(
     build_input: dict[str, Any],
     previous: dict[str, dict[str, Any]],
     concept: str,
     asset_id: str,
-) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
+) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, concept)
-    bindings: list[AcceptedBinding] = []
+    bindings: list[AcceptedSourceBinding] = []
     roles: dict[str, Any] = {}
     for spec in input_definitions(concept):
         role = str(spec.get("role") or "")
@@ -501,24 +512,24 @@ def _compile_provider_semantics(
     return bindings, roles, issues
 
 
-def _compile_forecast(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
+def _accept_forecast(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     builder_id = str(build_input.get("builder_id") or "forecast")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
     asset_id = f"forecast_{_hash([integration, builder_id], 8)}"
-    bindings, roles, issues = _compile_provider_semantics(build_input, previous, "solar_forecast", asset_id)
+    bindings, roles, issues = _accept_provider_semantics(build_input, previous, "solar_forecast", asset_id)
     if not roles:
         raise ValueError("no_semantically_safe_input")
     return bindings, {"asset_id": asset_id, "asset_type": "solar_forecast", "bindings": roles, "builder_id": builder_id, "integration_domain": integration, "normalization_status": "READY" if roles.get("today_energy") and not issues else "DEGRADED"}, issues
 
 
-def _compile_price(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
+def _accept_price(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     builder_id = str(build_input.get("builder_id") or "price")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "price")
     inputs, issues = _safe_inputs(build_input, "price_source")
     current_rows = inputs.get("current_price", [])
     if not current_rows:
         raise ValueError("no_semantically_safe_input")
-    bindings: list[AcceptedBinding] = []
+    bindings: list[AcceptedSourceBinding] = []
     sources: list[dict[str, Any]] = []
     for current in current_rows:
         anchor = _candidate_config_id(current)
@@ -575,7 +586,7 @@ def _compile_price(build_input: dict[str, Any], previous: dict[str, dict[str, An
     }, issues
 
 
-def _compile_gas(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
+def _accept_gas(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "gas_meter")
     anchors = sorted({
         _candidate_device_id(candidate) or _candidate_config_id(candidate)
@@ -587,7 +598,7 @@ def _compile_gas(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
     builder_id = str(build_input.get("builder_id") or "gas")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "gas")
     provider_id = f"gas_provider_{_hash([integration, builder_id], 8)}"
-    bindings: list[AcceptedBinding] = []
+    bindings: list[AcceptedSourceBinding] = []
     meters: list[dict[str, Any]] = []
     required_roles = {str(spec.get("role") or "") for spec in input_definitions("gas_meter") if spec.get("required")}
     for anchor in anchors:
@@ -614,7 +625,7 @@ def _compile_gas(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
     return bindings, {"asset_id": provider_id, "asset_type": "gas_meter_collection", "meters": meters, "builder_id": builder_id, "integration_domain": integration, "normalization_status": "READY" if complete and not issues else "DEGRADED"}, issues
 
 
-def _compile_optimizer(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedBinding], dict[str, Any], list[str]]:
+def _accept_optimizer(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "solar_optimizer")
     anchors = sorted(
         {
@@ -632,7 +643,7 @@ def _compile_optimizer(build_input: dict[str, Any], previous: dict[str, dict[str
     builder_id = str(build_input.get("builder_id") or "optimizer")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
     provider_id = f"optimizer_provider_{_hash([integration, builder_id], 8)}"
-    bindings: list[AcceptedBinding] = []
+    bindings: list[AcceptedSourceBinding] = []
     optimizers: list[dict[str, Any]] = []
 
     def anchor_for(candidate):
@@ -661,31 +672,31 @@ def _compile_optimizer(build_input: dict[str, Any], previous: dict[str, dict[str
     return bindings, {"asset_id": provider_id, "asset_type": "solar_optimizer_collection", "optimizers": optimizers, "builder_id": builder_id, "integration_domain": integration, "normalization_status": "READY" if all("power" in (item.get("bindings") or {}) for item in optimizers) and not issues else "DEGRADED"}, issues
 
 
-_COMPILERS = {
-    "battery_system": _compile_battery,
-    "grid_connection": _compile_grid,
-    "solar_production": _compile_solar,
-    "solar_forecast": _compile_forecast,
-    "price_source": _compile_price,
-    "gas_meter": _compile_gas,
-    "solar_optimizer": _compile_optimizer,
+_SEMANTIC_ACCEPTORS = {
+    "battery_system": _accept_battery,
+    "grid_connection": _accept_grid,
+    "solar_production": _accept_solar,
+    "solar_forecast": _accept_forecast,
+    "price_source": _accept_price,
+    "gas_meter": _accept_gas,
+    "solar_optimizer": _accept_optimizer,
 }
-_COLLECTION_CONCEPTS = set(_COMPILERS)
+_COLLECTION_CONCEPTS = set(_SEMANTIC_ACCEPTORS)
 
 
-def compile_energy_build_inputs(
+def accept_energy_selected_inputs(
     build_inputs: dict[str, dict[str, Any]],
     previous_model: dict[str, Any] | None = None,
     *,
     preflight_issues: list[str] | None = None,
-) -> CompiledEnergyModel:
+) -> EnergyDomainModel:
     previous_by_id = {
         binding["binding_id"]: binding
         for binding in (previous_model or {}).get("accepted_bindings", [])
         if isinstance(binding, dict) and binding.get("binding_id")
     }
     concepts: dict[str, Any] = {}
-    bindings: list[AcceptedBinding] = []
+    bindings: list[AcceptedSourceBinding] = []
     issues = list(preflight_issues or [])
     revisions = []
     explicitly_absent: set[str] = set()
@@ -711,11 +722,11 @@ def compile_energy_build_inputs(
         before = len(bindings)
         local_issues: list[str] = []
         try:
-            compiler = _COMPILERS.get(concept_id)
-            if compiler is None:
+            acceptor = _SEMANTIC_ACCEPTORS.get(concept_id)
+            if acceptor is None:
                 raise ValueError("unsupported_builder")
-            compiled_bindings, asset, local_issues = compiler(build_input, previous_by_id)
-            bindings.extend(compiled_bindings)
+            accepted_bindings, asset, local_issues = acceptor(build_input, previous_by_id)
+            bindings.extend(accepted_bindings)
             provider_assets[concept_id].append(asset)
         except Exception as exc:
             message = str(exc)
@@ -759,8 +770,8 @@ def compile_energy_build_inputs(
         "technical_observations": technical_observations,
     }
     logical_assets = build_logical_assets(build_inputs, interim)
-    base: CompiledEnergyModel = {
-        "kind": "compiled_domain_model",
+    base: EnergyDomainModel = {
+        "kind": "energy_domain_model",
         "contract_version": "1.2.0",
         "domain_id": "energy",
         "concepts": concepts,
@@ -786,7 +797,7 @@ def compile_energy_build_inputs(
         },
     }
     previous = deepcopy(previous_model or {})
-    previous_revision = int(previous.pop("compiled_model_revision", 0) or 0)
+    previous_revision = int(previous.pop("domain_model_revision", 0) or 0)
     revision = previous_revision if previous and previous == base else previous_revision + 1
-    base["compiled_model_revision"] = max(1, revision)
+    base["domain_model_revision"] = max(1, revision)
     return base

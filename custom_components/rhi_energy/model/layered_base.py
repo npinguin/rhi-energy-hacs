@@ -1,6 +1,6 @@
 """Deterministic layered Energy model materialization.
 
-Compile owns topology. Runtime may update values but may never discover, add, remove or
+Structural model materialization owns topology. Runtime may update values but may never discover, add, remove or
 re-parent concepts. Compatibility remains downstream of this canonical graph.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ def _logical(model: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _systems(model: dict[str, Any]):
     edges = []
-    battery_units = _assets(model, "battery_unit")
+    batterys = _assets(model, "battery")
     legacy_battery = _assets(model, "battery_system")
     battery_id = legacy_battery[0] if legacy_battery else "battery_system:home"
     inverters = _assets(model, "solar_inverter")
@@ -42,7 +42,7 @@ def _systems(model: dict[str, Any]):
     prices = _assets(model, "price_source")
     # System/planning/intelligence readiness is runtime evidence, never topology existence.
     systems = [
-        _node(battery_id, "battery_system", "system", sources=battery_units, reason="runtime_evidence_not_evaluated"),
+        _node(battery_id, "battery_system", "system", sources=batterys, reason="runtime_evidence_not_evaluated"),
         _node(solar_id, "solar_production_system", "system", sources=inverters, reason="runtime_evidence_not_evaluated"),
         _node("site_energy_balance:home", "site_energy_balance", "system", sources=[x for x in (solar_id, battery_id, grid_id) if x], reason="runtime_evidence_not_evaluated"),
         _node("home_consumption:home", "home_consumption", "system", sources=["site_energy_balance:home"], reason="runtime_evidence_not_evaluated"),
@@ -54,7 +54,7 @@ def _systems(model: dict[str, Any]):
         _node("strategy_system:home", "strategy_system", "system", reason="runtime_evidence_not_evaluated"),
         _node("value_accounting_system:home", "value_accounting_system", "system", sources=["metering_system:home", "pricing_system:home"], reason="runtime_evidence_not_evaluated"),
     ]
-    for source in battery_units: edges.append(_edge(source, battery_id, "aggregate_member"))
+    for source in batterys: edges.append(_edge(source, battery_id, "aggregate_member"))
     for source in inverters: edges.append(_edge(source, solar_id, "aggregate_member"))
     for source in [x for x in (solar_id, battery_id, grid_id) if x]: edges.append(_edge(source, "site_energy_balance:home", "balance_input", "OPTIONAL" if source == battery_id else "REQUIRED"))
     edges += [_edge("site_energy_balance:home", "home_consumption:home", "derived_fact"), _edge("site_energy_balance:home", "metering_system:home", "metering_input"), _edge("metering_system:home", "value_accounting_system:home", "accounting_input"), _edge("pricing_system:home", "value_accounting_system:home", "accounting_input")]
@@ -98,4 +98,4 @@ def materialize_layered_energy_model(model: dict[str, Any]) -> dict[str, Any]:
     node_ids = {str(x["asset_id"]) for group in (logical, systems, planning, intelligence) for x in group}
     basis = {"logical": logical, "system": systems, "planning": planning, "intelligence": intelligence, "dependencies": dependencies}
     fingerprint = hashlib.sha256(json.dumps(basis, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
-    return {"layer_contract_version": "1.0.0", "logical_layer": logical, "system_assets": systems, "planning_assets": planning, "intelligence_assets": intelligence, "dependencies": dependencies, "model_fingerprint": fingerprint, "dependency_diagnostics": {"node_count": len(node_ids), "edge_count": len(dependencies), "missing_source_nodes": sorted({e["from"] for e in dependencies if e["from"] not in node_ids})}, "runtime_rules": {"runtime_may_mutate_topology": False, "runtime_may_discover_assets": False, "telemetry_may_trigger_compile": False, "structural_changes_require_new_generation": True, "compatibility_projection_may_create_semantics": False}}
+    return {"layer_contract_version": "1.0.0", "logical_layer": logical, "system_assets": systems, "planning_assets": planning, "intelligence_assets": intelligence, "dependencies": dependencies, "model_fingerprint": fingerprint, "dependency_diagnostics": {"node_count": len(node_ids), "edge_count": len(dependencies), "missing_source_nodes": sorted({e["from"] for e in dependencies if e["from"] not in node_ids})}, "runtime_rules": {"runtime_may_mutate_topology": False, "runtime_may_discover_assets": False, "telemetry_may_trigger_structural_rebuild": False, "structural_changes_require_new_generation": True, "compatibility_projection_may_create_semantics": False}}

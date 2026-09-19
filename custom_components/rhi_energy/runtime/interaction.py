@@ -149,7 +149,7 @@ class EnergyInteractionEngine:
         return True, "dispatched_via_mobility_contract", "mobility"
 
     def _selected_energy_provider(self, concept: str) -> dict[str, Any] | None:
-        providers = (((self.manager.compiled_model or {}).get("concepts") or {}).get(concept) or {}).get("providers") or []
+        providers = (((self.manager.domain_model or {}).get("concepts") or {}).get(concept) or {}).get("providers") or []
         providers = [row for row in providers if isinstance(row, dict)]
         if len(providers) == 1:
             return providers[0]
@@ -240,7 +240,7 @@ class EnergyInteractionEngine:
                     readback_value=(self._find_asset(asset_id) or {}).get("requested_power_kw"),
                 )
         elif property_id == "battery.reserve_soc_pct":
-            model = self.manager.compiled_model or {}
+            model = self.manager.domain_model or {}
             provider = self._selected_energy_provider("battery_system")
             reserve = (provider or {}).get("reserve_binding")
             binding = next(

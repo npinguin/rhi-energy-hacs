@@ -1,6 +1,6 @@
 """Small logical Energy object projector.
 
-The compiler already decides which technical candidates are safe and which logical
+Semantic acceptance already decides which technical candidates are safe and which logical
 objects exist.  This module only turns that compiled object inventory into Home
 Assistant-facing logical properties and applies runtime values.  It deliberately does
 not re-run semantic discovery or integration matching.
@@ -167,7 +167,7 @@ def _selected_devices(build_inputs: dict[str, dict[str, Any]], builder_id: str) 
     return [str(value) for value in _selection(build_inputs, builder_id).get("selected_device_ids") or [] if str(value)]
 
 
-def _build_compiled_assets(
+def _build_domain_assets(
     build_inputs: dict[str, dict[str, Any]],
     model: dict[str, Any],
 ) -> list[LogicalAsset]:
@@ -334,7 +334,7 @@ def _build_compiled_assets(
 
 
 def build_logical_assets(build_inputs: dict[str, dict[str, Any]], model: dict[str, Any]) -> list[LogicalAsset]:
-    out = _build_compiled_assets(build_inputs, model)
+    out = _build_domain_assets(build_inputs, model)
     dedup: dict[str, LogicalAsset] = {}
     for asset in out:
         asset_id = str(asset.get("asset_id") or "")

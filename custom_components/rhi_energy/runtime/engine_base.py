@@ -1,6 +1,6 @@
 """Event-driven Energy runtime; Foundation is never in the measurement fast path.
 
-The compiler owns object/binding semantics.  Runtime therefore does only four things:
+Semantic acceptance owns object identity and accepted source bindings.  Runtime therefore does only four things:
 read accepted HA sources, normalize values, derive bounded Energy aggregates, and expose
 one canonical snapshot. Integration quirks are isolated in ``adapters/``.
 """
@@ -124,7 +124,7 @@ class EnergyRuntime:
             "plan": {},
             "intelligence": {},
             "overview": {},
-            "compiled_model_revision": None,
+            "domain_model_revision": None,
             "runtime_issues": [],
         }
 
@@ -191,7 +191,7 @@ class EnergyRuntime:
         return sorted({str(value) for value in ids if value})
 
     def activate_model(self, model: dict[str, Any] | None) -> None:
-        _LOGGER.debug("Activating Energy domain binding model revision=%s", (model or {}).get("compiled_model_revision"))
+        _LOGGER.debug("Activating Energy domain binding model revision=%s", (model or {}).get("domain_model_revision"))
         if callable(self._unsubscribe):
             self._unsubscribe()
         self._unsubscribe = None
@@ -420,7 +420,7 @@ class EnergyRuntime:
         for concept in canonical_classes:
             rows = [row for row in assets if row.get("object_class") == concept]
             if len(rows) > 1:
-                issues.append(f"{concept}:multiple_compiled_canonical_objects")
+                issues.append(f"{concept}:multiple_accepted_canonical_objects")
                 continue
             if not rows:
                 continue
@@ -443,7 +443,7 @@ class EnergyRuntime:
             facts["price_source.source_id"] = row.get("asset_id")
             facts["price_source.source_integration"] = row.get("integration_domain")
         elif len(import_rows) > 1:
-            issues.append("price_source:multiple_compiled_import_objects")
+            issues.append("price_source:multiple_accepted_import_objects")
         if len(export_rows) == 1:
             row = export_rows[0]
             prop = _properties(row).get("pricing.spot_eur_kwh") or {}
@@ -451,7 +451,7 @@ class EnergyRuntime:
             facts["pricing.export_spot_eur_kwh"] = facts.get(prop.get("fact_key"))
             facts["pricing.export_source_id"] = row.get("asset_id")
         elif len(export_rows) > 1:
-            issues.append("price_source:multiple_compiled_export_objects")
+            issues.append("price_source:multiple_accepted_export_objects")
 
         facts["metering.grid_import_total_kwh"] = facts.get("grid_import.energy_total_kwh")
         facts["metering.grid_export_total_kwh"] = facts.get("grid_export.energy_total_kwh")
@@ -495,12 +495,12 @@ class EnergyRuntime:
             self._notify()
             return
 
-        compiled_assets = [row for row in (self.model.get("logical_assets") or []) if isinstance(row, dict)]
+        domain_assets = [row for row in (self.model.get("logical_assets") or []) if isinstance(row, dict)]
         facts: dict[str, Any] = {}
         runtime_issues: list[str] = []
-        self._populate_direct_facts(compiled_assets, facts, runtime_issues)
-        self._aggregate_objects(compiled_assets, facts, runtime_issues)
-        self._canonicalize(compiled_assets, facts, runtime_issues)
+        self._populate_direct_facts(domain_assets, facts, runtime_issues)
+        self._aggregate_objects(domain_assets, facts, runtime_issues)
+        self._canonicalize(domain_assets, facts, runtime_issues)
 
         consumption = derive_consumption(
             self._physical_input("solar_production", "solar.power_kw", facts),
@@ -543,7 +543,7 @@ class EnergyRuntime:
         plan = deterministic_plan(facts, settings, flexible, now_local)
         intel = intelligence(plan, facts, settings, flexible)
         overview = overview_snapshot(facts)
-        logical_assets = apply_runtime_values(compiled_assets, facts, flexible)
+        logical_assets = apply_runtime_values(domain_assets, facts, flexible)
         active_assets = [asset for asset in logical_assets if asset.get("runtime_truth")]
         any_available = any(int(asset.get("available_property_count") or 0) > 0 for asset in active_assets)
         degraded_assets = [str(asset.get("asset_id")) for asset in active_assets if asset.get("health") == "DEGRADED"]
@@ -561,7 +561,7 @@ class EnergyRuntime:
             "plan": plan,
             "intelligence": intel,
             "overview": overview,
-            "compiled_model_revision": self.model.get("compiled_model_revision"),
+            "domain_model_revision": self.model.get("domain_model_revision"),
             "snapshot_revision": int(self.snapshot.get("snapshot_revision") or 0) + 1,
             "observed_at": datetime.now(UTC).isoformat(),
             "generation": deepcopy(self.model.get("generation") or {}),

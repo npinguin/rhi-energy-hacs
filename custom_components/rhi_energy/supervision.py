@@ -163,11 +163,11 @@ class EnergyDomainSupervision:
             ))
         if build_status != "OK":
             issues.append(_issue(
-                "energy:build:compiled_model", "BINDING",
+                "energy:build:domain_model", "BINDING",
                 f"ENERGY_BUILD_{build_status}",
                 blocking=build_status in {"BLOCKED", "STALE"},
                 severity="ERROR" if build_status in {"BLOCKED", "STALE"} else "WARNING",
-                scope=["CompiledEnergyModel"],
+                scope=["EnergyDomainModel"],
             ))
         if runtime_status != "OK":
             issues.append(_issue(
