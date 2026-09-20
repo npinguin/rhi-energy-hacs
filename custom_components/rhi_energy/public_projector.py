@@ -4,10 +4,15 @@ from copy import deepcopy
 
 from .public_contract import PublicContractProjector as BaseProjector, project_all
 from .public_v2 import build_public_contract_v2, published_v2
+from .public_v2 import compatibility_snapshot
 from .v1_parity import close_v1_projection
 
 
 class PublicContractProjector(BaseProjector):
+    def get_parity_source(self) -> dict:
+        """Return canonical compatibility truth from the same immutable V2 decision."""
+        return deepcopy(getattr(self, "_parity_source", {}))
+
     def recompute(self) -> None:
         snapshot = deepcopy(self.runtime.snapshot)
         model = self.manager.domain_model or {}
@@ -18,10 +23,13 @@ class PublicContractProjector(BaseProjector):
         v2_contract = build_public_contract_v2(snapshot, self.store.data, rows, model)
         public_v2 = published_v2(v2_contract)
         v2_changed = public_v2 != self._v2
+        compatibility_source = compatibility_snapshot(v2_contract)
         projected = close_v1_projection(
-            project_all(v2_contract, self.store.data, rows, self.manager), public_v2
+            project_all(v2_contract, self.store.data, rows, self.manager),
+            compatibility_source,
         )
         self._v2 = public_v2
+        self._parity_source = compatibility_source
         for object_id, payload in projected.items():
             if payload != self._cache.get(object_id):
                 self._cache[object_id] = payload

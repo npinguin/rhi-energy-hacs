@@ -235,11 +235,24 @@ def metering_rows(metering: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for pid in ("hour", "today", "week", "month", "year"):
         bucket = deepcopy((metering.get("periods") or {}).get(pid) or {})
-        availability = AVAILABLE if bucket.get("quality") == "OK" else bucket.get("quality") or UNAVAILABLE
+        quality = str(bucket.get("quality") or "UNKNOWN")
+        measured_fields = (
+            "solar_kwh", "grid_import_kwh", "grid_export_kwh",
+            "site_consumption_kwh", "home_consumption_kwh",
+            "battery_charge_kwh", "battery_discharge_kwh",
+            "flexible_loads_energy_in_kwh",
+        )
+        # Availability answers whether this period has usable measurements.
+        # Quality answers whether the period is complete. Keep those semantics
+        # separate: PARTIAL evidence is still available, while an empty period
+        # never becomes available merely because a stale quality flag says OK.
+        has_measurement = any(number(bucket.get(key)) is not None for key in measured_fields)
+        availability = AVAILABLE if has_measurement else UNAVAILABLE
         rows.append({
             "period_id": pid,
             "label": _period_label(pid),
             "availability": availability,
+            "quality": quality,
             "solar_kwh": bucket.get("solar_kwh"),
             "grid_import_kwh": bucket.get("grid_import_kwh"),
             "grid_export_kwh": bucket.get("grid_export_kwh"),
@@ -253,8 +266,8 @@ def metering_rows(metering: dict[str, Any]) -> list[dict[str, Any]]:
             "export_revenue_eur": bucket.get("export_revenue_eur"),
             "financial_quality": deepcopy(bucket.get("financial_quality") or {}),
             "baseline_reset_required": False,
-            "can_be_used_for_remaining": availability == AVAILABLE,
-            "remaining_use_policy": "allowed" if availability == AVAILABLE else "not_available",
+            "can_be_used_for_remaining": quality == "OK" and availability == AVAILABLE,
+            "remaining_use_policy": "allowed" if quality == "OK" and availability == AVAILABLE else "not_available",
             "baseline_reset_action_ref": f"energy.command.reset_metering_baseline.{pid}.metering",
             "field_quality": deepcopy(bucket.get("field_quality") or {}),
             "field_coverage_seconds": deepcopy(bucket.get("field_coverage_seconds") or {}),

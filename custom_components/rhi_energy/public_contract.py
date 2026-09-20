@@ -684,13 +684,23 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     strategy_by_scope: dict[str, list[dict[str, Any]]] = {}
     for row in strategy_rows:
         strategy_by_scope.setdefault(str(row.get("group") or "home"), []).append(row)
+    primary_policy_key = {
+        "home": "home.primary_objective",
+        "battery": "battery.objective",
+        "solar": "solar.surplus_objective",
+        "grid": "grid.home_battery_policy",
+        "flexible_loads": "flexible_loads.objective",
+        "resilience": "resilience.objective",
+    }
     for subdomain, scoped_rows in strategy_by_scope.items():
         configured_properties = {
             str(row.get("property_id") or row.get("key") or ""): row.get("value")
             for row in scoped_rows
             if str(row.get("property_id") or row.get("key") or "")
         }
-        scoped_available = any(row.get("availability") == AVAILABLE for row in scoped_rows)
+        primary_key = primary_policy_key.get(subdomain)
+        primary_value = configured_properties.get(primary_key) if primary_key else None
+        scoped_available = primary_value is not None
         effective.append({
             "policy_id": f"energy_strategy:{subdomain}",
             "asset_id": subdomain,
@@ -698,9 +708,15 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
             "subdomain_id": subdomain,
             "configured_properties": configured_properties,
             "effective_properties": deepcopy(configured_properties),
+            # Preserve the established scalar readback fields used by the UX,
+            # while keeping one row per policy scope.
+            "configured_state": primary_value,
+            "effective_state": primary_value,
+            "configured_value": primary_value,
+            "effective_value": primary_value,
             "influence_state": "active" if scoped_available else "unavailable",
             "availability": AVAILABLE if scoped_available else UNAVAILABLE,
-            "reason_code": None,
+            "reason_code": None if scoped_available else "POLICY_NOT_CONFIGURED",
             "reason_label": "Configured Energy policy is effective." if scoped_available else "Configured policy evidence unavailable.",
             "override_source": None,
             "editable": False,

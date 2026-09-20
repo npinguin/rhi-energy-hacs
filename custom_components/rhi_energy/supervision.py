@@ -161,7 +161,9 @@ class EnergyDomainSupervision:
                 ).upper()
                 for entity_id in LEGACY_PUBLIC_ENTITIES
             }
-            if hasattr(projector, "get_v2"):
+            if hasattr(projector, "get_parity_source"):
+                canonical_public_v2 = projector.get_parity_source() or {}
+            elif hasattr(projector, "get_v2"):
                 canonical_public_v2 = projector.get_v2() or {}
         degraded_public_entities = sorted(
             entity_id
