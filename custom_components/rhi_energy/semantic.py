@@ -29,6 +29,33 @@ class SemanticDefinition(TypedDict, total=False):
 # Shared RHI domain-framework vocabulary.  These terms have one meaning across
 # Mobility and Energy; domains differ only in their registered concepts and
 # derivations.
+# Canonical Energy balance vocabulary.  These definitions are domain-owned and
+# presentation-independent.  Runtime derivations, Metering, Planning and public
+# projections must use the same equations; historical V1 meaning is not authoritative
+# when it conflicts with this active semantic contract.
+ENERGY_BALANCE_SEMANTICS: Final[dict[str, Any]] = {
+    "solar": {"role": "supply", "definition": "local electrical generation"},
+    "grid_import": {"role": "supply", "definition": "energy entering the site boundary"},
+    "battery_discharge": {"role": "supply", "definition": "energy leaving stationary storage"},
+    "home_consumption": {"role": "internal_sink", "definition": "non-flexible household consumption"},
+    "flexible_loads": {"role": "internal_sink", "definition": "managed flexible electrical consumption"},
+    "battery_charge": {"role": "internal_sink", "definition": "energy entering stationary storage"},
+    "grid_export": {"role": "external_sink", "definition": "energy leaving the site boundary"},
+    "site_consumption": {
+        "role": "internal_consumption_total",
+        "definition": "home_consumption + flexible_loads + battery_charge",
+    },
+    "supply_total": {
+        "role": "balance_total",
+        "definition": "solar + grid_import + battery_discharge",
+    },
+    "consumption_total": {
+        "role": "balance_total",
+        "definition": "site_consumption + grid_export",
+    },
+}
+
+
 FRAMEWORK_TERMS: Final[tuple[str, ...]] = (
     "SelectedDomainBuildInput",
     "AcceptedSourceBinding",

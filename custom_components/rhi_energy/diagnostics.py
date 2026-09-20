@@ -307,11 +307,45 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "legacy_compatibility_surface_preserved": True,
         },
         "source_device_topology": {
-            "policy": "accepted_native_source_roots_only",
+            "policy": "exact_source_device_provenance_with_entity_registry_diagnostic",
             "semantic_truth_source": False,
-            "attached_root_device_ids": list(((store.data.get("source_device_topology") or {}).get("attached_root_device_ids") or []))[:80],
-            "source_device_count": int((store.data.get("source_device_topology") or {}).get("source_device_count") or 0),
-            "native_via_device_preserved": True,
+            "source_device_count": int(
+                (store_data.get("source_device_topology") or {}).get("source_device_count")
+                or 0
+            ),
+            "source_device_ids": list(
+                (store_data.get("source_device_topology") or {}).get("source_device_ids")
+                or []
+            )[:80],
+            "bindings_by_source_device_id": deepcopy(
+                (store_data.get("source_device_topology") or {}).get(
+                    "bindings_by_source_device_id"
+                )
+                or {}
+            ),
+            "binding_on_exact_source_device": bool(
+                (store_data.get("source_device_topology") or {}).get(
+                    "binding_on_exact_source_device"
+                )
+            ),
+            "via_device_links_created": int(
+                (store_data.get("source_device_topology") or {}).get(
+                    "via_device_links_created"
+                )
+                or 0
+            ),
+            "copied_source_identity_devices_created": int(
+                (store_data.get("source_device_topology") or {}).get(
+                    "copied_source_identity_devices_created"
+                )
+                or 0
+            ),
+            "orphan_proxy_device_count": int(
+                (store_data.get("source_device_topology") or {}).get(
+                    "orphan_proxy_device_count"
+                )
+                or 0
+            ),
         },
         "execution": {
             "measurement_fast_path": "accepted_source_listener_to_rhi_energy_runtime",

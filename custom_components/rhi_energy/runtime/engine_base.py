@@ -20,12 +20,14 @@ from ..compat_core import (
     battery_state_from_power,
     complete_numeric_sum,
     derive_consumption,
+    derive_home_consumption,
     deterministic_plan,
     grid_flow_direction,
     intelligence,
     number,
     optional_physical_input,
     overview_snapshot,
+    split_battery_power,
 )
 from ..semantic import property_definitions
 from .consumer_assets import flexible_power_total, normalize_mobility_consumers, physical_connection_power_total
@@ -621,16 +623,60 @@ class EnergyRuntime:
             connections,
             producer_available=producer_available,
         )
-        home_power = None
-        if consumption["power_kw"] is not None and flexible_power is not None:
-            residual = float(consumption["power_kw"]) - flexible_power
-            if residual >= -0.08:
-                home_power = round(max(0.0, residual), 6)
-            else:
-                runtime_issues.append("consumption_split_inconsistent:flexible_exceeds_site")
+        battery_charge_power, battery_discharge_power = split_battery_power(
+            facts.get("battery.power_kw")
+        )
+        home = derive_home_consumption(
+            consumption["power_kw"],
+            flexible_power,
+            facts.get("battery.power_kw"),
+        )
+        home_power = home["power_kw"]
+        if home_power is None and home.get("health") == "DEGRADED":
+            runtime_issues.append(
+                f"consumption_split_inconsistent:{home.get('reason')}"
+            )
         facts["flexible_loads.power_kw"] = flexible_power
         facts["flexible_loads.attributed_power_kw"] = attributed_flexible_power
         facts["home_consumption.power_kw"] = home_power
+        facts["battery_charge.power_kw"] = battery_charge_power
+        facts["battery_discharge.power_kw"] = battery_discharge_power
+        facts["supply.total_power_kw"] = (
+            round(
+                float(facts.get("solar.power_kw") or 0.0)
+                + float(facts.get("grid_import.power_kw") or 0.0)
+                + float(battery_discharge_power or 0.0),
+                6,
+            )
+            if all(
+                value is not None
+                for value in (
+                    facts.get("solar.power_kw"),
+                    facts.get("grid_import.power_kw"),
+                    battery_discharge_power,
+                )
+            )
+            else None
+        )
+        facts["consumption.total_power_kw"] = (
+            round(
+                float(home_power)
+                + float(flexible_power)
+                + float(battery_charge_power)
+                + float(facts.get("grid_export.power_kw") or 0.0),
+                6,
+            )
+            if all(
+                value is not None
+                for value in (
+                    home_power,
+                    flexible_power,
+                    battery_charge_power,
+                    facts.get("grid_export.power_kw"),
+                )
+            )
+            else None
+        )
         facts["consumption.power_kw"] = consumption["power_kw"]
         facts["consumption.health"] = (
             "OK" if consumption["power_kw"] is not None and home_power is not None

@@ -155,16 +155,63 @@ def grid_flow_direction(net_power_kw: float | None, *, deadband_kw: float = 0.05
 
 
 def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, battery_kw: float | None, max_home_kw: float | None = None) -> dict[str, Any]:
+    """Derive canonical Site Consumption from the site-boundary energy balance.
+
+    Canonical semantics:
+      supply = solar + grid_import + battery_discharge
+      site_consumption = home_consumption + flexible_loads + battery_charge
+      supply = site_consumption + grid_export
+
+    Battery charge is therefore *inside* Site Consumption. Battery discharge is a
+    supply source and may serve local Site Consumption and/or Grid Export.
+    """
     if solar_kw is None or grid_net_kw is None or battery_kw is None:
         return {"power_kw": None, "health": "UNAVAILABLE", "reason": "required_energy_balance_input_missing", "raw_balance_kw": None}
-    raw = float(solar_kw) + float(grid_net_kw) + float(battery_kw)
+    _, battery_discharge = split_battery_power(float(battery_kw))
+    raw = float(solar_kw) + float(grid_net_kw) + float(battery_discharge or 0.0)
     deadband = 0.08
     if raw < -deadband:
         return {"power_kw": None, "health": "DEGRADED", "reason": "physical_balance_inconsistent_negative_balance_above_deadband", "raw_balance_kw": round(raw, 3)}
     value = 0.0 if raw < 0 else raw
     if max_home_kw is not None and value > max_home_kw:
-        return {"power_kw": None, "health": "DEGRADED", "reason": "implausible_home_consumption_above_configured_site_limit", "raw_balance_kw": round(raw, 3)}
-    return {"power_kw": round(value, 3), "health": "OK", "reason": "derived_from_energy_balance", "raw_balance_kw": round(raw, 3)}
+        return {"power_kw": None, "health": "DEGRADED", "reason": "implausible_site_consumption_above_configured_site_limit", "raw_balance_kw": round(raw, 3)}
+    return {"power_kw": round(value, 3), "health": "OK", "reason": "derived_from_site_boundary_energy_balance", "raw_balance_kw": round(raw, 3)}
+
+
+def derive_home_consumption(
+    site_consumption_kw: float | None,
+    flexible_loads_kw: float | None,
+    battery_kw: float | None,
+    *,
+    deadband_kw: float = 0.08,
+) -> dict[str, Any]:
+    """Derive non-flexible Home Consumption from canonical internal sinks."""
+    if site_consumption_kw is None or flexible_loads_kw is None or battery_kw is None:
+        return {
+            "power_kw": None,
+            "health": "UNAVAILABLE",
+            "reason": "required_internal_consumption_input_missing",
+            "raw_residual_kw": None,
+        }
+    battery_charge, _ = split_battery_power(float(battery_kw))
+    raw = (
+        float(site_consumption_kw)
+        - float(flexible_loads_kw)
+        - float(battery_charge or 0.0)
+    )
+    if raw < -deadband_kw:
+        return {
+            "power_kw": None,
+            "health": "DEGRADED",
+            "reason": "internal_sinks_exceed_site_consumption",
+            "raw_residual_kw": round(raw, 3),
+        }
+    return {
+        "power_kw": round(max(0.0, raw), 3),
+        "health": "OK",
+        "reason": "site_minus_flexible_minus_battery_charge",
+        "raw_residual_kw": round(raw, 3),
+    }
 
 
 def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -181,6 +228,21 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
     bp = number(facts.get("battery.power_kw"))
     soc = number(facts.get("battery.soc_pct"))
     charge, discharge = split_battery_power(bp)
+    supply_total = (
+        solar + gi + (discharge or 0.0)
+        if all(v is not None for v in (solar, gi, discharge))
+        else None
+    )
+    consumption_total = (
+        site + ge
+        if site is not None and ge is not None
+        else None
+    )
+    balance_delta = (
+        round(supply_total - consumption_total, 6)
+        if supply_total is not None and consumption_total is not None
+        else None
+    )
     complete = all(v is not None for v in (solar, site, gi, ge))
     if not complete:
         code, title, primary, key = "unavailable", "Energy data unavailable", None, "site_consumption.power_kw"
@@ -208,6 +270,9 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
             "battery_charge_power_kw": round(charge, 3) if charge is not None else None,
             "battery_discharge_power_kw": round(discharge, 3) if discharge is not None else None,
             "battery_soc_pct": round(soc, 1) if soc is not None else None,
+            "supply_total_power_kw": round(supply_total, 3) if supply_total is not None else None,
+            "consumption_total_power_kw": round(consumption_total, 3) if consumption_total is not None else None,
+            "energy_balance_delta_kw": balance_delta,
         },
         "flow": {
             "sources": [

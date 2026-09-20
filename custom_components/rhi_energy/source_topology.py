@@ -1,54 +1,98 @@
-"""Home Assistant source-device topology for Energy troubleshooting.
+"""HA-native Energy source binding topology.
 
-Only exact source devices already accepted by Energy or published by a producer domain
-are considered. The helper never discovers sources or treats HA topology as semantic
-truth. It only links real source devices to the Energy module when doing so does not
-overwrite an existing native parent.
+Energy semantic provenance points from a logical Energy asset to the exact existing
+Home Assistant source device. HA device identity and hierarchy remain owned by the
+source integration: Energy never copies source identifiers/connections and never uses
+via_device to manufacture a Connected devices relationship.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import DOMAIN
 
 
-def _model_source_device_ids(model: dict[str, Any]) -> set[str]:
-    return {
-        str(((row.get("source_identity") or {}).get("device_registry_id")) or "")
-        for row in (model.get("accepted_bindings") or [])
-        if isinstance(row, dict)
-        and (row.get("source_identity") or {}).get("device_registry_id")
-    }
+def _model_binding_rows(model: dict[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for binding in model.get("accepted_bindings") or []:
+        if not isinstance(binding, dict):
+            continue
+        identity = binding.get("source_identity") or {}
+        device_id = identity.get("device_registry_id") if isinstance(identity, dict) else None
+        if not device_id:
+            continue
+        rows.append({
+            "source_device_id": str(device_id),
+            "logical_asset_id": str(binding.get("asset_id") or binding.get("logical_asset_id") or binding.get("concept_id") or ""),
+            "binding_id": str(binding.get("binding_id") or ""),
+            "source_owner": str(binding.get("integration_domain") or identity.get("integration_domain") or ""),
+        })
+    return rows
 
 
-def _producer_source_device_ids(snapshot: dict[str, Any]) -> set[str]:
-    """Return producer-published physical source device ids; never infer them."""
-    out: set[str] = set()
+def _producer_binding_rows(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
     for collection in ("flexible_assets", "connections"):
-        for row in snapshot.get(collection) or []:
-            if not isinstance(row, dict):
+        for item in snapshot.get(collection) or []:
+            if not isinstance(item, dict):
                 continue
-            provenance = row.get("source_provenance") or {}
+            provenance = item.get("source_provenance") or {}
+            if not isinstance(provenance, dict):
+                provenance = {}
             device_id = (
-                row.get("device_registry_id")
-                or row.get("device_id")
-                or (provenance.get("device_registry_id") if isinstance(provenance, dict) else None)
-                or (provenance.get("device_id") if isinstance(provenance, dict) else None)
+                item.get("device_registry_id")
+                or item.get("device_id")
+                or provenance.get("device_registry_id")
+                or provenance.get("device_id")
             )
-            if device_id:
-                out.add(str(device_id))
-    return out
+            if not device_id:
+                continue
+            rows.append({
+                "source_device_id": str(device_id),
+                "logical_asset_id": str(item.get("asset_id") or item.get("connection_asset_id") or ""),
+                "binding_id": str(item.get("binding_id") or provenance.get("binding_id") or ""),
+                "source_owner": str(item.get("source_domain") or provenance.get("source_domain") or "mobility"),
+            })
+    return rows
+
+
+def source_binding_index(
+    model: dict[str, Any] | None,
+    snapshot: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return exact source-device provenance; never infer HA topology."""
+    grouped: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"logical_asset_ids": set(), "binding_ids": set(), "source_owners": set()}
+    )
+    for row in _model_binding_rows(model or {}) + _producer_binding_rows(snapshot or {}):
+        device_id = row["source_device_id"]
+        if row["logical_asset_id"]:
+            grouped[device_id]["logical_asset_ids"].add(row["logical_asset_id"])
+        if row["binding_id"]:
+            grouped[device_id]["binding_ids"].add(row["binding_id"])
+        if row["source_owner"]:
+            grouped[device_id]["source_owners"].add(row["source_owner"])
+    return {
+        device_id: {
+            "source_device_id": device_id,
+            "logical_asset_ids": sorted(value["logical_asset_ids"]),
+            "binding_ids": sorted(value["binding_ids"]),
+            "source_owners": sorted(value["source_owners"]),
+        }
+        for device_id, value in grouped.items()
+    }
 
 
 def source_device_ids(
     model: dict[str, Any] | None,
     snapshot: dict[str, Any] | None = None,
 ) -> set[str]:
-    return _model_source_device_ids(model or {}) | _producer_source_device_ids(snapshot or {})
+    return set(source_binding_index(model, snapshot))
 
 
 async def async_sync_source_device_topology(
@@ -58,44 +102,63 @@ async def async_sync_source_device_topology(
     store,
     snapshot: dict[str, Any] | None = None,
 ) -> None:
-    """Attach exact real source devices to the Energy module when HA permits it.
-
-    A source that already has a native parent keeps that parent. Energy never reparents
-    an integration hierarchy or substitutes an integration/root device for the accepted
-    physical device merely to make a Connected devices card appear.
-    """
+    """Persist exact provenance and remove legacy Energy-created HA hierarchy."""
     registry = dr.async_get(hass)
     module = registry.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
-    if module is None:
-        return
-
-    accepted = source_device_ids(model, snapshot)
-    desired: set[str] = set()
-    for device_id in sorted(accepted):
-        device = registry.async_get(device_id)
-        if device is None or device.id == module.id:
-            continue
-        if device.via_device_id not in (None, module.id):
-            continue
-        desired.add(device.id)
-
+    bindings = source_binding_index(model, snapshot)
     state = store.data.setdefault("source_device_topology", {})
-    previous = {str(value) for value in state.get("attached_source_device_ids") or [] if value}
-    # Migrate the old key once. Its values represented roots and must not remain
-    # authoritative after exact-source topology became the contract.
-    previous |= {str(value) for value in state.pop("attached_root_device_ids", []) if value}
 
-    for device_id in sorted(desired):
-        device = registry.async_get(device_id)
-        if device is not None and device.via_device_id is None:
-            registry.async_update_device(device_id, via_device_id=module.id)
+    legacy_attached = {
+        str(value)
+        for key in ("attached_source_device_ids", "attached_root_device_ids")
+        for value in state.pop(key, []) or []
+        if value
+    }
+    if module is not None:
+        for device_id in sorted(legacy_attached | set(bindings)):
+            device = registry.async_get(device_id)
+            if device is not None and device.via_device_id == module.id:
+                registry.async_update_device(device.id, via_device_id=None)
 
-    for device_id in sorted(previous - desired):
-        device = registry.async_get(device_id)
-        if device is not None and device.via_device_id == module.id:
-            registry.async_update_device(device_id, via_device_id=None)
+    # Remove only obsolete Energy-owned proxy devices from older topology
+    # experiments. Never delete a source device that belongs to another integration.
+    entity_registry = er.async_get(hass)
+    valid_energy_identifiers = {(DOMAIN, entry.entry_id), (DOMAIN, "logical:planning")}
+    valid_energy_identifiers.update(
+        (DOMAIN, f"logical:{asset_id}")
+        for binding in bindings.values()
+        for asset_id in binding.get("logical_asset_ids") or []
+        if asset_id
+    )
+    orphan_proxy_device_count = 0
+    for device in list(registry.devices.values()):
+        if device.id == (module.id if module is not None else None):
+            continue
+        if set(device.config_entries) != {entry.entry_id}:
+            continue
+        if any(identifier in valid_energy_identifiers for identifier in device.identifiers):
+            continue
+        if any(
+            entity.device_id == device.id
+            for entity in er.async_entries_for_config_entry(
+                entity_registry, entry.entry_id
+            )
+        ):
+            continue
+        registry.async_remove_device(device.id)
+        orphan_proxy_device_count += 1
 
-    if desired != previous or state.get("source_device_count") != len(accepted):
-        state["attached_source_device_ids"] = sorted(desired)
-        state["source_device_count"] = len(accepted)
+    next_state = {
+        "source_device_count": len(bindings),
+        "source_device_ids": sorted(bindings),
+        "bindings_by_source_device_id": bindings,
+        "binding_on_exact_source_device": True,
+        "ha_relationship_model": "diagnostic_entity_on_existing_source_device",
+        "via_device_links_created": 0,
+        "copied_source_identity_devices_created": 0,
+        "orphan_proxy_device_count": orphan_proxy_device_count,
+    }
+    if state != next_state:
+        state.clear()
+        state.update(next_state)
         await store.async_save()

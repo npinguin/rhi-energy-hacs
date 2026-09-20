@@ -21,7 +21,7 @@ from .const import (
     SHARED_BASELINE_VERSION,
 )
 from .runtime.logical_assets import OBJECT_CLASS_LABELS
-from .source_topology import async_sync_source_device_topology
+from .source_topology import async_sync_source_device_topology, source_binding_index
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -142,11 +142,9 @@ class EnergyPlanningLayerSensor(SensorEntity):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
         for source in self._sources:
-            self.async_on_remove(self._projector.add_callback(source, self.async_write_ha_state))
-
-    async def async_added_to_hass(self):
-        await super().async_added_to_hass()
-        self.async_on_remove(self._projector.add_callback(self._object_id, self.async_write_ha_state))
+            self.async_on_remove(
+                self._projector.add_callback(source, self.async_write_ha_state)
+            )
 
 
 class EnergyPublicV2Sensor(_EnergySensor):
@@ -422,6 +420,78 @@ def _property_is_projectable(prop: dict) -> bool:
     )
 
 
+class EnergySourceBindingDiagnostic(SensorEntity):
+    """Diagnostic entity attached to the existing physical/source HA device."""
+
+    _attr_has_entity_name = False
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass, entry, manager, runtime, source_device_id: str) -> None:
+        self._hass = hass
+        self._entry = entry
+        self._manager = manager
+        self._runtime = runtime
+        self._source_device_id = source_device_id
+        self._attr_name = "Energy Binding Status"
+        self._attr_unique_id = f"rhi_energy:source_binding:{source_device_id}"
+        self._attr_suggested_object_id = (
+            f"energy_source_binding_{_object_id(source_device_id)}"
+        )
+        # Deliberately no DeviceInfo: source identity belongs to the source
+        # integration. The entity registry attaches this entity to that exact device.
+        self._attr_device_info = None
+
+    def _binding(self) -> dict:
+        return source_binding_index(
+            self._manager.domain_model,
+            self._runtime.snapshot,
+        ).get(self._source_device_id) or {}
+
+    @property
+    def native_value(self):
+        registry = dr.async_get(self._hass)
+        if registry.async_get(self._source_device_id) is None:
+            return "SOURCE_DEVICE_MISSING"
+        return "BOUND" if self._binding() else "UNBOUND"
+
+    @property
+    def extra_state_attributes(self):
+        binding = self._binding()
+        return {
+            "source_device_id": self._source_device_id,
+            "logical_asset_ids": list(binding.get("logical_asset_ids") or []),
+            "binding_ids": list(binding.get("binding_ids") or []),
+            "source_owners": list(binding.get("source_owners") or []),
+            "binding_on_exact_source_device": True,
+            "copied_identifiers": False,
+            "copied_connections": False,
+            "via_device_used": False,
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        entity_registry = er.async_get(self._hass)
+        device_registry = dr.async_get(self._hass)
+        source = device_registry.async_get(self._source_device_id)
+        entity = entity_registry.async_get(self.entity_id)
+        if (
+            source is not None
+            and entity is not None
+            and entity.device_id != self._source_device_id
+        ):
+            entity_registry.async_update_entity(
+                self.entity_id,
+                device_id=self._source_device_id,
+            )
+        self.async_on_remove(
+            self._manager.add_callback(self.async_write_ha_state)
+        )
+        self.async_on_remove(
+            self._runtime.add_topology_callback(self.async_write_ha_state)
+        )
+
+
 class EnergyLogicalEntityManager:
     """Project the authoritative logical Energy inventory to HA.
 
@@ -513,6 +583,27 @@ class EnergyLogicalEntityManager:
     def _sync(self) -> None:
         rows = self._inventory()
         self._cleanup_registry(rows)
+        binding_index = source_binding_index(
+            self._manager.domain_model,
+            self._runtime.snapshot,
+        )
+        entity_registry = er.async_get(self._hass)
+        desired_binding_uids = {
+            f"rhi_energy:source_binding:{device_id}"
+            for device_id in binding_index
+        }
+        for entity in list(
+            er.async_entries_for_config_entry(
+                entity_registry, self._entry.entry_id
+            )
+        ):
+            unique_id = str(entity.unique_id or "")
+            if (
+                unique_id.startswith("rhi_energy:source_binding:")
+                and unique_id not in desired_binding_uids
+            ):
+                entity_registry.async_remove(entity.entity_id)
+                self._known.discard(unique_id)
         # Logical RHI objects are product views, not physical source children.
         # Clear the historic module parent so the Energy Module's native
         # "Connected devices" section contains only real accepted HA sources.
@@ -525,6 +616,19 @@ class EnergyLogicalEntityManager:
                 if logical is not None and logical.via_device_id == module.id:
                     devices.async_update_device(logical.id, via_device_id=None)
         additions: list[SensorEntity] = []
+        for source_device_id in sorted(binding_index):
+            uid = f"rhi_energy:source_binding:{source_device_id}"
+            if uid not in self._known:
+                self._known.add(uid)
+                additions.append(
+                    EnergySourceBindingDiagnostic(
+                        self._hass,
+                        self._entry,
+                        self._manager,
+                        self._runtime,
+                        source_device_id,
+                    )
+                )
         for asset in rows:
             asset_id = str(asset.get("asset_id") or "")
             if not asset_id:

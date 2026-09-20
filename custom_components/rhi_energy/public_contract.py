@@ -638,10 +638,14 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     site = number(facts.get("site_consumption.power_kw"))
     home = number(facts.get("home_consumption.power_kw"))
     flexible_total = number(facts.get("flexible_loads.power_kw"))
+    battery_charge = number(facts.get("battery_charge.power_kw"))
+    grid_export = number(facts.get("grid_export.power_kw"))
     demand_breakdown.extend([
-        {"row_id":"site_consumption","asset_id":"site_consumption","label":"Site Consumption","power_kw":site,"availability":AVAILABLE if site is not None else UNAVAILABLE},
-        {"row_id":"home_consumption","asset_id":"home_consumption","label":"Home Consumption","power_kw":home,"availability":AVAILABLE if home is not None else UNAVAILABLE},
-        {"row_id":"flexible_loads","asset_id":"flexible_loads","label":"Flexible Loads","power_kw":flexible_total,"availability":AVAILABLE if flexible_total is not None else UNAVAILABLE},
+        {"row_id":"site_consumption","asset_id":"site_consumption","label":"Site Consumption","power_kw":site,"availability":AVAILABLE if site is not None else UNAVAILABLE,"semantic_role":"internal_consumption_total","additive":False},
+        {"row_id":"home_consumption","asset_id":"home_consumption","label":"Home Consumption","power_kw":home,"availability":AVAILABLE if home is not None else UNAVAILABLE,"semantic_role":"internal_sink","additive":True},
+        {"row_id":"flexible_loads","asset_id":"flexible_loads","label":"Flexible Loads","power_kw":flexible_total,"availability":AVAILABLE if flexible_total is not None else UNAVAILABLE,"semantic_role":"internal_sink","additive":True},
+        {"row_id":"battery_charge","asset_id":"battery","label":"Battery Charge","power_kw":battery_charge,"availability":AVAILABLE if battery_charge is not None else UNAVAILABLE,"semantic_role":"internal_sink","additive":True},
+        {"row_id":"grid_export","asset_id":"grid","label":"Grid Export","power_kw":grid_export,"availability":AVAILABLE if grid_export is not None else UNAVAILABLE,"semantic_role":"external_sink","additive":True},
     ])
     demand_breakdown.extend({"row_id":str(a.get("asset_id") or ""),"asset_id":a.get("asset_id"),"label":a.get("display_name"),"power_kw":a.get("power_kw"),"availability":a.get("availability_state") or AVAILABLE} for a in flex_assets)
     overview = overview_snapshot(facts, demand_breakdown)
@@ -791,18 +795,26 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
             })
         if key=="solar": extra.update({"forecast_source_index":"sensor.energy_forecast_property_index","forecast_property_keys_json":jdump(["forecast.solar_today_kwh","forecast.solar_remaining_today_kwh","forecast.solar_tomorrow_kwh"]),"forecast_linkage":"backend_owned_reference"})
         if key=="consumption": extra.update({
+            "energy_balance_semantics_version":2,
+            "semantic_contract":"docs/architecture/ENERGY_BALANCE_SEMANTICS.md",
+            "site_consumption_definition":"home_consumption + flexible_loads + battery_charge",
+            "supply_total_definition":"solar + grid_import + battery_discharge",
+            "consumption_total_definition":"site_consumption + grid_export",
             "demand_export_contract":"backend_owned_breakdown",
             "demand_export_iteration_attribute":"demand_export_breakdown_json",
             "demand_export_breakdown_json":jdump(demand_breakdown),
             "site_consumption":jdump({"power_kw":number(facts.get("site_consumption.power_kw"))}),
             "home_consumption":jdump({"power_kw":number(facts.get("home_consumption.power_kw"))}),
             "flexible_loads":jdump({"power_kw":number(facts.get("flexible_loads.power_kw")),"contributors":flexible_contributors}),
+            "battery_charge":jdump({"power_kw":number(facts.get("battery_charge.power_kw"))}),
+            "supply_total_power_kw":number(facts.get("supply.total_power_kw")),
+            "consumption_total_power_kw":number(facts.get("consumption.total_power_kw")),
             "flexible_load_contributors_json":jdump(flexible_contributors),
             "period_energy_source":"sensor.energy_metering_property_index"
         })
         projections[name]={"state":_status_for_rows(r),"attributes":_property_attrs(r,schema,**extra)}
 
-    projections["energy_metering_property_index"]={"state":meter_status,"attributes":{**_property_attrs(meter_props,"energy_metering_property_index_v2_compat",index_type="metering_property_index"),"selected_context_json":jdump({"type":"period","value":selected_period}),"selected_period_summary":jdump(meter_ctx["selected"]),"selected_period_properties":jdump(meter_props),"periods_json":jdump(meter_ctx["periods"]),"period_summary_by_id":jdump(meter_ctx["periods_by_id"]),"period_properties_by_id":jdump(meter_ctx["properties_by_period_id"]),"remediations_json":jdump([])}}
+    projections["energy_metering_property_index"]={"state":meter_status,"attributes":{**_property_attrs(meter_props,"energy_metering_property_index_v2_compat",index_type="metering_property_index"),"energy_balance_semantics_version":2,"site_consumption_definition":"home_consumption + flexible_loads + battery_charge","selected_context_json":jdump({"type":"period","value":selected_period}),"selected_period_summary":jdump(meter_ctx["selected"]),"selected_period_properties":jdump(meter_props),"periods_json":jdump(meter_ctx["periods"]),"period_summary_by_id":jdump(meter_ctx["periods_by_id"]),"period_properties_by_id":jdump(meter_ctx["properties_by_period_id"]),"remediations_json":jdump([])}}
     consumer_props=[]
     for a in flex_assets:
         aid=a.get("asset_id"); consumer_props.extend([prop(aid,f"{aid}.power_kw",number(a.get("power_kw")),"kW"),prop(aid,f"{aid}.energy_to_target_kwh",number(a.get("energy_to_target_kwh")),"kWh"),prop(aid,f"{aid}.availability",a.get("availability_state") or AVAILABLE)])
@@ -931,6 +943,8 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         "planning_horizons_json":jdump(horizons_list),
         "planning_horizons_by_id":jdump(planning_horizons),
         "planning_horizon_count":len(horizons_list),
+        "participating_asset_count":participating_count,
+        "participating_asset_ids_json":jdump([row.get("asset_id") for row in planning_assets if (row.get("need_kwh") or 0.0) > 0.001 or (row.get("planned_horizon_kwh") or 0.0) > 0.001]),
         "planning_assets_json":jdump(planning_assets),
         "planning_assets_by_id":jdump(planning_assets_by_id),
         "planning_today_totals_json":jdump(d0_summary),

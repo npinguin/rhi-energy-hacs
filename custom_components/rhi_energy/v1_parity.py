@@ -107,6 +107,8 @@ def projection_consistency_issues(projections, v2):
             "site_consumption.power_kw",
             "home_consumption.power_kw",
             "flexible_loads.power_kw",
+            "battery_charge.power_kw",
+            "consumption.total_power_kw",
         ),
     }
     issues = {}
@@ -147,6 +149,31 @@ def projection_consistency_issues(projections, v2):
             mismatches.append(canonical_key)
     if mismatches:
         issues["sensor.energy_overview_experience"] = mismatches
+
+    supply_total = facts.get("supply.total_power_kw")
+    consumption_total = facts.get("consumption.total_power_kw")
+    if (
+        isinstance(supply_total, (int, float))
+        and isinstance(consumption_total, (int, float))
+        and abs(float(supply_total) - float(consumption_total)) > 0.08
+    ):
+        issues.setdefault("sensor.energy_overview_experience", []).append(
+            "energy_balance.total_power_kw"
+        )
+
+    plan = v2.get("planning") or {}
+    expected_participants = ((plan.get("flexible_plan") or {}).get("participating_asset_count"))
+    planning_projection = projections.get("energy_planning_index") or {}
+    public_participants = (planning_projection.get("attributes") or {}).get(
+        "participating_asset_count"
+    )
+    if (
+        isinstance(expected_participants, int)
+        and public_participants != expected_participants
+    ):
+        issues.setdefault("sensor.energy_planning_index", []).append(
+            "planning.participating_asset_count"
+        )
     return issues
 
 
@@ -187,23 +214,31 @@ def close_v1_projection(projections, v2):
         site = facts.get("site_consumption.power_kw")
         home = facts.get("home_consumption.power_kw")
         flexible = facts.get("flexible_loads.power_kw")
+        battery_charge = facts.get("battery_charge.power_kw")
+        total = facts.get("consumption.total_power_kw")
         rows = _upsert_rows(
             attrs,
             [
                 _row("site_consumption.power_kw", site, "kW", asset_id="site_consumption"),
                 _row("home_consumption.power_kw", home, "kW", asset_id="home_consumption"),
                 _row("flexible_loads.power_kw", flexible, "kW", asset_id="flexible_loads"),
+                _row("battery_charge.power_kw", battery_charge, "kW", asset_id="battery"),
+                _row("consumption.total_power_kw", total, "kW", asset_id="consumption"),
             ],
         )
         breakdown = [
-            {"row_id": "site_consumption", "asset_id": "site_consumption", "power_kw": site, "availability": AVAILABLE if site is not None else UNAVAILABLE},
-            {"row_id": "home_consumption", "asset_id": "home_consumption", "power_kw": home, "availability": AVAILABLE if home is not None else UNAVAILABLE},
-            {"row_id": "flexible_loads", "asset_id": "flexible_loads", "power_kw": flexible, "availability": AVAILABLE if flexible is not None else UNAVAILABLE},
+            {"row_id": "site_consumption", "asset_id": "site_consumption", "power_kw": site, "availability": AVAILABLE if site is not None else UNAVAILABLE, "semantic_role": "internal_consumption_total", "additive": False},
+            {"row_id": "home_consumption", "asset_id": "home_consumption", "power_kw": home, "availability": AVAILABLE if home is not None else UNAVAILABLE, "semantic_role": "internal_sink", "additive": True},
+            {"row_id": "flexible_loads", "asset_id": "flexible_loads", "power_kw": flexible, "availability": AVAILABLE if flexible is not None else UNAVAILABLE, "semantic_role": "internal_sink", "additive": True},
+            {"row_id": "battery_charge", "asset_id": "battery", "power_kw": battery_charge, "availability": AVAILABLE if battery_charge is not None else UNAVAILABLE, "semantic_role": "internal_sink", "additive": True},
         ]
         attrs["demand_export_breakdown_json"] = _dumps(breakdown)
         attrs["site_consumption"] = _dumps(breakdown[0])
         attrs["home_consumption"] = _dumps(breakdown[1])
         attrs["flexible_loads"] = _dumps(breakdown[2])
+        attrs["battery_charge"] = _dumps(breakdown[3])
+        attrs["consumption_total_power_kw"] = total
+        attrs["site_consumption_semantics"] = "home_plus_flexible_plus_battery_charge"
         consumption["state"] = AVAILABLE if any(row.get("value") is not None for row in rows) else UNAVAILABLE
 
     battery = out.get("energy_battery_property_index")

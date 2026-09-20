@@ -27,6 +27,7 @@ except ImportError:  # Direct runpy/static regression execution.
 BASELOAD_SAMPLE_MINUTES = 15
 PERSIST_DEBOUNCE_SECONDS = 10
 BASELOAD_PROFILE_SEMANTICS_VERSION = 2
+ENERGY_BALANCE_SEMANTICS_VERSION = 2
 
 
 def _period_keys(now: datetime) -> dict[str, str]:
@@ -138,10 +139,23 @@ class EnergyMetering:
         state = self.store.data.setdefault("metering", {})
         state.setdefault("periods", {})
         state.setdefault("last_update", None)
-        state.setdefault("last_powers", {})
-        state.setdefault("last_flexible_powers", {})
-        state.setdefault("last_financial_rates", {})
-        # E0.15.16: v1 learned Home Consumption after subtracting flexible
+        if state.get("energy_balance_semantics_version") != ENERGY_BALANCE_SEMANTICS_VERSION:
+            # Site Consumption now includes battery charging. Mixing interval
+            # accumulators across that semantic boundary would create false totals.
+            state["periods"] = {}
+            state["last_sample_at"] = None
+            state["last_powers"] = {}
+            state["last_flexible_powers"] = {}
+            state["last_financial_rates"] = {}
+            state["energy_balance_semantics_version"] = ENERGY_BALANCE_SEMANTICS_VERSION
+        else:
+            state.setdefault("last_powers", {})
+            state.setdefault("last_flexible_powers", {})
+            state.setdefault("last_financial_rates", {})
+        # Home Consumption remains the same non-flexible household concept.
+        # Preserve the compatible v2 learned profile across the Site Consumption
+        # aggregate-definition change.
+
         # power a second time.  That profile cannot be reused as household
         # forecast evidence under the corrected semantics.
         if state.get("baseload_profile_semantics_version") != BASELOAD_PROFILE_SEMANTICS_VERSION:
