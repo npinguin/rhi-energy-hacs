@@ -7,10 +7,8 @@ from typing import Any
 from ..compat_core import jload
 from ..const import MOBILITY_ASSET_ENTITY, MOBILITY_COMMAND_ENTITY
 
-
 def mobility_entity_ids() -> tuple[str, str]:
     return MOBILITY_ASSET_ENTITY, MOBILITY_COMMAND_ENTITY
-
 
 def read_mobility_energy_assets(hass: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     state = hass.states.get(MOBILITY_ASSET_ENTITY)
@@ -27,14 +25,12 @@ def read_mobility_energy_assets(hass: Any) -> tuple[list[dict[str, Any]], list[d
     })
     return consumers if isinstance(consumers, list) else [], connections if isinstance(connections, list) else [], metadata
 
-
 def _mobility_commands(hass: Any) -> list[dict[str, Any]]:
     state = hass.states.get(MOBILITY_COMMAND_ENTITY)
     if not state:
         return []
     rows = jload(state.attributes.get("commands_json") or state.attributes.get("commands"), [])
     return rows if isinstance(rows, list) else []
-
 
 def _requested_power_command(asset: dict[str, Any]) -> dict[str, Any] | None:
     limits = asset.get("limits") if isinstance(asset.get("limits"), dict) else {}
@@ -62,10 +58,8 @@ def _requested_power_command(asset: dict[str, Any]) -> dict[str, Any] | None:
         },
     }
 
-
 def _ready(row: dict[str, Any]) -> bool:
     return bool(row.get("execution_allowed") or row.get("action_available") or row.get("public_execution_allowed"))
-
 
 def _invoke(row: dict[str, Any], executor: str, command_key: str) -> dict[str, Any]:
     out = deepcopy(row)
@@ -76,33 +70,36 @@ def _invoke(row: dict[str, Any], executor: str, command_key: str) -> dict[str, A
         }
     return out
 
-
 def resolve_mobility_command(hass: Any, asset: dict[str, Any], role: str) -> dict[str, Any] | None:
     """Resolve exact producer-published logical-to-physical command authority."""
-    if role == "adjust":
-        return _requested_power_command(asset)
-    if role not in {"start", "stop"}:
-        return None
+    if role == "adjust": return _requested_power_command(asset)
+    if role not in {"start", "stop"}: return None
 
-    command_key = f"charger.command.{role}"
     resolutions = asset.get("command_resolution") if isinstance(asset.get("command_resolution"), dict) else {}
     resolved = resolutions.get(role) if isinstance(resolutions.get(role), dict) else {}
+    resolved_command_id = str(resolved.get("command_id") or "")
+    resolved_command_key = str(resolved.get("command_key") or "")
     executor = str(resolved.get("physical_executor_asset_id") or resolved.get("command_source_asset_id") or "")
-    if executor and resolved.get("binding_available") is True:
+    logical_asset_id = str(asset.get("asset_id") or "")
+    if resolved_command_id and resolved_command_key and executor and resolved.get("binding_available") is True:
         for raw in _mobility_commands(hass):
-            if not isinstance(raw, dict):
-                continue
-            target = str(raw.get("target_asset_id") or raw.get("asset_id") or "")
-            key = str(raw.get("canonical_command_key") or raw.get("command_key") or "")
+            if not isinstance(raw, dict): continue
             command_id = str(raw.get("command_instance_id") or raw.get("command_id") or "")
-            if target != executor or (key != command_key and command_id != f"{executor}:{command_key}"):
-                continue
-            row = _invoke(raw, executor, command_key)
+            command_key = str(raw.get("command_key") or "")
+            consumer_asset_id = str(raw.get("consumer_asset_id") or raw.get("asset_id") or "")
+            physical_executor = str(raw.get("physical_executor_asset_id") or "")
+            if command_id != resolved_command_id: continue
+            if command_key != resolved_command_key or consumer_asset_id != logical_asset_id: continue
+            if physical_executor and physical_executor != executor: continue
+            canonical_key = str(raw.get("canonical_command_key") or "")
+            row = _invoke(raw, executor, canonical_key)
             ready = _ready(row) and bool(resolved.get("execution_allowed"))
             row.update({
-                "target_asset_id": str(asset.get("asset_id") or ""),
+                "target_asset_id": logical_asset_id,
                 "physical_executor_asset_id": executor,
-                "logical_command_owner_asset_id": str(asset.get("asset_id") or ""),
+                "logical_command_owner_asset_id": logical_asset_id,
+                "producer_command_id": resolved_command_id,
+                "producer_command_key": resolved_command_key,
                 "manual_execution_ready": ready,
                 "manual_blocked_reason": None if ready else str(resolved.get("blocked_reason") or row.get("blocked_reason") or "producer_command_not_ready"),
             })
@@ -113,15 +110,12 @@ def resolve_mobility_command(hass: Any, asset: dict[str, Any], role: str) -> dic
     ref = refs.get(role)
     wanted = str((ref.get("command_instance_id") or ref.get("command_id") or ref.get("command_key") or "") if isinstance(ref, dict) else ref or "")
     target = str(asset.get("asset_id") or "")
-    if not wanted:
-        return None
+    if not wanted: return None
     for raw in _mobility_commands(hass):
-        if not isinstance(raw, dict):
-            continue
+        if not isinstance(raw, dict): continue
         ids = {str(raw.get(k) or "") for k in ("command_instance_id", "command_id", "command_key")}
         row_target = str(raw.get("target_asset_id") or raw.get("asset_id") or "")
-        if wanted not in ids or (row_target and row_target != target):
-            continue
+        if wanted not in ids or (row_target and row_target != target): continue
         executor = str(raw.get("physical_executor_asset_id") or "")
         key = str(raw.get("canonical_command_key") or "")
         row = _invoke(raw, executor, key)

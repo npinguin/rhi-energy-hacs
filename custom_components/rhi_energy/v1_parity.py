@@ -128,22 +128,24 @@ def projection_consistency_issues(projections, v2):
     snapshot = _loads((overview.get("attributes") or {}).get("snapshot_json"), {})
     summary = snapshot.get("summary") if isinstance(snapshot, dict) else {}
     overview_map = {
-        "solar_power_kw": "solar.power_kw",
-        "site_consumption_power_kw": "site_consumption.power_kw",
-        "home_consumption_power_kw": "home_consumption.power_kw",
-        "grid_import_power_kw": "grid_import.power_kw",
-        "grid_export_power_kw": "grid_export.power_kw",
-        "battery_soc_pct": "battery.soc_pct",
+        "solar_power_kw": ("solar.power_kw", 3),
+        "site_consumption_power_kw": ("site_consumption.power_kw", 3),
+        "home_consumption_power_kw": ("home_consumption.power_kw", 3),
+        "grid_import_power_kw": ("grid_import.power_kw", 3),
+        "grid_export_power_kw": ("grid_export.power_kw", 3),
+        "battery_soc_pct": ("battery.soc_pct", 1),
     }
     mismatches = []
-    for public_key, canonical_key in overview_map.items():
+    for public_key, (canonical_key, decimals) in overview_map.items():
         canonical = facts.get(canonical_key)
         public = (summary or {}).get(public_key)
         if canonical is None and public is None:
             continue
-        # Overview intentionally rounds display values.
+        # Compare against the exact precision owned by overview_snapshot().
+        # Do not weaken this gate with a blanket tolerance: SOC is intentionally
+        # published at 1 decimal while power is published at 3 decimals.
         if isinstance(canonical, (int, float)) and isinstance(public, (int, float)):
-            if abs(float(canonical) - float(public)) > 0.011:
+            if round(float(canonical), decimals) != float(public):
                 mismatches.append(canonical_key)
         elif canonical != public:
             mismatches.append(canonical_key)

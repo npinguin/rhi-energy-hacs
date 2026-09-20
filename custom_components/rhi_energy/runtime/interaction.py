@@ -514,18 +514,42 @@ class EnergyInteractionEngine:
                 ready = role in {"pause", "resume"} or (producer is not None and self._row_ready(producer))
                 key = command_state_key(command_id, asset_id)
                 last = states.get(key, {})
+                availability = AVAILABLE if ready else (
+                    UNSUPPORTED
+                    if producer is None and role not in {"pause", "resume"}
+                    else "UNAVAILABLE"
+                )
+                blocked_reason = None if ready else "producer_command_unavailable"
+                label = {
+                    "start": "Start charging",
+                    "stop": "Stop charging",
+                    "adjust": "Requested charge power",
+                    "pause": "Pause managed charging",
+                    "resume": "Resume managed charging",
+                }[role]
                 rows.append(
                     {
                         "command_instance_id": f"{command_id}.{asset_id}",
                         "command_id": command_id,
                         "owner": "energy",
+                        "command_owner": "energy",
                         "target_asset_id": asset_id,
                         "role": role,
+                        "label": label,
+                        "action_kind": "command",
                         "supported": supported,
-                        "availability": AVAILABLE if ready else (UNSUPPORTED if producer is None and role not in {"pause", "resume"} else "UNAVAILABLE"),
+                        "availability": availability,
                         "state": "available" if ready else "unavailable",
+                        # The UX consumes owner-published visibility/readiness. It must
+                        # never infer these semantics from availability or role names.
+                        "visible": supported,
+                        "ux_visible": supported,
+                        "enabled": ready,
+                        "ux_enabled": ready,
+                        "blocked_reason": blocked_reason,
+                        "user_action_text": "" if ready else "Physical command is not currently published/ready by the producer domain.",
                         "reason": {
-                            "code": None if ready else "producer_command_unavailable",
+                            "code": blocked_reason,
                             "message": None if ready else "Physical command is not currently published/ready by the producer domain.",
                             "severity": None if ready else "blocking",
                             "source": "producer_contract",
