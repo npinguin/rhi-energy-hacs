@@ -21,6 +21,7 @@ from .const import (
     SHARED_BASELINE_VERSION,
 )
 from .runtime.logical_assets import OBJECT_CLASS_LABELS
+from .source_topology import async_sync_source_device_topology
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -39,7 +40,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         EnergyReleaseSensor(entry, state),
         EnergyHealthSensor(entry, manager, runtime),
         EnergyConfigurationSensor(entry, manager, provider),
-        EnergyBuildSensor(entry, manager),
+        EnergyBuildSensor(entry, manager, hass, state["store"]),
     ]
     async_add_entities(entities)
     # Object-centric HA projection.  The add callback remains valid for the loaded
@@ -279,9 +280,11 @@ class EnergyBuildSensor(_DiagnosticSensor):
     _attr_suggested_object_id = "rhi_energy_build"
     _attr_unique_id = "rhi_energy:monitoring:build"
 
-    def __init__(self, entry, manager):
+    def __init__(self, entry, manager, hass, store):
         super().__init__(entry)
         self._manager = manager
+        self._hass = hass
+        self._store = store
 
     @property
     def native_value(self):
@@ -307,7 +310,19 @@ class EnergyBuildSensor(_DiagnosticSensor):
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        self.async_on_remove(self._manager.add_callback(self.async_write_ha_state))
+
+        def _manager_updated():
+            self.async_write_ha_state()
+            self._hass.async_create_task(
+                async_sync_source_device_topology(
+                    self._hass, self._entry, self._manager.domain_model, self._store
+                )
+            )
+
+        self.async_on_remove(self._manager.add_callback(_manager_updated))
+        await async_sync_source_device_topology(
+            self._hass, self._entry, self._manager.domain_model, self._store
+        )
 
 
 

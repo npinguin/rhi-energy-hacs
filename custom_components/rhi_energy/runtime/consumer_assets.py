@@ -107,3 +107,25 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
         if any(normalized.get(key) is not None for key in useful) or command_refs or normalized.get("operating_state") is not None:
             out.append(normalized)
     return out
+
+
+def flexible_power_total(assets: list[dict[str, Any]], *, producer_available: bool) -> float | None:
+    """Return authoritative active flexible-load power without treating unknown as zero.
+
+    Producer-published disabled/inactive assets cannot currently consume Energy and are
+    excluded from the instantaneous total. Every active asset must still publish an
+    actual power value; otherwise the total remains unknown.
+    """
+    if not producer_available:
+        return None
+    active = [
+        row for row in assets
+        if str(row.get("lifecycle_status") or row.get("lifecycle_state") or "active").lower()
+        not in {"disabled", "inactive"}
+    ]
+    if not active:
+        return 0.0
+    values = [number(row.get("power_kw")) for row in active]
+    if any(value is None for value in values):
+        return None
+    return round(sum(float(value) for value in values if value is not None), 6)

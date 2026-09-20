@@ -14,6 +14,15 @@ from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 
+try:
+    from .consumer_assets import flexible_power_total
+except ImportError:  # Direct runpy/static regression execution.
+    from pathlib import Path as _Path
+    import runpy as _runpy
+    flexible_power_total = _runpy.run_path(
+        str(_Path(__file__).resolve().parent / "consumer_assets.py")
+    )["flexible_power_total"]
+
 BASELOAD_SAMPLE_MINUTES = 15
 PERSIST_DEBOUNCE_SECONDS = 10
 
@@ -283,15 +292,19 @@ class EnergyMetering:
         snap = self.runtime.snapshot
         facts = snap.get("facts") or {}
         flexible_rows = [a for a in snap.get("flexible_assets", []) if a.get("asset_id")]
+        active_flexible_rows = [
+            a for a in flexible_rows
+            if str(a.get("lifecycle_status") or a.get("lifecycle_state") or "active").lower()
+            not in {"disabled", "inactive"}
+        ]
         flexible_powers = {
             str(a["asset_id"]): a.get("power_kw")
-            for a in flexible_rows
+            for a in active_flexible_rows
             if isinstance(a.get("power_kw"), (int, float))
         }
-        flexible_total = (
-            sum(float(value) for value in flexible_powers.values())
-            if flexible_rows and len(flexible_powers) == len(flexible_rows)
-            else (0.0 if not flexible_rows else None)
+        flexible_total = flexible_power_total(
+            flexible_rows,
+            producer_available=bool(snap.get("mobility_publication_available")),
         )
         current = {
             "solar_kwh": facts.get("solar.power_kw"),

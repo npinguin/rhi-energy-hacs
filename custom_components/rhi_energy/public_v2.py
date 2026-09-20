@@ -30,6 +30,37 @@ def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 "relationship_type": "contains",
                 "source_domain": "energy",
             }
+    logical_assets = [item for item in snapshot.get("logical_assets") or [] if isinstance(item, dict)]
+    home_asset = next((item for item in logical_assets if item.get("object_class") == "home_consumption"), None)
+    home_id = str((home_asset or {}).get("asset_id") or "home_consumption")
+    for asset in logical_assets:
+        aid = str(asset.get("asset_id") or "")
+        object_class = str(asset.get("object_class") or "")
+        if not aid:
+            continue
+        relation_type = None
+        source, target = aid, home_id
+        flow_role = None
+        if object_class == "solar_inverter":
+            relation_type, flow_role = "supplies", "solar_supply"
+        elif object_class == "battery":
+            relation_type, flow_role = "exchanges_with", "stationary_battery"
+        elif object_class == "grid_connection":
+            relation_type, flow_role = "exchanges_with", "grid_boundary"
+        elif object_class == "flexible_load":
+            relation_type, flow_role = "supplies", "flexible_demand"
+            source, target = home_id, aid
+        if relation_type:
+            relationship_id = f"energy:physical:{source}:{relation_type}:{target}"
+            rows[relationship_id] = {
+                "relationship_id": relationship_id,
+                "source_asset_id": source,
+                "target_asset_id": target,
+                "relationship_type": relation_type,
+                "source_domain": "energy",
+                "physical": True,
+                "flow_role": flow_role,
+            }
     for index, relation in enumerate(snapshot.get("connections") or []):
         if not isinstance(relation, dict):
             continue
@@ -84,10 +115,10 @@ def build_public_contract_v2(
         "layers": {
             "contract_version": model.get("layer_contract_version"),
             "model_fingerprint": model.get("model_fingerprint"),
-            "health": deepcopy(model.get("layer_health") or {}),
-            "system_objects": deepcopy(model.get("system_assets") or []),
-            "planning_objects": deepcopy(model.get("planning_assets") or []),
-            "intelligence_objects": deepcopy(model.get("intelligence_assets") or []),
+            "health": deepcopy(source.get("layer_health") or model.get("layer_health") or {}),
+            "system_objects": deepcopy(source.get("system_assets") or model.get("system_assets") or []),
+            "planning_objects": deepcopy(source.get("planning_assets") or model.get("planning_assets") or []),
+            "intelligence_objects": deepcopy(source.get("intelligence_assets") or model.get("intelligence_assets") or []),
             "dependency_diagnostics": deepcopy(model.get("dependency_diagnostics") or {}),
         },
         "health": source.get("health") or "UNKNOWN",
@@ -102,9 +133,9 @@ def build_public_contract_v2(
             "property_count": sum(len(asset.get("properties") or []) for asset in objects),
             "unresolved_property_count": unresolved,
             "relationship_count": len(_relationships(source)),
-            "system_object_count": len(model.get("system_assets") or []),
-            "planning_object_count": len(model.get("planning_assets") or []),
-            "intelligence_object_count": len(model.get("intelligence_assets") or []),
+            "system_object_count": len(source.get("system_assets") or model.get("system_assets") or []),
+            "planning_object_count": len(source.get("planning_assets") or model.get("planning_assets") or []),
+            "intelligence_object_count": len(source.get("intelligence_assets") or model.get("intelligence_assets") or []),
             "dependency_edge_count": len(model.get("dependencies") or []),
         },
         "_compatibility": source,

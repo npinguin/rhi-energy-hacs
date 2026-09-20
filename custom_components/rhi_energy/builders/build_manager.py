@@ -219,7 +219,7 @@ def _materialize_semantic_acceptance_input(entry: dict[str, Any]) -> dict[str, A
 
 
 class EnergyBuildManager:
-    """Own Energy semantic validation, compile and atomic runtime model activation."""
+    """Own Energy semantic acceptance and atomic domain-model activation."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass

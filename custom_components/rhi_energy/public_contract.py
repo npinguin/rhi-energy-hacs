@@ -452,6 +452,22 @@ def _relationships(snapshot: dict[str, Any], assets: list[dict[str, Any]]) -> li
     for a in assets:
         if a.get("parent_asset_id"):
             rows.append(row(f"contains:{a['parent_asset_id']}:{a['asset_id']}", str(a["parent_asset_id"]), str(a["asset_id"]), "contains", active=a.get("availability") != UNSUPPORTED))
+    logical_assets = [item for item in snapshot.get("logical_assets") or [] if isinstance(item, dict)]
+    home_asset = next((item for item in logical_assets if item.get("object_class") == "home_consumption"), None)
+    home_id = str((home_asset or {}).get("asset_id") or "home_consumption")
+    for item in logical_assets:
+        aid = str(item.get("asset_id") or "")
+        object_class = str(item.get("object_class") or "")
+        if not aid:
+            continue
+        if object_class == "solar_inverter":
+            rows.append(row(f"physical:{aid}:supplies:{home_id}", aid, home_id, "supplies", source_domain="energy", physical=True, flow_role="solar_supply"))
+        elif object_class == "battery":
+            rows.append(row(f"physical:{aid}:exchanges:{home_id}", aid, home_id, "exchanges_with", source_domain="energy", physical=True, flow_role="stationary_battery"))
+        elif object_class == "grid_connection":
+            rows.append(row(f"physical:{aid}:exchanges:{home_id}", aid, home_id, "exchanges_with", source_domain="energy", physical=True, flow_role="grid_boundary"))
+        elif object_class == "flexible_load":
+            rows.append(row(f"physical:{home_id}:supplies:{aid}", home_id, aid, "supplies", source_domain="energy", physical=True, flow_role="flexible_demand"))
     for i, rel in enumerate(snapshot.get("connections") or []):
         if not isinstance(rel, dict):
             continue

@@ -1,7 +1,7 @@
 """Small logical Energy object projector.
 
 Semantic acceptance already decides which technical candidates are safe and which logical
-objects exist.  This module only turns that compiled object inventory into Home
+objects exist.  This module only turns that accepted object inventory into Home
 Assistant-facing logical properties and applies runtime values.  It deliberately does
 not re-run semantic discovery or integration matching.
 """
@@ -72,7 +72,7 @@ def _asset(
     parent_asset_id: str | None = None,
     selected_device_ids: list[str] | None = None,
     selection_mode: str | None = None,
-    lifecycle_scope: str = "compiled",
+    lifecycle_scope: str = "accepted",
     source_domain: str = "energy",
     device_registry_id: str | None = None,
     via_device_registry_id: str | None = None,
