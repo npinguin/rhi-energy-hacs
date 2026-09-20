@@ -268,7 +268,6 @@ class EnergyRuntime:
         asset: dict[str, Any],
         prop: dict[str, Any],
         facts: dict[str, Any],
-        assets: list[dict[str, Any]],
     ) -> Any:
         binding_ids = [str(value) for value in prop.get("binding_ids") or [] if value]
         if not binding_ids and prop.get("binding_id"):
@@ -297,15 +296,21 @@ class EnergyRuntime:
         normalizer = get_normalizer(asset.get("integration_domain"))
         context = {"asset": asset, "property": prop, "binding_ids": binding_ids, "attributes": contexts}
         if key == "solar.power_kw" and asset.get("object_class") == "solar_inverter":
-            inverter_device = str(asset.get("device_registry_id") or "")
-            linked = next(
-                (row for row in assets if row.get("object_class") == "battery" and str(row.get("via_device_registry_id") or "") == inverter_device),
-                None,
-            )
-            if linked is not None:
-                linked_id = str(linked.get("asset_id") or "")
+            linked_ids = [
+                str(value)
+                for value in asset.get("linked_battery_asset_ids") or []
+                if value
+            ]
+            if linked_ids:
+                linked_values = [
+                    facts.get(f"{linked_id}.power_kw")
+                    for linked_id in linked_ids
+                ]
                 context["linked_battery_present"] = True
-                context["linked_battery_power_kw"] = facts.get(f"{linked_id}.power_kw")
+                context["linked_battery_power_kw"] = complete_numeric_sum(
+                    linked_values,
+                    expected_count=len(linked_ids),
+                )
         return normalizer(key, value, context)
 
     def _populate_direct_facts(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
@@ -316,7 +321,7 @@ class EnergyRuntime:
                     continue
                 fact_key = str(prop.get("fact_key") or "")
                 try:
-                    facts[fact_key] = self._read_property(asset, prop, facts, assets)
+                    facts[fact_key] = self._read_property(asset, prop, facts)
                 except Exception as exc:
                     # A bad adapter/source conversion is isolated to this property.
                     # Other objects continue; diagnostics receive the exact scope.

@@ -606,7 +606,10 @@ class EnergyLogicalEntityManager:
         additions: list[SensorEntity] = []
         for source_device_id in sorted(binding_index):
             uid = f"rhi_energy:source_binding:{source_device_id}"
-            if uid not in self._known:
+            # A helper entity may only be registered when the exact physical
+            # DeviceEntry already exists. Missing source devices stay pending and
+            # are retried on the next authoritative topology/runtime sync.
+            if uid not in self._known and devices.async_get(source_device_id) is not None:
                 self._known.add(uid)
                 additions.append(
                     EnergySourceBindingDiagnostic(

@@ -684,6 +684,24 @@ _SEMANTIC_ACCEPTORS = {
 _COLLECTION_CONCEPTS = set(_SEMANTIC_ACCEPTORS)
 
 
+def _materialize_structural_relations(concepts: dict[str, Any]) -> None:
+    """Resolve source-topology evidence once, before measurement runtime starts."""
+    batteries_by_parent: dict[str, list[str]] = {}
+    for provider in ((concepts.get("battery_system") or {}).get("providers") or []):
+        for unit in provider.get("units") or []:
+            parent_device_id = str(unit.get("via_device_registry_id") or "")
+            asset_id = str(unit.get("asset_id") or "")
+            if parent_device_id and asset_id:
+                batteries_by_parent.setdefault(parent_device_id, []).append(asset_id)
+
+    for provider in ((concepts.get("solar_production") or {}).get("providers") or []):
+        for inverter in provider.get("inverters") or []:
+            inverter_device_id = str(inverter.get("device_registry_id") or "")
+            inverter["linked_battery_asset_ids"] = sorted(
+                set(batteries_by_parent.get(inverter_device_id, []))
+            )
+
+
 def accept_energy_selected_inputs(
     build_inputs: dict[str, dict[str, Any]],
     previous_model: dict[str, Any] | None = None,
@@ -763,6 +781,7 @@ def accept_energy_selected_inputs(
                 "normalization_status": "READY" if all(provider.get("normalization_status") == "READY" for provider in providers) else "DEGRADED",
             }
     explicitly_absent.difference_update(concepts.keys())
+    _materialize_structural_relations(concepts)
     interim = {
         "concepts": concepts,
         "accepted_bindings": bindings,

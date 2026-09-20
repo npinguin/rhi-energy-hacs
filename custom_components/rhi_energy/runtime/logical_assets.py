@@ -280,7 +280,7 @@ def _build_domain_assets(
             iid = str(inverter.get("asset_id") or "")
             if not iid:
                 continue
-            out.append(_asset(
+            inverter_asset = _asset(
                 iid, "solar_inverter", str(inverter.get("display_name") or "Solar Inverter"),
                 builder_id=builder, integration_domain=integration, parent_asset_id=sid,
                 normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
@@ -288,7 +288,13 @@ def _build_domain_assets(
                 device_registry_id=str(inverter.get("device_registry_id") or "") or None,
                 via_device_registry_id=str(inverter.get("via_device_registry_id") or "") or None,
                 properties=_properties("solar_production", iid, inverter.get("bindings") or {}, binding_index),
-            ))
+            )
+            inverter_asset["linked_battery_asset_ids"] = [
+                str(value)
+                for value in inverter.get("linked_battery_asset_ids") or []
+                if value
+            ]
+            out.append(inverter_asset)
             for index, phase in enumerate(inverter.get("phases") or [], start=1):
                 pid = str(phase.get("asset_id") or "")
                 if pid:
