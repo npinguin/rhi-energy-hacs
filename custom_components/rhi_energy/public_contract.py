@@ -728,7 +728,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     projections["energy_release_contract"] = {
         "state":"ready",
         "attributes":{
-            "contract_schema":"home_intelligence_release_contract_v1","domain":"energy","backend_release":LEGACY_BACKEND_RELEASE,"domain_release":RELEASE,"contract_version":LEGACY_CONTRACT_VERSION,
+            "contract_schema":"home_intelligence_release_contract_v1","domain":"energy","backend_release":RELEASE,"domain_release":RELEASE,"contract_version":LEGACY_CONTRACT_VERSION,
             "schema_version":1,"contract_health":"ready","canonical_release_source":"sensor.energy_release_contract","release_consistency_gate":"enabled",
             "frontend_expected_release_attribute":"backend_release","public_contract_model":"typed_family_indexes_under_lean_public_categories",
             "domain_semantics_policy":"backend_publishes_domain_contract_not_user_experience","ux_public_entities":jdump(public_list),"public_ux_entities_json":jdump(public_list),
