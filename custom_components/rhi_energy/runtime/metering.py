@@ -105,10 +105,11 @@ class EnergyMetering:
         "solar_kwh",
         "grid_import_kwh",
         "grid_export_kwh",
-        "consumption_kwh",
+        "site_consumption_kwh",
+        "home_consumption_kwh",
         "battery_charge_kwh",
         "battery_discharge_kwh",
-        "flexible_load_kwh",
+        "flexible_loads_energy_in_kwh",
     )
 
     def __init__(self, hass: HomeAssistant, store, runtime) -> None:
@@ -162,6 +163,16 @@ class EnergyMetering:
                     row.setdefault(field, None)
                     row["field_quality"].setdefault(field, "UNKNOWN")
                     row["field_coverage_seconds"].setdefault(field, 0)
+                # Migrate only semantically equivalent legacy open-period evidence.
+                # Legacy consumption_kwh was Home Consumption, never Site Consumption.
+                if row.get("home_consumption_kwh") is None and row.get("consumption_kwh") is not None:
+                    row["home_consumption_kwh"] = row.get("consumption_kwh")
+                    row["field_quality"]["home_consumption_kwh"] = (row.get("field_quality") or {}).get("consumption_kwh", "PARTIAL")
+                    row["field_coverage_seconds"]["home_consumption_kwh"] = (row.get("field_coverage_seconds") or {}).get("consumption_kwh", 0)
+                if row.get("flexible_loads_energy_in_kwh") is None and row.get("flexible_load_kwh") is not None:
+                    row["flexible_loads_energy_in_kwh"] = row.get("flexible_load_kwh")
+                    row["field_quality"]["flexible_loads_energy_in_kwh"] = (row.get("field_quality") or {}).get("flexible_load_kwh", "PARTIAL")
+                    row["field_coverage_seconds"]["flexible_loads_energy_in_kwh"] = (row.get("field_coverage_seconds") or {}).get("flexible_load_kwh", 0)
         return state
 
     @staticmethod
@@ -191,10 +202,10 @@ class EnergyMetering:
 
         prices = by_key(pricing_properties(facts, self.store.data.get("settings") or {}))
         import_price = number(
-            (prices.get("pricing.import_price_current_eur_kwh") or {}).get("value")
+            (prices.get("pricing.import_effective_price_eur_kwh") or {}).get("value")
         )
         export_price = number(
-            (prices.get("pricing.export_price_current_eur_kwh") or {}).get("value")
+            (prices.get("pricing.export_effective_price_eur_kwh") or {}).get("value")
         )
         grid_import = number(facts.get("grid_import.power_kw"))
         grid_export = number(facts.get("grid_export.power_kw"))
@@ -310,10 +321,11 @@ class EnergyMetering:
             "solar_kwh": facts.get("solar.power_kw"),
             "grid_import_kwh": facts.get("grid_import.power_kw"),
             "grid_export_kwh": facts.get("grid_export.power_kw"),
-            "consumption_kwh": facts.get("home_consumption.power_kw"),
+            "site_consumption_kwh": facts.get("site_consumption.power_kw"),
+            "home_consumption_kwh": facts.get("home_consumption.power_kw"),
             "battery_charge_kwh": max(0.0, -facts.get("battery.power_kw")) if isinstance(facts.get("battery.power_kw"), (int, float)) else None,
             "battery_discharge_kwh": max(0.0, facts.get("battery.power_kw")) if isinstance(facts.get("battery.power_kw"), (int, float)) else None,
-            "flexible_load_kwh": flexible_total,
+            "flexible_loads_energy_in_kwh": flexible_total,
         }
         last_at = state.get("last_update")
         last = state.get("last_powers") or {}

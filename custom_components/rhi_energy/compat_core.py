@@ -174,31 +174,33 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
     Missing core facts remain unavailable; they are never coerced to zero.
     """
     solar = number(facts.get("solar.power_kw"))
+    site = number(facts.get("site_consumption.power_kw"))
     home = number(facts.get("home_consumption.power_kw"))
     gi = number(facts.get("grid_import.power_kw"))
     ge = number(facts.get("grid_export.power_kw"))
     bp = number(facts.get("battery.power_kw"))
     soc = number(facts.get("battery.soc_pct"))
     charge, discharge = split_battery_power(bp)
-    complete = all(v is not None for v in (solar, home, gi, ge))
+    complete = all(v is not None for v in (solar, site, gi, ge))
     if not complete:
-        code, title, primary, key = "unavailable", "Energy data unavailable", None, "home_consumption.power_kw"
+        code, title, primary, key = "unavailable", "Energy data unavailable", None, "site_consumption.power_kw"
     elif ge > 0.05:
-        code, title, primary, key = "exporting", "Exporting surplus", ge, "grid_export.power_kw"
+        code, title, primary, key = "exporting", "Exporting surplus", site, "site_consumption.power_kw"
     elif gi > 0.05:
-        code, title, primary, key = "importing", "Importing from grid", gi, "grid_import.power_kw"
+        code, title, primary, key = "importing", "Importing from grid", site, "site_consumption.power_kw"
     elif discharge is not None and discharge > 0.05:
-        code, title, primary, key = "battery_support", "Battery supporting home", home, "home_consumption.power_kw"
+        code, title, primary, key = "battery_support", "Battery supporting site", site, "site_consumption.power_kw"
     elif solar > 0.05:
-        code, title, primary, key = "self_powered", "Solar powering home", home, "home_consumption.power_kw"
+        code, title, primary, key = "self_powered", "Solar powering site", site, "site_consumption.power_kw"
     else:
-        code, title, primary, key = "idle", "Energy balanced", home, "home_consumption.power_kw"
+        code, title, primary, key = "idle", "Energy balanced", site, "site_consumption.power_kw"
     return {
         "schema": "energy_overview_snapshot_v2",
         "status": {"code": code, "title": title, "available": complete},
         "primary_metric": {"value": round(primary, 3) if primary is not None else None, "unit": "kW", "property_key": key},
         "summary": {
             "solar_power_kw": round(solar, 3) if solar is not None else None,
+            "site_consumption_power_kw": round(site, 3) if site is not None else None,
             "home_consumption_power_kw": round(home, 3) if home is not None else None,
             "home_power_kw": round(home, 3) if home is not None else None,
             "grid_import_power_kw": round(gi, 3) if gi is not None else None,
@@ -241,10 +243,11 @@ def metering_rows(metering: dict[str, Any]) -> list[dict[str, Any]]:
             "solar_kwh": bucket.get("solar_kwh"),
             "grid_import_kwh": bucket.get("grid_import_kwh"),
             "grid_export_kwh": bucket.get("grid_export_kwh"),
-            "consumption_kwh": bucket.get("consumption_kwh"),
+            "site_consumption_kwh": bucket.get("site_consumption_kwh"),
+            "home_consumption_kwh": bucket.get("home_consumption_kwh"),
             "battery_charge_kwh": bucket.get("battery_charge_kwh"),
             "battery_discharge_kwh": bucket.get("battery_discharge_kwh"),
-            "flexible_load_kwh": bucket.get("flexible_load_kwh"),
+            "flexible_loads_energy_in_kwh": bucket.get("flexible_loads_energy_in_kwh"),
             "flexible_assets_kwh": deepcopy(bucket.get("flexible_assets_kwh") or {}),
             "import_cost_eur": bucket.get("import_cost_eur"),
             "export_revenue_eur": bucket.get("export_revenue_eur"),
@@ -392,6 +395,7 @@ def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[
         # Optional tariff configuration augments that truth in separate effective
         # properties; it never turns a real live market price into unavailable.
         prop("pricing", "pricing.spot_eur_kwh", import_market, "EUR/kWh", availability=import_market_av, editable=import_live is None, editor="number", operation_id="energy.pricing.set_property", constraints={"min":-1,"max":5,"step":0.001}, reason_code="LIVE_SOURCE" if import_live is not None else "FALLBACK_REQUIRED"),
+        prop("pricing", "pricing.spot_price_current_eur_kwh", import_market, "EUR/kWh", availability=import_market_av, editable=import_live is None, editor="number", operation_id="energy.pricing.set_property", constraints={"min":-1,"max":5,"step":0.001}, reason_code="LIVE_SOURCE" if import_live is not None else "FALLBACK_REQUIRED"),
         prop("pricing", "pricing.import_price_current_eur_kwh", import_market, "EUR/kWh", availability=import_market_av, reason_code="LIVE_SOURCE" if import_live is not None else "FALLBACK_REQUIRED"),
         prop("pricing", "pricing.export_spot_eur_kwh", export_live, "EUR/kWh", availability=export_market_av, reason_code="LIVE_SOURCE" if export_live is not None else "EXPORT_SOURCE_UNAVAILABLE"),
         prop("pricing", "pricing.export_price_current_eur_kwh", export_live, "EUR/kWh", availability=export_market_av, reason_code="LIVE_SOURCE" if export_live is not None else "EXPORT_SOURCE_UNAVAILABLE"),
@@ -401,6 +405,7 @@ def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[
         prop("pricing", "pricing.export_fee_eur_kwh", export_fee, "EUR/kWh", availability=AVAILABLE if export_fee is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":2,"step":0.001}),
         prop("pricing", "pricing.import_effective_price_eur_kwh", import_effective, "EUR/kWh", availability=AVAILABLE if import_effective is not None else CONFIGURATION_REQUIRED),
         prop("pricing", "pricing.export_effective_price_eur_kwh", export_effective, "EUR/kWh", availability=AVAILABLE if export_effective is not None else CONFIGURATION_REQUIRED),
+        prop("pricing", "pricing.export_compensation_current_eur_kwh", export_effective, "EUR/kWh", availability=AVAILABLE if export_effective is not None else CONFIGURATION_REQUIRED),
         prop("pricing", "pricing.future_prices", deepcopy(facts.get("pricing.future_prices")), availability=AVAILABLE if facts.get("pricing.future_prices") is not None else UNAVAILABLE),
         prop("pricing", "pricing.currency", facts.get("pricing.currency") or ("EUR" if import_market is not None or export_live is not None else None), availability=AVAILABLE if (facts.get("pricing.currency") is not None or import_market is not None or export_live is not None) else UNAVAILABLE),
         prop("pricing", "pricing.tariff", deepcopy(facts.get("pricing.tariff")), availability=AVAILABLE if facts.get("pricing.tariff") is not None else UNAVAILABLE),
@@ -540,7 +545,7 @@ def _lane_totals(buckets: list[dict[str, Any]], *, complete: bool, solar: float 
         return 0.0
 
     solar_sum = round(sum(participant_energy(b, "advisory_source_lane", "solar") for b in buckets), 3)
-    batt_sum = round(sum(participant_energy(b, "advisory_source_lane", "home_battery") for b in buckets), 3)
+    batt_sum = round(sum(participant_energy(b, "advisory_source_lane", "battery") for b in buckets), 3)
     grid_sum = round(sum(participant_energy(b, "advisory_source_lane", "grid") for b in buckets), 3)
     home_sum = round(sum(participant_energy(b, "advisory_consumer_lane", "home") for b in buckets), 3)
     flex_by_asset: dict[str, float] = {}
@@ -786,7 +791,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                     "planning_state": "forecast" if solar_b is not None else "unavailable",
                 },
                 {
-                    "participant_id": "home_battery",
+                    "participant_id": "battery",
                     "display_name": "Home Battery",
                     "participant_type": "storage",
                     "lane_role": "source",
@@ -872,9 +877,33 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             "label": "Today" if horizon_id == "D0" else "Tomorrow",
             "mode": mode,
             "time_scope": "remaining_today" if horizon_id == "D0" else "full_day_tomorrow",
-            "supply": {"solar_kwh": solar_total, "battery_support_kwh": battery_support, "grid_import_kwh": grid_import},
-            "demand": {"home_kwh": demand, "flexible_known_need_kwh": requested, "flexible_scheduled_kwh": scheduled, "flexible_deferred_kwh": deferred, "total_kwh": round(demand + scheduled, 4) if demand is not None else None},
-            "balance": {"expected_grid_import_kwh": grid_import, "expected_grid_export_kwh": grid_export},
+            "supply": {
+                "solar_kwh": solar_total,
+                "solar_forecast_kwh": solar_total,
+                "solar_remaining_kwh": solar_total if horizon_id == "D0" else None,
+                "battery_support_kwh": battery_support,
+                "grid_import_kwh": grid_import,
+                "total_usable_supply_kwh": round((solar_total or 0.0) + (battery_support or 0.0) + (grid_import or 0.0), 4) if complete else None,
+            },
+            "demand": {
+                "home_kwh": demand,
+                "home_consumption_kwh": demand,
+                "home_consumption_forecast_kwh": demand,
+                "flexible_known_need_kwh": requested,
+                "flexible_scheduled_kwh": scheduled,
+                "flexible_loads_kwh": scheduled,
+                "flexible_deferred_kwh": deferred,
+                "total_kwh": round(demand + scheduled, 4) if demand is not None else None,
+                "total_expected_demand_kwh": round(demand + scheduled, 4) if demand is not None else None,
+                "expected_demand_kwh": round(demand + scheduled, 4) if demand is not None else None,
+            },
+            "balance": {
+                "expected_grid_import_kwh": grid_import,
+                "expected_grid_export_kwh": grid_export,
+                "grid_balance_kwh": round(grid_import - grid_export, 4) if grid_import is not None and grid_export is not None else None,
+                "balance_kwh": round(grid_import - grid_export, 4) if grid_import is not None and grid_export is not None else None,
+                "outlook_balance_kwh": round(grid_import - grid_export, 4) if grid_import is not None and grid_export is not None else None,
+            },
             "candidates": [aid for aid, value in sorted(asset_remaining.items()) if original_need.get(aid, 0.0) > 0],
             "quality": {"availability": AVAILABLE if complete else INCOMPLETE, "estimated": True, "warnings": sorted(set(warnings))},
             "policy_evidence": {"grid_policy": grid_policy, "grid_allowed_for_flexible": allow_grid, "solar_policy": solar_policy, "battery_policy": battery_policy, "objective": objective, "import_price_eur_kwh": import_price, "reserve_target_pct": reserve_pct},
@@ -982,4 +1011,16 @@ def intelligence(plan: dict[str, Any], facts: dict[str, Any], settings: dict[str
         decision="SCHEDULE"; rec=f"Schedule {needs[0].get('display_name') or needs[0].get('asset_id')} against available solar and price windows."; reason="flexible_need_requires_planning"; readiness=AVAILABLE
     else:
         decision="HOLD"; rec="No immediate Energy action is required."; reason="balanced_or_no_flexible_need"; readiness=AVAILABLE
-    return {"decision":decision,"recommendation":rec,"reason":reason,"availability":readiness,"trust":"Medium" if plan.get("health")!="OK" else "High","selected_flexible_load_id":needs[0].get("asset_id") if needs else None}
+    trust = "Medium" if plan.get("health") != "OK" else "High"
+    return {
+        "decision": decision,
+        "recommendation": rec,
+        "reason": reason,
+        "availability": readiness,
+        "trust": trust,
+        "confidence": trust,
+        "product_state": "READY" if readiness == AVAILABLE else "NOT_AVAILABLE",
+        "status": "READY" if readiness == AVAILABLE else "NOT_AVAILABLE",
+        "automation_mode": mode,
+        "selected_flexible_load_id": needs[0].get("asset_id") if needs else None,
+    }

@@ -28,6 +28,24 @@ _PRIORITY = {
 }
 
 
+def _public_projection_functional(entity_id: str, projection: dict[str, Any]) -> bool:
+    state = str(projection.get("state") or "UNAVAILABLE").upper()
+    attrs = projection.get("attributes") or {}
+    if state in {"AVAILABLE", "OK", "READY", "COMPLETE"}:
+        return True
+    if entity_id == "sensor.energy_metering_property_index" and state == "PARTIAL":
+        return bool(attrs.get("period_summary_by_id")) and bool(attrs.get("selected_period_summary"))
+    if entity_id == "sensor.energy_pricing_interval_index" and state == "PARTIAL":
+        return bool(attrs.get("coverage_json")) and "interval_rows_json" in attrs
+    if entity_id == "sensor.energy_value_accounting_index" and state in {"CONFIGURATION_REQUIRED", "NOT_EVALUATED"}:
+        return "pricing_complete" in attrs and bool(attrs.get("product_status_json"))
+    if entity_id == "sensor.energy_retrospective_event_index" and state in {
+        "WAITING_FOR_METERING_BASELINE", "INSUFFICIENT_CLOSED_EVIDENCE"
+    }:
+        return bool(attrs.get("product_status_json")) and "events_json" in attrs
+    return False
+
+
 def _status(value: Any, *, configuration: bool = False) -> str:
     raw = str(value or "UNKNOWN").upper()
     mapping = {
@@ -133,10 +151,13 @@ class EnergyDomainSupervision:
                 entity_id: str(projector.get(entity_id.removeprefix("sensor.")).get("state") or "UNAVAILABLE").upper()
                 for entity_id in LEGACY_PUBLIC_ENTITIES
             }
-        healthy_public_states = {"AVAILABLE", "OK", "READY", "COMPLETE"}
         degraded_public_entities = sorted(
-            entity_id for entity_id, value in product_states.items()
-            if value not in healthy_public_states
+            entity_id
+            for entity_id in product_states
+            if not _public_projection_functional(
+                entity_id,
+                projector.get(entity_id.removeprefix("sensor.")),
+            )
         )
         compatibility_functional_status = (
             compatibility_presence_status if not product_states

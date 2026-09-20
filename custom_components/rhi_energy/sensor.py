@@ -592,7 +592,7 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
             return SensorDeviceClass.POWER
         if kind == "energy":
             return SensorDeviceClass.ENERGY
-        if kind == "battery":
+        if kind == "battery" and str(prop.get("property_key") or "") == "battery.soc_pct":
             return SensorDeviceClass.BATTERY
         return None
 
