@@ -438,9 +438,10 @@ class EnergySourceBindingDiagnostic(SensorEntity):
         self._attr_suggested_object_id = (
             f"energy_source_binding_{_object_id(source_device_id)}"
         )
-        # Deliberately no DeviceInfo: source identity belongs to the source
-        # integration. The entity registry attaches this entity to that exact device.
+        # HA 2026.8+ helper-integration rule: attach directly to the source
+        # DeviceEntry. Never copy identifiers/connections and never create a proxy.
         self._attr_device_info = None
+        self.device_entry = dr.async_get(hass).async_get(source_device_id)
 
     def _binding(self) -> dict:
         return source_binding_index(
@@ -471,19 +472,6 @@ class EnergySourceBindingDiagnostic(SensorEntity):
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        entity_registry = er.async_get(self._hass)
-        device_registry = dr.async_get(self._hass)
-        source = device_registry.async_get(self._source_device_id)
-        entity = entity_registry.async_get(self.entity_id)
-        if (
-            source is not None
-            and entity is not None
-            and entity.device_id != self._source_device_id
-        ):
-            entity_registry.async_update_entity(
-                self.entity_id,
-                device_id=self._source_device_id,
-            )
         self.async_on_remove(
             self._manager.add_callback(self.async_write_ha_state)
         )

@@ -150,7 +150,18 @@ def physical_connection_power_total(
     ]
     if not active:
         return 0.0
-    values = [number(row.get("power_kw")) for row in active]
-    if any(value is None for value in values):
+    values: list[float] = []
+    for row in active:
+        value = number(row.get("power_kw"))
+        if value is not None:
+            values.append(max(0.0, float(value)))
+            continue
+        # A producer-owned canonical idle state is authoritative evidence that the
+        # connection is not drawing charging power. This is not "unknown = 0":
+        # unknown/running/charging connections without power still fail closed.
+        operating_state = str(row.get("operating_state") or "").strip().lower()
+        if operating_state == "idle":
+            values.append(0.0)
+            continue
         return None
-    return round(sum(max(0.0, float(value)) for value in values if value is not None), 6)
+    return round(sum(values), 6)
