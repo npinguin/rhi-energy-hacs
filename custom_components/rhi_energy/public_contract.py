@@ -17,7 +17,9 @@ from .compat_core import (
     PENDING,
     UNAVAILABLE,
     UNSUPPORTED,
+    battery_state_from_power,
     by_key,
+    grid_flow_direction,
     jdump,
     metering_rows,
     number,
@@ -100,8 +102,11 @@ def _fact_rows(snapshot: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     solar.append(prop("solar", "solar.usable_surplus_kw", round(surplus, 4) if surplus is not None else None, "kW"))
 
     reserve_actual = number(f.get("battery.reserve_soc_pct"))
+    battery_power = number(f.get("battery.power_kw"))
+    battery_state = battery_state_from_power(battery_power)
     battery = [
-        prop("battery", "battery.power_kw", number(f.get("battery.power_kw")), "kW"),
+        prop("battery", "battery.state", battery_state, availability=AVAILABLE if battery_state is not None else UNAVAILABLE),
+        prop("battery", "battery.power_kw", battery_power, "kW"),
         prop("battery", "battery.charge_power_kw", charge, "kW"),
         prop("battery", "battery.discharge_power_kw", discharge, "kW"),
         prop("battery", "battery.soc_pct", number(f.get("battery.soc_pct")), "%"),
@@ -128,16 +133,25 @@ def _fact_rows(snapshot: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
         for key, unit_name in (("power_kw", "kW"), ("soc_pct", "%"), ("capacity_kwh", "kWh"), ("available_kwh", "kWh")):
             battery.append(prop(aid, f"{aid}.{key}", number(unit.get(key)), unit_name))
 
+    grid_net = number(f.get("grid.net_power_kw"))
+    grid_direction = grid_flow_direction(grid_net)
     grid = [
-        prop("grid", "grid.net_power_kw", number(f.get("grid.net_power_kw")), "kW"),
+        prop("grid", "grid.net_power_kw", grid_net, "kW"),
+        prop("grid", "grid.flow_direction", grid_direction, availability=AVAILABLE if grid_direction is not None else UNAVAILABLE),
         prop("grid", "grid_import.power_kw", number(f.get("grid_import.power_kw")), "kW"),
         prop("grid", "grid_export.power_kw", number(f.get("grid_export.power_kw")), "kW"),
         prop("grid", "grid_import.energy_total_kwh", number(f.get("metering.grid_import_total_kwh")), "kWh"),
         prop("grid", "grid_export.energy_total_kwh", number(f.get("metering.grid_export_total_kwh")), "kWh"),
     ]
+    site_power = number(f.get("site_consumption.power_kw"))
+    home_power = number(f.get("home_consumption.power_kw"))
+    flexible_power = number(f.get("flexible_loads.power_kw"))
     consumption = [
-        prop("consumption", "home_consumption.power_kw", number(f.get("home_consumption.power_kw")), "kW"),
-        prop("consumption", "consumption.power_kw", number(f.get("consumption.power_kw")), "kW"),
+        prop("site_consumption", "site_consumption.power_kw", site_power, "kW"),
+        prop("home_consumption", "home_consumption.power_kw", home_power, "kW"),
+        prop("flexible_loads", "flexible_loads.power_kw", flexible_power, "kW"),
+        # Kept as a compatibility alias only. Canonical UX keys are the three rows above.
+        prop("consumption", "consumption.power_kw", site_power, "kW"),
         prop("consumption", "consumption.health", f.get("consumption.health"), availability=AVAILABLE if f.get("consumption.health") else UNAVAILABLE),
     ]
     forecast = [
@@ -509,6 +523,18 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     ])
     flex_assets, flex_props = _flexible_projection(snap, command_rows)
     connection_state, connection_assets, connection_props, connection_summary = _connection_projection(snap)
+    flexible_contributors = [
+        {
+            "asset_id": asset.get("asset_id"),
+            "display_name": asset.get("display_name"),
+            "power_kw": number(asset.get("power_kw")),
+            "availability": asset.get("availability_state") or AVAILABLE,
+        }
+        for asset in flex_assets
+    ]
+    for row in rows["consumption"]:
+        if row.get("key") == "flexible_loads.power_kw":
+            row["contributors_json"] = jdump(flexible_contributors)
     assets = _assets(snap)
     relationships = _relationships(snap, assets)
     strategy_rows = rows["strategy"]
@@ -519,10 +545,15 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     value_status, value_rows, value_summary = _value_projection(meter_ctx["selected"], pricing_rows)
 
     demand_breakdown = []
+    site = number(facts.get("site_consumption.power_kw"))
     home = number(facts.get("home_consumption.power_kw"))
-    if home is not None:
-        demand_breakdown.append({"asset_id":"home","label":"Home","power_kw":home,"availability":AVAILABLE})
-    demand_breakdown.extend({"asset_id":a.get("asset_id"),"label":a.get("display_name"),"power_kw":a.get("power_kw"),"availability":a.get("availability_state") or AVAILABLE} for a in flex_assets)
+    flexible_total = number(facts.get("flexible_loads.power_kw"))
+    demand_breakdown.extend([
+        {"row_id":"site_consumption","asset_id":"site_consumption","label":"Site Consumption","power_kw":site,"availability":AVAILABLE if site is not None else UNAVAILABLE},
+        {"row_id":"home_consumption","asset_id":"home_consumption","label":"Home Consumption","power_kw":home,"availability":AVAILABLE if home is not None else UNAVAILABLE},
+        {"row_id":"flexible_loads","asset_id":"flexible_loads","label":"Flexible Loads","power_kw":flexible_total,"availability":AVAILABLE if flexible_total is not None else UNAVAILABLE},
+    ])
+    demand_breakdown.extend({"row_id":str(a.get("asset_id") or ""),"asset_id":a.get("asset_id"),"label":a.get("display_name"),"power_kw":a.get("power_kw"),"availability":a.get("availability_state") or AVAILABLE} for a in flex_assets)
     overview = overview_snapshot(facts, demand_breakdown)
     selected_flexible_kwh = deepcopy((meter_ctx["selected"].get("flexible_assets_kwh") or {}))
     for asset in flex_assets:
@@ -532,8 +563,17 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     forecast_status = _status_for_rows(rows["forecast"])
     planning_horizons = plan.get("planning_horizons") or {}
     horizons_list = [planning_horizons[k] for k in ("D0","D1") if k in planning_horizons]
-    planning_status = AVAILABLE if plan and horizons_list else UNAVAILABLE
-    if plan.get("health") == "DEGRADED": planning_status = INCOMPLETE
+    horizon_availability = [
+        str(((row.get("quality") or {}).get("availability") or UNAVAILABLE))
+        for row in horizons_list if isinstance(row, dict)
+    ]
+    planning_status = (
+        AVAILABLE
+        if len(horizons_list) == 2 and horizon_availability and all(value == AVAILABLE for value in horizon_availability)
+        else INCOMPLETE
+        if horizons_list
+        else UNAVAILABLE
+    )
 
     intelligence_rows = [
         prop("intelligence", "energy_intelligence.decision", intel.get("decision"), availability=intel.get("availability") or UNAVAILABLE),
@@ -610,9 +650,34 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     ):
         r = rows[key]
         extra={"index_type":"property_index","asset_type":key,"lookup_rule":"properties_by_key","iteration_rule":"properties"}
-        if key=="battery": extra.update({"battery_bank_ids_json":jdump([u.get("asset_id") for u in snap.get("battery_units") or []]),"battery_banks_json":jdump(snap.get("battery_units") or [])})
+        if key=="battery":
+            battery_state = battery_state_from_power(number(facts.get("battery.power_kw")))
+            battery_system = next((a for a in snap.get("logical_assets") or [] if a.get("object_class") == "battery_system"), None) or {}
+            extra.update({
+                "battery_bank_ids_json":jdump([u.get("asset_id") for u in snap.get("battery_units") or []]),
+                "battery_banks_json":jdump(snap.get("battery_units") or []),
+                "battery_system_asset_id":battery_system.get("asset_id"),
+                "battery_system_json":jdump(battery_system),
+                "state":battery_state,
+                "flow_projection_json":jdump({
+                    "state":battery_state,
+                    "power_kw":abs(number(facts.get("battery.power_kw")) or 0.0) if battery_state is not None else None,
+                    "signed_power_kw":number(facts.get("battery.power_kw")),
+                    "flow_role":"producer" if battery_state=="discharging" else "consumer" if battery_state=="charging" else "inactive",
+                    "ux_visible":number(facts.get("battery.power_kw")) is not None,
+                }),
+            })
         if key=="solar": extra.update({"forecast_source_index":"sensor.energy_forecast_property_index","forecast_property_keys_json":jdump(["forecast.solar_today_kwh","forecast.solar_remaining_today_kwh","forecast.solar_tomorrow_kwh"]),"forecast_linkage":"backend_owned_reference"})
-        if key=="consumption": extra.update({"demand_export_contract":"backend_owned_breakdown","demand_export_iteration_attribute":"demand_export_breakdown_json","demand_export_breakdown_json":jdump(demand_breakdown),"period_energy_source":"sensor.energy_metering_property_index"})
+        if key=="consumption": extra.update({
+            "demand_export_contract":"backend_owned_breakdown",
+            "demand_export_iteration_attribute":"demand_export_breakdown_json",
+            "demand_export_breakdown_json":jdump(demand_breakdown),
+            "site_consumption":jdump({"power_kw":number(facts.get("site_consumption.power_kw"))}),
+            "home_consumption":jdump({"power_kw":number(facts.get("home_consumption.power_kw"))}),
+            "flexible_loads":jdump({"power_kw":number(facts.get("flexible_loads.power_kw")),"contributors":flexible_contributors}),
+            "flexible_load_contributors_json":jdump(flexible_contributors),
+            "period_energy_source":"sensor.energy_metering_property_index"
+        })
         projections[name]={"state":_status_for_rows(r),"attributes":_property_attrs(r,schema,**extra)}
 
     projections["energy_metering_property_index"]={"state":meter_status,"attributes":{**_property_attrs(meter_props,"energy_metering_property_index_v2_compat",index_type="metering_property_index"),"selected_context_json":jdump({"type":"period","value":selected_period}),"selected_period_summary":jdump(meter_ctx["selected"]),"selected_period_properties":jdump(meter_props),"periods_json":jdump(meter_ctx["periods"]),"period_summary_by_id":jdump(meter_ctx["periods_by_id"]),"remediations_json":jdump([])}}
@@ -657,7 +722,49 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     projections["energy_connection_property_index"]={"state":connection_state,"attributes":{**_property_attrs(connection_props,"energy_connection_property_index_v2_compat",index_type="typed_property_index",asset_type="connection",lookup_rule="properties_by_key",iteration_rule="connections_json[]"),"source_contract_registry":"canonical_only_sensor.mobility_energy_asset_publication","source_owner":"sensor.mobility_energy_asset_publication","connections_json":jdump(connection_assets),"connection_total_power_kw":connection_summary["connection_total_power_kw"],"snapshot_revision":connection_summary["snapshot_revision"],"observed_at":connection_summary["observed_at"],"source_contract":connection_summary["source_contract"],"recalculation_forbidden":True,"relationship_recalculation_allowed":False,"ux_guardrail":"Render connection snapshot only; no relationship lookup.","health":"OK" if connection_state==AVAILABLE else connection_state,"health_reason":"Mobility publication projected without inferred connection truth."}}
     projections["energy_strategy_profile_index"]={"state":AVAILABLE,"attributes":{**_property_attrs(strategy_rows,"energy_strategy_profile_index_v2_compat",index_type="strategy_profile_index"),"configured_operating_mode":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"energy_operating_mode_value":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"energy_operating_mode":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"profiles_json":jdump([{"profile_id":"configured","properties":strategy_rows}]),"profiles_by_id_json":jdump({"configured":{"profile_id":"configured","properties":strategy_rows}}),"published_profile_count":1,"properties_json":jdump(strategy_rows),"product_status":AVAILABLE,"product_reason":"Persistent V2 strategy configuration is available."}}
     projections["energy_strategy_effective_index"]={"state":AVAILABLE,"attributes":{**_base("energy_strategy_effective_index_v2_compat"),"ownership_boundary":"configured_intent_is_strategy_effective_values_are_read_only","editable":False,"editable_source":"sensor.energy_strategy_profile_index","effective_strategies_json":jdump(strategies_by_asset),"strategies_by_asset_id_json":jdump({r["asset_id"]:r for r in strategies_by_asset}),"effective_subdomains_json":jdump(effective),"current_policies_json":jdump(effective),"configured_strategy_owner":"sensor.energy_strategy_profile_index","effective_property_rule":"effective values are read-only policy resolution; never commands"}}
-    projections["energy_planning_index"]={"state":planning_status,"attributes":{**_property_attrs(planning_rows,"energy_planning_index_v2_compat",index_type="planning_index",asset_type="planning"),"planning_owner":"rhi_energy","planning_schema_version":2,"plan_id":plan.get("plan_id"),"commit_reason":plan.get("reason"),"planning_horizons_json":jdump(horizons_list),"planning_horizons_by_id":jdump(planning_horizons),"planning_horizon_count":len(horizons_list),"planning_lane_contract":"summary.lane_totals is authoritative","timeline_scope":"D0_remaining_today_D1_full_day_estimated_buckets","health":plan.get("health") or UNAVAILABLE,"health_reason":plan.get("reason") or "planning_unavailable"}}
+    planning_lane_totals = {
+        hid: deepcopy(((row.get("summary") or {}).get("lane_totals") or {}))
+        for hid, row in planning_horizons.items()
+        if isinstance(row, dict)
+    }
+    planning_assets = [
+        {
+            "asset_id": asset.get("asset_id"),
+            "display_name": asset.get("display_name"),
+            "energy_to_target_kwh": asset.get("energy_to_target_kwh"),
+            "planning_hold": asset.get("planning_hold", False),
+            "availability": asset.get("availability_state") or AVAILABLE,
+        }
+        for asset in flex_assets
+    ]
+    planning_assets_by_id = {
+        str(row.get("asset_id")): row
+        for row in planning_assets
+        if row.get("asset_id")
+    }
+    d0_totals = deepcopy(planning_lane_totals.get("D0") or {})
+    d1_totals = deepcopy(planning_lane_totals.get("D1") or {})
+    projections["energy_planning_index"]={"state":planning_status,"attributes":{
+        **_property_attrs(planning_rows,"energy_planning_index_v2_compat",index_type="planning_index",asset_type="planning"),
+        "planning_owner":"rhi_energy",
+        "planning_schema_version":2,
+        "plan_id":plan.get("plan_id"),
+        "commit_reason":plan.get("reason"),
+        "planning_horizons_json":jdump(horizons_list),
+        "planning_horizons_by_id":jdump(planning_horizons),
+        "planning_horizon_count":len(horizons_list),
+        "planning_assets_json":jdump(planning_assets),
+        "planning_assets_by_id":jdump(planning_assets_by_id),
+        "planning_today_totals_json":jdump(d0_totals),
+        "planning_combined_totals_json":jdump({"D0":d0_totals,"D1":d1_totals}),
+        "planning_lane_totals_json":jdump(planning_lane_totals),
+        "planning_horizon_totals_by_id":jdump(planning_lane_totals),
+        "current_planning_bucket":jdump(next(iter((planning_horizons.get("D0") or {}).get("buckets") or []), {})),
+        "planning_lane_contract":"summary.lane_totals is authoritative",
+        "timeline_scope":"D0_remaining_today_D1_full_day_estimated_buckets",
+        "health":"OK" if planning_status==AVAILABLE else planning_status,
+        "health_reason":plan.get("reason") or "planning_unavailable"
+    }}
     d0 = planning_horizons.get("D0") or {}
     current_allocations = []
     for bucket in d0.get("buckets") or []:

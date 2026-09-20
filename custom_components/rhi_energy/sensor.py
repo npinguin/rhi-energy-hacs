@@ -7,7 +7,7 @@ from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import (
     DOMAIN,
@@ -429,6 +429,17 @@ class EnergyLogicalEntityManager:
     def _sync(self) -> None:
         rows = self._inventory()
         self._cleanup_registry_once(rows)
+        # Logical RHI objects are product views, not physical source children.
+        # Clear the historic module parent so the Energy Module's native
+        # "Connected devices" section contains only real accepted HA sources.
+        devices = dr.async_get(self._hass)
+        module = devices.async_get_device(identifiers={(DOMAIN, self._entry.entry_id)})
+        if module is not None:
+            for asset in rows:
+                asset_id = str(asset.get("asset_id") or "")
+                logical = devices.async_get_device(identifiers={(DOMAIN, f"logical:{asset_id}")})
+                if logical is not None and logical.via_device_id == module.id:
+                    devices.async_update_device(logical.id, via_device_id=None)
         additions: list[SensorEntity] = []
         for asset in rows:
             asset_id = str(asset.get("asset_id") or "")
@@ -489,7 +500,6 @@ class _LogicalEnergySensor(SensorEntity):
             "manufacturer": "Robotix Home Intelligence",
             "model": f"Energy logical object · {OBJECT_CLASS_LABELS.get(object_class, object_class.replace('_', ' ').title())}",
             "sw_version": RELEASE,
-            "via_device": (DOMAIN, self._entry.entry_id),
         }
 
     async def async_added_to_hass(self):

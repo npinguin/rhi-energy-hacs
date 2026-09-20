@@ -132,6 +132,28 @@ def split_battery_power(power_kw: float | None) -> tuple[float | None, float | N
     return max(0.0, -power_kw), max(0.0, power_kw)
 
 
+def battery_state_from_power(power_kw: float | None, *, deadband_kw: float = 0.05) -> str | None:
+    """Return canonical battery flow state from signed canonical battery power."""
+    if power_kw is None:
+        return None
+    if power_kw > deadband_kw:
+        return "discharging"
+    if power_kw < -deadband_kw:
+        return "charging"
+    return "idle"
+
+
+def grid_flow_direction(net_power_kw: float | None, *, deadband_kw: float = 0.05) -> str | None:
+    """Return canonical site-boundary direction; positive grid power is import."""
+    if net_power_kw is None:
+        return None
+    if net_power_kw > deadband_kw:
+        return "importing"
+    if net_power_kw < -deadband_kw:
+        return "exporting"
+    return "balanced"
+
+
 def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, battery_kw: float | None, max_home_kw: float | None = None) -> dict[str, Any]:
     if solar_kw is None or grid_net_kw is None or battery_kw is None:
         return {"power_kw": None, "health": "UNAVAILABLE", "reason": "required_energy_balance_input_missing", "raw_balance_kw": None}
@@ -452,18 +474,40 @@ def _solar_bucket_curve(total_kwh: float | None, buckets: list[dict[str, Any]], 
     return [round(float(total_kwh) * weight / weight_sum, 6) for weight in weighted]
 
 
+def _learned_baseload_fallback_kw(
+    baseload_profile: dict[str, Any],
+    *,
+    minimum_distinct_hours: int = 12,
+) -> float | None:
+    """Return a broad learned fallback only after sufficient hourly evidence exists."""
+    learned = []
+    if isinstance(baseload_profile, dict):
+        for row in baseload_profile.values():
+            if not isinstance(row, dict):
+                continue
+            avg = number(row.get("avg_kw"))
+            samples = int(row.get("samples") or 0)
+            if avg is not None and samples > 0:
+                learned.append(avg)
+    if len(learned) < minimum_distinct_hours:
+        return None
+    return round(sum(learned) / len(learned), 6)
+
+
 def _baseload_bucket_curve(
     buckets: list[dict[str, Any]],
     baseload_profile: dict[str, Any],
     fallback_kw: float | None,
 ) -> list[float | None]:
+    learned_fallback = _learned_baseload_fallback_kw(baseload_profile)
+    effective_fallback = fallback_kw if fallback_kw is not None else learned_fallback
     out: list[float | None] = []
     for bucket in buckets:
         hour = int(bucket["hour"])
         row = baseload_profile.get(f"{hour:02d}") if isinstance(baseload_profile, dict) else None
         avg_kw = number((row or {}).get("avg_kw")) if isinstance(row, dict) else None
         if avg_kw is None:
-            avg_kw = fallback_kw
+            avg_kw = effective_fallback
         out.append(round(avg_kw * float(bucket["duration_hours"]), 6) if avg_kw is not None else None)
     return out
 
@@ -485,17 +529,32 @@ def _lane_totals(buckets: list[dict[str, Any]], *, complete: bool, solar: float 
             "use_total_kwh": None,
             "balance_delta_kwh": None,
         }
-    solar_sum = round(sum(number(b["advisory_source_lane"].get("solar_kwh")) or 0.0 for b in buckets), 3)
-    batt_sum = round(sum(number(b["advisory_source_lane"].get("battery_out_kwh")) or 0.0 for b in buckets), 3)
-    grid_sum = round(sum(number(b["advisory_source_lane"].get("grid_in_kwh")) or 0.0 for b in buckets), 3)
-    home_sum = round(sum(number(b["advisory_consumer_lane"].get("home_kwh")) or 0.0 for b in buckets), 3)
+    def participant_energy(bucket: dict[str, Any], lane: str, participant_id: str) -> float:
+        for row in bucket.get(lane) or []:
+            if str((row or {}).get("participant_id") or "") != participant_id:
+                continue
+            value = number((row or {}).get("planned_supply_kwh"))
+            if value is None:
+                value = number((row or {}).get("planned_demand_kwh"))
+            return value or 0.0
+        return 0.0
+
+    solar_sum = round(sum(participant_energy(b, "advisory_source_lane", "solar") for b in buckets), 3)
+    batt_sum = round(sum(participant_energy(b, "advisory_source_lane", "home_battery") for b in buckets), 3)
+    grid_sum = round(sum(participant_energy(b, "advisory_source_lane", "grid") for b in buckets), 3)
+    home_sum = round(sum(participant_energy(b, "advisory_consumer_lane", "home") for b in buckets), 3)
     flex_by_asset: dict[str, float] = {}
     for bucket in buckets:
-        for allocation in bucket.get("asset_allocations") or []:
-            aid = str(allocation["asset_id"])
-            flex_by_asset[aid] = round(flex_by_asset.get(aid, 0.0) + (number(allocation.get("planned_energy_kwh")) or 0.0), 3)
+        for row in bucket.get("advisory_consumer_lane") or []:
+            aid = str((row or {}).get("participant_id") or "")
+            if not aid or aid == "home":
+                continue
+            energy = number((row or {}).get("planned_demand_kwh"))
+            if energy is None:
+                continue
+            flex_by_asset[aid] = round(flex_by_asset.get(aid, 0.0) + energy, 3)
     flex_sum = round(sum(flex_by_asset.values()), 3)
-    export_sum = round(sum(number(b["advisory_boundary_flows"].get("grid_out_kwh")) or 0.0 for b in buckets), 3)
+    export_sum = round(sum(number((b.get("advisory_boundary_flows") or {}).get("grid_export_kwh")) or 0.0 for b in buckets), 3)
     source_total = round(solar_sum + batt_sum + grid_sum, 3)
     use_total = round(home_sum + flex_sum + export_sum, 3)
     return {
@@ -582,6 +641,15 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         requested = round(sum(asset_remaining.values()), 4)
         complete = solar_total is not None and demand is not None
         warnings: list[str] = [] if complete else ["incomplete_forecast_or_demand_evidence"]
+        learned_fallback = _learned_baseload_fallback_kw(baseload_profile)
+        if fallback_kw is None and learned_fallback is not None:
+            missing_hours = [
+                int(bucket["hour"])
+                for bucket in bucket_meta
+                if number(((baseload_profile.get(f"{int(bucket['hour']):02d}") or {}) if isinstance(baseload_profile, dict) else {}).get("avg_kw")) is None
+            ]
+            if missing_hours:
+                warnings.append("missing_hour_baseload_filled_from_learned_profile_mean")
         battery_remaining = battery_start
         runtime_remaining: dict[str, int] = {aid: 0 for aid in asset_remaining}
         served_count: dict[str, int] = {aid: 0 for aid in asset_remaining}
@@ -707,9 +775,63 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                 grid_out = max(0.0, solar_b - source_need)
             source_total = (solar_b or 0.0) + (battery_out or 0.0) + (grid_in or 0.0) if solar_b is not None and source_need is not None else None
             use_total = source_need + (grid_out or 0.0) if source_need is not None and grid_out is not None else None
+            source_lane = [
+                {
+                    "participant_id": "solar",
+                    "display_name": "Solar",
+                    "participant_type": "producer",
+                    "lane_role": "source",
+                    "flow_direction": "production",
+                    "planned_supply_kwh": solar_b,
+                    "planning_state": "forecast" if solar_b is not None else "unavailable",
+                },
+                {
+                    "participant_id": "home_battery",
+                    "display_name": "Home Battery",
+                    "participant_type": "storage",
+                    "lane_role": "source",
+                    "flow_direction": "discharge" if (battery_out or 0.0) > 0 else "idle",
+                    "planned_supply_kwh": round(battery_out, 4) if battery_out is not None else None,
+                    "planning_state": "planned" if battery_out is not None else "unavailable",
+                },
+                {
+                    "participant_id": "grid",
+                    "display_name": "Grid",
+                    "participant_type": "grid_connection",
+                    "lane_role": "source",
+                    "flow_direction": "import" if (grid_in or 0.0) > 0 else "idle",
+                    "planned_supply_kwh": round(grid_in, 4) if grid_in is not None else None,
+                    "planning_state": "residual_supply" if (grid_in or 0.0) > 0 else "not_required",
+                },
+            ]
+            consumer_lane = [
+                {
+                    "participant_id": "home",
+                    "display_name": "Home Consumption",
+                    "participant_type": "fixed_consumer",
+                    "lane_role": "consumer",
+                    "flow_direction": "consume",
+                    "planned_demand_kwh": home_b,
+                    "planning_state": "forecast" if home_b is not None else "unavailable",
+                },
+                *[
+                    {
+                        **deepcopy(allocation),
+                        "participant_id": allocation.get("asset_id"),
+                        "lane_role": "consumer",
+                        "flow_direction": "charge",
+                        "planned_demand_kwh": allocation.get("planned_energy_kwh"),
+                        "planning_state": "planned",
+                    }
+                    for allocation in flex_allocs
+                ],
+            ]
             buckets.append({
                 "bucket_id": f"{horizon_id}:{int(meta['hour']):02d}",
                 "hour": int(meta["hour"]),
+                "start_time": meta.get("start_at"),
+                "end_time": meta.get("end_at"),
+                "duration_minutes": max_minutes,
                 "duration_hours": round(duration, 6),
                 "runtime_minutes": max_minutes,
                 "estimated": True,
@@ -718,21 +840,16 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                 "planned_flexible_kwh": round(flex_energy, 4),
                 "expected_grid_import_kwh": round(grid_in, 4) if grid_in is not None else None,
                 "expected_grid_export_kwh": round(grid_out, 4) if grid_out is not None else None,
-                "advisory_source_lane": {
-                    "solar_kwh": solar_b,
-                    "battery_out_kwh": round(battery_out, 4) if battery_out is not None else None,
-                    "grid_in_kwh": round(grid_in, 4) if grid_in is not None else None,
-                },
-                "advisory_consumer_lane": {
-                    "home_kwh": home_b,
-                    "flexible_assets": flex_allocs,
-                    "flexible_kwh": round(flex_energy, 4),
-                },
+                "advisory_source_lane": source_lane,
+                "advisory_consumer_lane": consumer_lane,
                 "advisory_boundary_flows": {
-                    "grid_out_kwh": round(grid_out, 4) if grid_out is not None else None,
+                    "grid_import_kwh": round(grid_in, 4) if grid_in is not None else None,
                     "grid_export_kwh": round(grid_out, 4) if grid_out is not None else None,
                 },
                 "advisory_lane_balance_delta_kwh": round(source_total - use_total, 6) if source_total is not None and use_total is not None else None,
+                "planning_state": "ready" if complete else "incomplete",
+                "forecast_quality": "estimated" if complete else "incomplete",
+                "estimation_disclosure": "Forecast and learned baseload; advisory only.",
                 "battery_ledger": {
                     "start_usable_kwh": round(battery_start_bucket, 4) if battery_start_bucket is not None else None,
                     "discharge_kwh": round(battery_out, 4) if battery_out is not None else None,
