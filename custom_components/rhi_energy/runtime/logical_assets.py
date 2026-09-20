@@ -359,6 +359,14 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
         source_id = str(item.get("asset_id") or "")
         if not source_id:
             continue
+        provenance = item.get("source_provenance") if isinstance(item.get("source_provenance"), dict) else {}
+        source_device_id = str(
+            item.get("device_registry_id")
+            or item.get("device_id")
+            or provenance.get("device_registry_id")
+            or provenance.get("device_id")
+            or ""
+        ) or None
         props: list[LogicalProperty] = []
         for spec in property_definitions("flexible_load"):
             key = str(spec.get("property_key") or "")
@@ -376,7 +384,9 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
             str(item.get("display_name") or source_id),
             integration_domain=str(item.get("source_domain") or "mobility"), normalization_status="READY",
             runtime_truth=True, lifecycle_scope="producer_runtime", source_domain=str(item.get("source_domain") or "mobility"),
-            selected_device_ids=[str(item.get("device_id"))] if item.get("device_id") else [], properties=props,
+            selected_device_ids=[source_device_id] if source_device_id else [],
+            device_registry_id=source_device_id,
+            properties=props,
         ))
     return rows
 

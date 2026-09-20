@@ -204,7 +204,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         supervision_unsubscribe()
     elif isinstance(supervision, EnergyDomainSupervision):
         unregister_domain_supervision(hass, supervision)
-    for key in ("entity_projection", "public_projector", "interaction", "metering", "runtime", "build_manager"):
+    for key in ("button_projection", "number_projection", "entity_projection", "public_projector", "interaction", "metering", "runtime", "build_manager"):
         obj = state.get(key)
         if obj is not None and hasattr(obj, "async_stop"):
             await obj.async_stop()

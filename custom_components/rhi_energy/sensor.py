@@ -64,6 +64,16 @@ class _EnergySensor(SensorEntity):
         }
 
 
+_PLANNING_LAYER_BY_ENTITY = {
+    "energy_strategy_profile_index": "strategic",
+    "energy_strategy_effective_index": "strategic",
+    "energy_outlook_property_index": "tactical",
+    "energy_planning_index": "tactical",
+    "energy_operational_plan_index": "operational",
+    "energy_planning_experience_index": "operational",
+}
+
+
 class LegacyPublicContractSensor(_EnergySensor):
     """Compatibility surface. These are product/runtime entities, not monitoring indexes."""
 
@@ -71,9 +81,18 @@ class LegacyPublicContractSensor(_EnergySensor):
         super().__init__(entry)
         self._projector = projector
         self._object_id = object_id
+        self._planning_layer = _PLANNING_LAYER_BY_ENTITY.get(object_id)
         self._attr_name = object_id
         self._attr_suggested_object_id = object_id
         self._attr_unique_id = f"rhi_energy:compat:{object_id}"
+        if self._planning_layer:
+            self._attr_device_info = {
+                "identifiers": {(DOMAIN, "logical:planning")},
+                "name": "Energy Planning",
+                "manufacturer": "Robotix Home Intelligence",
+                "model": "Energy logical object · Planning",
+                "sw_version": RELEASE,
+            }
 
     @property
     def native_value(self):
@@ -81,7 +100,11 @@ class LegacyPublicContractSensor(_EnergySensor):
 
     @property
     def extra_state_attributes(self):
-        return self._projector.get(self._object_id).get("attributes") or {}
+        attrs = dict(self._projector.get(self._object_id).get("attributes") or {})
+        if self._planning_layer:
+            attrs["planning_layer"] = self._planning_layer
+            attrs["logical_device_role"] = "energy_planning"
+        return attrs
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -380,7 +403,6 @@ class EnergyLogicalEntityManager:
         self._known: set[str] = set()
         self._remove_manager = None
         self._remove_runtime = None
-        self._cleanup_done = False
 
     def _inventory(self) -> list[dict]:
         runtime_rows = self._runtime.snapshot.get("logical_assets") or []
@@ -402,22 +424,43 @@ class EnergyLogicalEntityManager:
                     desired.add(f"rhi_energy:logical:{asset_id}:property:{key}")
         return desired
 
-    def _cleanup_registry_once(self, rows: list[dict]) -> None:
-        if self._cleanup_done or not self._manager.entity_inventory_authoritative:
+    def _cleanup_registry(self, rows: list[dict]) -> None:
+        """Remove stale logical projections whenever authoritative topology changes."""
+        if not self._manager.entity_inventory_authoritative:
             return
         desired = self._unique_ids(rows)
-        producer_available = bool((self._runtime.snapshot.get("producer_publication_availability") or {}).get("mobility"))
+        desired_devices = {
+            f"logical:{str(asset.get('asset_id') or '')}"
+            for asset in rows
+            if asset.get("asset_id")
+        }
+        producer_available = bool(
+            (self._runtime.snapshot.get("producer_publication_availability") or {}).get("mobility")
+        )
         registry = er.async_get(self._hass)
-        for entry in er.async_entries_for_config_entry(registry, self._entry.entry_id):
+        for entry in list(er.async_entries_for_config_entry(registry, self._entry.entry_id)):
             unique_id = str(entry.unique_id or "")
             if not unique_id.startswith("rhi_energy:logical:") or unique_id in desired:
                 continue
-            # Do not retire Mobility-derived flexible loads while the producer
-            # publication itself is not authoritative/available.
             if ":flexible_load_" in unique_id and not producer_available:
                 continue
             registry.async_remove(entry.entity_id)
-        self._cleanup_done = True
+            self._known.discard(unique_id)
+
+        devices = dr.async_get(self._hass)
+        for device in list(devices.devices.values()):
+            if self._entry.entry_id not in device.config_entries:
+                continue
+            logical_keys = {
+                str(value)
+                for domain, value in device.identifiers
+                if domain == DOMAIN and str(value).startswith("logical:")
+            }
+            if not logical_keys or logical_keys & desired_devices:
+                continue
+            if any(key.startswith("logical:flexible_load_") for key in logical_keys) and not producer_available:
+                continue
+            devices.async_remove_device(device.id)
 
     def start(self) -> None:
         if self._remove_manager is None:
@@ -428,7 +471,7 @@ class EnergyLogicalEntityManager:
 
     def _sync(self) -> None:
         rows = self._inventory()
-        self._cleanup_registry_once(rows)
+        self._cleanup_registry(rows)
         # Logical RHI objects are product views, not physical source children.
         # Clear the historic module parent so the Energy Module's native
         # "Connected devices" section contains only real accepted HA sources.
@@ -461,6 +504,15 @@ class EnergyLogicalEntityManager:
                     additions.append(EnergyLogicalPropertySensor(self._entry, self._manager, self._runtime, asset_id, property_key))
         if additions:
             self._async_add_entities(additions)
+        self._hass.async_create_task(
+            async_sync_source_device_topology(
+                self._hass,
+                self._entry,
+                self._manager.domain_model,
+                self._store,
+                self._runtime.snapshot,
+            )
+        )
 
     async def async_stop(self) -> None:
         if callable(self._remove_manager):
