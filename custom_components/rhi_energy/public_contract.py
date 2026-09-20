@@ -202,16 +202,42 @@ def _metering_projection(store_data: dict[str, Any]) -> tuple[str, dict[str, Any
     current = deepcopy(by_id.get(selected) or {})
     status = current.get("availability") or UNAVAILABLE
     period_choices=[{"value": x, "label": {"hour":"This hour","today":"Today","week":"This week","month":"This month","year":"This year"}[x]} for x in ("hour","today","week","month","year")]
-    props = [
+    selector_props = [
         prop("metering","metering.selected_period",selected,editable=True,editor="select",constraints={"allowed":["hour","today","week","month","year"]},choices=period_choices,operation_id="energy.metering.set_period"),
         prop("metering","metering.selected_period_id",selected,editable=True,editor="select",constraints={"allowed":["hour","today","week","month","year"]},choices=period_choices,operation_id="energy.metering.set_period"),
     ]
-    field_quality = current.get("field_quality") or {}
-    for key in ("solar_kwh", "grid_import_kwh", "grid_export_kwh", "site_consumption_kwh", "home_consumption_kwh", "battery_charge_kwh", "battery_discharge_kwh", "flexible_loads_energy_in_kwh"):
-        quality = str(field_quality.get(key) or status)
-        field_availability = AVAILABLE if quality == "OK" else quality
-        props.append(prop("metering", f"metering.{selected}.{key}", current.get(key), "kWh", availability=field_availability, reason_code=f"METERING_{quality}"))
-    return status, {"selected_period_id": selected, "periods": rows, "periods_by_id": by_id, "selected": current}, props
+    field_keys = (
+        "solar_kwh", "grid_import_kwh", "grid_export_kwh", "site_consumption_kwh",
+        "home_consumption_kwh", "battery_charge_kwh", "battery_discharge_kwh",
+        "flexible_loads_energy_in_kwh",
+    )
+    properties_by_period: dict[str, list[dict[str, Any]]] = {}
+    for period_id, period in by_id.items():
+        period_status = str(period.get("availability") or UNAVAILABLE)
+        field_quality = period.get("field_quality") or {}
+        period_props = []
+        for key in field_keys:
+            quality = str(field_quality.get(key) or period_status)
+            field_availability = AVAILABLE if quality == "OK" else quality
+            period_props.append(
+                prop(
+                    "metering",
+                    f"metering.{period_id}.{key}",
+                    period.get(key),
+                    "kWh",
+                    availability=field_availability,
+                    reason_code=f"METERING_{quality}",
+                )
+            )
+        properties_by_period[period_id] = period_props
+    props = selector_props + deepcopy(properties_by_period.get(selected) or [])
+    return status, {
+        "selected_period_id": selected,
+        "periods": rows,
+        "periods_by_id": by_id,
+        "selected": current,
+        "properties_by_period_id": properties_by_period,
+    }, props
 
 
 def _flexible_projection(snapshot: dict[str, Any], command_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -598,6 +624,15 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     intel = snap.get("intelligence") or {}
     selected_period = meter_ctx["selected_period_id"]
     value_status, value_rows, value_summary = _value_projection(meter_ctx["selected"], pricing_rows)
+    value_contexts_by_period: dict[str, dict[str, Any]] = {}
+    for period_id, period in (meter_ctx.get("periods_by_id") or {}).items():
+        period_status, period_rows, period_summary = _value_projection(period, pricing_rows)
+        value_contexts_by_period[str(period_id)] = {
+            "period_id": str(period_id),
+            "status": period_status,
+            "rows": period_rows,
+            "summary": period_summary,
+        }
 
     demand_breakdown = []
     site = number(facts.get("site_consumption.power_kw"))
@@ -646,24 +681,27 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     ]
 
     effective = []
-    for r in strategy_rows:
-        subdomain = str(r.get("group") or "home")
-        property_id = str(r.get("property_id") or r.get("key") or "")
+    strategy_by_scope: dict[str, list[dict[str, Any]]] = {}
+    for row in strategy_rows:
+        strategy_by_scope.setdefault(str(row.get("group") or "home"), []).append(row)
+    for subdomain, scoped_rows in strategy_by_scope.items():
+        configured_properties = {
+            str(row.get("property_id") or row.get("key") or ""): row.get("value")
+            for row in scoped_rows
+            if str(row.get("property_id") or row.get("key") or "")
+        }
+        scoped_available = any(row.get("availability") == AVAILABLE for row in scoped_rows)
         effective.append({
-            "policy_id": f"energy_strategy:{subdomain}:{property_id}",
+            "policy_id": f"energy_strategy:{subdomain}",
             "asset_id": subdomain,
-            "label": r.get("name") or r.get("display_name") or property_id,
-            "property_id": property_id,
+            "label": subdomain.replace("_", " ").title(),
             "subdomain_id": subdomain,
-            "configured_state": r.get("value"),
-            "effective_state": r.get("value"),
-            "configured_value": r.get("value"),
-            "effective_value": r.get("value"),
-            "influence_state": "active" if r.get("availability") == AVAILABLE else "unavailable",
-            "unit": r.get("unit"),
-            "availability": r.get("availability"),
+            "configured_properties": configured_properties,
+            "effective_properties": deepcopy(configured_properties),
+            "influence_state": "active" if scoped_available else "unavailable",
+            "availability": AVAILABLE if scoped_available else UNAVAILABLE,
             "reason_code": None,
-            "reason_label": "Configured Energy policy is effective." if r.get("availability") == AVAILABLE else "Configured policy evidence unavailable.",
+            "reason_label": "Configured Energy policy is effective." if scoped_available else "Configured policy evidence unavailable.",
             "override_source": None,
             "editable": False,
         })
@@ -748,7 +786,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         })
         projections[name]={"state":_status_for_rows(r),"attributes":_property_attrs(r,schema,**extra)}
 
-    projections["energy_metering_property_index"]={"state":meter_status,"attributes":{**_property_attrs(meter_props,"energy_metering_property_index_v2_compat",index_type="metering_property_index"),"selected_context_json":jdump({"type":"period","value":selected_period}),"selected_period_summary":jdump(meter_ctx["selected"]),"selected_period_properties":jdump(meter_props),"periods_json":jdump(meter_ctx["periods"]),"period_summary_by_id":jdump(meter_ctx["periods_by_id"]),"remediations_json":jdump([])}}
+    projections["energy_metering_property_index"]={"state":meter_status,"attributes":{**_property_attrs(meter_props,"energy_metering_property_index_v2_compat",index_type="metering_property_index"),"selected_context_json":jdump({"type":"period","value":selected_period}),"selected_period_summary":jdump(meter_ctx["selected"]),"selected_period_properties":jdump(meter_props),"periods_json":jdump(meter_ctx["periods"]),"period_summary_by_id":jdump(meter_ctx["periods_by_id"]),"period_properties_by_id":jdump(meter_ctx["properties_by_period_id"]),"remediations_json":jdump([])}}
     consumer_props=[]
     for a in flex_assets:
         aid=a.get("asset_id"); consumer_props.extend([prop(aid,f"{aid}.power_kw",number(a.get("power_kw")),"kW"),prop(aid,f"{aid}.energy_to_target_kwh",number(a.get("energy_to_target_kwh")),"kWh"),prop(aid,f"{aid}.availability",a.get("availability_state") or AVAILABLE)])
@@ -953,7 +991,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         aid=str(asset.get("asset_id"))
         measured=number(selected_flexible_kwh.get(aid))
         flexible_value_rows.append({"asset_id":aid,"display_name":asset.get("display_name"),"period_id":selected_period,"measured_energy_kwh":measured,"quantity_status":AVAILABLE if measured is not None else INCOMPLETE,"energy_cost_eur":None,"energy_value_eur":None,"financial_attribution_status":INCOMPLETE,"reason":"measured_quantity_available_but_source_cost_attribution_not_proven" if measured is not None else "per_asset_metering_not_available"})
-    projections["energy_value_accounting_index"]={"state":value_status,"attributes":{**_base("value_accounting_index_v5_interval_integrated_actuals"),"schema_version":5,"index_type":"value_accounting_index","period_owner":"sensor.energy_metering_property_index","selected_period_entity":"sensor.energy_metering_property_index","selected_context_json":jdump({"type":"period","value":selected_period,"allowed":["hour","today","week","month","year"]}),"billing_in_scope":False,"missing_value_policy":"null_with_explicit_health_never_zero_coercion","quantity_owner":"metering","quantity_source_index":"sensor.energy_metering_property_index","tariff_owner":"pricing","tariff_source_index":"sensor.energy_pricing_property_index","consumer_rule":"Historical totals are interval-integrated from actual power and matching effective tariff rates; period energy is never multiplied by the current price.","rows_json":jdump(value_rows),"rows_by_key":jdump(by_key(value_rows)),"tariff_breakdown_json":jdump({"components":pricing_rows,"amount_allocation":"NOT_APPLICABLE_TO_PERIOD_TOTAL"}),"summary_json":jdump(value_summary),"accounting_ready":bool(value_summary.get("actual_value_ready")),"pricing_complete":bool(value_summary.get("pricing_complete")),"product_status_json":jdump({"state":value_status,"label":"Actual value available" if value_status==AVAILABLE else "Setup needed" if value_status==CONFIGURATION_REQUIRED else "Value not evaluated","reason":"interval_integrated_actuals" if value_status==AVAILABLE else "pricing_configuration_required" if value_status==CONFIGURATION_REQUIRED else "interval_evidence_not_yet_materialized","description":value_summary.get("interpretation")}),"status":value_status,"status_label":"Actual value available" if value_status==AVAILABLE else "Setup needed" if value_status==CONFIGURATION_REQUIRED else "Value not evaluated","flexible_asset_value_json":jdump(flexible_value_rows),"health":"OK" if value_status==AVAILABLE else value_status}}
+    projections["energy_value_accounting_index"]={"state":value_status,"attributes":{**_base("value_accounting_index_v5_interval_integrated_actuals"),"schema_version":5,"index_type":"value_accounting_index","period_owner":"sensor.energy_metering_property_index","selected_period_entity":"sensor.energy_metering_property_index","selected_context_json":jdump({"type":"period","value":selected_period,"allowed":["hour","today","week","month","year"]}),"billing_in_scope":False,"missing_value_policy":"null_with_explicit_health_never_zero_coercion","quantity_owner":"metering","quantity_source_index":"sensor.energy_metering_property_index","tariff_owner":"pricing","tariff_source_index":"sensor.energy_pricing_property_index","consumer_rule":"Historical totals are interval-integrated from actual power and matching effective tariff rates; period energy is never multiplied by the current price.","rows_json":jdump(value_rows),"rows_by_key":jdump(by_key(value_rows)),"contexts_by_period_json":jdump(value_contexts_by_period),"contexts_by_period_id":jdump(value_contexts_by_period),"tariff_breakdown_json":jdump({"components":pricing_rows,"amount_allocation":"NOT_APPLICABLE_TO_PERIOD_TOTAL"}),"summary_json":jdump(value_summary),"accounting_ready":bool(value_summary.get("actual_value_ready")),"pricing_complete":bool(value_summary.get("pricing_complete")),"product_status_json":jdump({"state":value_status,"label":"Actual value available" if value_status==AVAILABLE else "Setup needed" if value_status==CONFIGURATION_REQUIRED else "Value not evaluated","reason":"interval_integrated_actuals" if value_status==AVAILABLE else "pricing_configuration_required" if value_status==CONFIGURATION_REQUIRED else "interval_evidence_not_yet_materialized","description":value_summary.get("interpretation")}),"status":value_status,"status_label":"Actual value available" if value_status==AVAILABLE else "Setup needed" if value_status==CONFIGURATION_REQUIRED else "Value not evaluated","flexible_asset_value_json":jdump(flexible_value_rows),"health":"OK" if value_status==AVAILABLE else value_status}}
     projections["energy_asset_index"]={"state":AVAILABLE if assets else UNAVAILABLE,"attributes":{**_base("energy_asset_index_v2_compat"),"registry_type":"energy_asset_index","lifecycle_stage":"runtime","normalized_vocabulary":"properties_capabilities_commands","asset_contract_schema":"energy_asset_index_v2_model_authoritative_visibility","required_asset_fields_json":jdump(["asset_id","asset_type","ux_asset_type","asset_role","cluster_role","show_in_primary_ux","show_in_engineering","property_index"]),"visibility_contract":"model_authoritative_no_ux_guessing_from_asset_id","assets_json":jdump(assets),"public_contract_model":"canonical_assets","asset_model":"domain_and_external_publication","canonical_mobility_source":"sensor.mobility_energy_asset_publication"}}
     projections["energy_relationship_index"]={"state":AVAILABLE,"attributes":{**_base("energy_relationship_index_v2_compat"),"index_type":"relationship_index","source_registry":"sensor.energy_asset_index","relationships":jdump(relationships),"relationships_by_id":jdump({str(r.get("relationship_id")):r for r in relationships})}}
     projections["energy_activity_index"]={"state":AVAILABLE,"attributes":{**_base("energy_activity_index_v2_compat"),"index_type":"activity_index","activity_model":"bounded_v2_runtime_activity","activities":jdump(activities),"activities_by_id":jdump({f"activity:{i}":r for i,r in enumerate(activities)}),"health":"OK","health_reason":"persistent bounded activity evidence"}}
@@ -1002,8 +1040,12 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
             })
         for aid,value in (period.get("flexible_assets_kwh") or {}).items():
             asset_meter_records.append({"asset_id":aid,"period":pid,"period_id":pid,"property_key":f"metering.{pid}.flexible.{aid}","energy_kwh":value,"unit":"kWh","measurement_state":"MEASURED","status_label":"Measured","availability":AVAILABLE,"completeness":"COMPLETE","record_role":"flexible_load_detail","trust_state":"trusted","ux_visible":True})
-    selected_records=[row for row in asset_meter_records if row["period"]==selected_period]
-    projections["energy_asset_metering_index"]={"state":AVAILABLE if selected_records else UNAVAILABLE,"attributes":{**_base("asset_metering_index_v3_explicit_render_contract"),"index_type":"asset_metering_index","schema_version":4,"selected_period":selected_period,"source_owner":"sensor.energy_metering_property_index","recalculation_forbidden":True,"records_json":jdump(selected_records),"selected_period_summary_json":jdump(meter_ctx["selected"]),"applicable_remediations_json":jdump([]),"render_contract_json":jdump({"source":"records_json","value":"energy_kwh","state":"measurement_state","status":"status_label","zero_is_measured":True,"ux_recalculation_allowed":False}),"status_semantics":"Render status_label; MEASURED zero is 0.0 kWh, never unavailable."}}
+    records_by_period = {
+        period_id: [row for row in asset_meter_records if row["period"] == period_id]
+        for period_id in ("hour", "today", "week", "month", "year")
+    }
+    selected_records=records_by_period.get(selected_period) or []
+    projections["energy_asset_metering_index"]={"state":AVAILABLE if selected_records else UNAVAILABLE,"attributes":{**_base("asset_metering_index_v3_explicit_render_contract"),"index_type":"asset_metering_index","schema_version":5,"selected_period":selected_period,"source_owner":"sensor.energy_metering_property_index","recalculation_forbidden":True,"records_json":jdump(selected_records),"records_by_period_json":jdump(records_by_period),"records_by_period_id":jdump(records_by_period),"period_summary_by_id":jdump(meter_ctx["periods_by_id"]),"selected_period_summary_json":jdump(meter_ctx["selected"]),"applicable_remediations_json":jdump([]),"render_contract_json":jdump({"source":"records_by_period_json[period_id]","selected_source":"records_json","value":"energy_kwh","state":"measurement_state","status":"status_label","zero_is_measured":True,"ux_recalculation_allowed":False}),"status_semantics":"Every supported period is published independently; selected_period only controls the compatibility default view."}}
     retrospective_state="AVAILABLE" if activities and meter_status==AVAILABLE else "WAITING_FOR_METERING_BASELINE" if meter_status!=AVAILABLE else "INSUFFICIENT_CLOSED_EVIDENCE"
     retrospective_events=[row for row in activities if row.get("status") in {"CONFIRMED","REJECTED","TIMED_OUT","confirmed","rejected","timed_out"}]
     projections["energy_retrospective_event_index"]={"state":retrospective_state,"attributes":{**_base("retrospective_product_review_v5_closed_behavioral_truth"),"capability_id":"retrospective","index_type":"retrospective_event_index","schema_version":7,"period_id":datetime.now().strftime("%G-W%V"),"period_type":"week_to_date","period_closed":False,"product_status_json":jdump({"state":retrospective_state,"reason":"bounded_runtime_evidence" if retrospective_events else "closed_behavioral_evidence_missing"}),"score":None,"score_maximum":100,"score_minimum_evidence_objectives":5,"evidence_coverage_pct":0,"confidence":"Low","trend":"NOT_AVAILABLE","events_json":jdump(retrospective_events),"event_count":len(retrospective_events),"performance_policy":"bounded_snapshots_no_history_scan","health":"OK","health_reason":"Missing prerequisites publish an explicit waiting state."}}

@@ -16,6 +16,7 @@ from .const import (
     PUBLICATION_REVISION,
     RELEASE,
 )
+from .v1_parity import projection_consistency_issues
 
 _PRIORITY = {
     "BLOCKED": 60,
@@ -146,18 +147,37 @@ class EnergyDomainSupervision:
         )
         projector = state.get("public_projector")
         product_states = {}
+        projection_payloads: dict[str, dict[str, Any]] = {}
+        canonical_public_v2: dict[str, Any] = {}
         if projector is not None and hasattr(projector, "get"):
-            product_states = {
-                entity_id: str(projector.get(entity_id.removeprefix("sensor.")).get("state") or "UNAVAILABLE").upper()
+            projection_payloads = {
+                entity_id.removeprefix("sensor."): projector.get(entity_id.removeprefix("sensor."))
                 for entity_id in LEGACY_PUBLIC_ENTITIES
             }
+            product_states = {
+                entity_id: str(
+                    projection_payloads.get(entity_id.removeprefix("sensor."), {}).get("state")
+                    or "UNAVAILABLE"
+                ).upper()
+                for entity_id in LEGACY_PUBLIC_ENTITIES
+            }
+            if hasattr(projector, "get_v2"):
+                canonical_public_v2 = projector.get_v2() or {}
         degraded_public_entities = sorted(
             entity_id
             for entity_id in product_states
             if not _public_projection_functional(
                 entity_id,
-                projector.get(entity_id.removeprefix("sensor.")),
+                projection_payloads.get(entity_id.removeprefix("sensor.")) or {},
             )
+        )
+        canonical_parity_issues = (
+            projection_consistency_issues(projection_payloads, canonical_public_v2)
+            if projection_payloads and canonical_public_v2
+            else {}
+        )
+        degraded_public_entities = sorted(
+            set(degraded_public_entities) | set(canonical_parity_issues)
         )
         compatibility_functional_status = (
             compatibility_presence_status if not product_states
