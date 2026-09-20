@@ -17,9 +17,11 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from ..adapters import get_normalizer
 from ..compat_core import (
+    battery_state_from_power,
     complete_numeric_sum,
     derive_consumption,
     deterministic_plan,
+    grid_flow_direction,
     intelligence,
     number,
     optional_physical_input,
@@ -455,6 +457,10 @@ class EnergyRuntime:
 
         facts["metering.grid_import_total_kwh"] = facts.get("grid_import.energy_total_kwh")
         facts["metering.grid_export_total_kwh"] = facts.get("grid_export.energy_total_kwh")
+        # Directional state is canonical Energy truth, derived once from the
+        # already-normalized aggregate facts. Public projections only render it.
+        facts["battery.state"] = battery_state_from_power(facts.get("battery.power_kw"))
+        facts["grid.flow_direction"] = grid_flow_direction(facts.get("grid.net_power_kw"))
         facts["battery.health"] = "OK" if facts.get("battery.power_kw") is not None else "DEGRADED" if any(row.get("object_class") == "battery_system" for row in assets) else "UNKNOWN"
         facts["solar.health"] = "OK" if facts.get("solar.power_kw") is not None else "DEGRADED" if any(row.get("object_class") == "solar_production" for row in assets) else "UNKNOWN"
         if facts.get("solar_forecast.source_id"):
