@@ -457,15 +457,35 @@ def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[
     levies = number(cfg.get("import_levies_eur_kwh"))
     vat = number(cfg.get("import_vat_pct"))
     export_fee = number(cfg.get("export_fee_eur_kwh"))
+    tariff_components = (network, levies, vat)
+    tariff_component_count = sum(value is not None for value in tariff_components)
+    # Market-only accounting is useful and truthful before optional retail tariff
+    # components are configured. A partially configured tariff fails closed.
     import_effective = (
         round((import_market + network + levies) * (1 + vat / 100), 6)
-        if all(v is not None for v in (import_market, network, levies, vat))
+        if import_market is not None and tariff_component_count == 3
+        else import_market if import_market is not None and tariff_component_count == 0
         else None
     )
     export_effective = (
         round(export_live - export_fee, 6)
         if export_live is not None and export_fee is not None
+        else export_live if export_live is not None and export_fee is None
         else None
+    )
+    import_effective_reason = (
+        "FULL_TARIFF"
+        if import_market is not None and tariff_component_count == 3
+        else "MARKET_ONLY_NO_TARIFF_COMPONENTS"
+        if import_market is not None and tariff_component_count == 0
+        else "TARIFF_CONFIGURATION_INCOMPLETE"
+    )
+    export_effective_reason = (
+        "FULL_TARIFF"
+        if export_live is not None and export_fee is not None
+        else "MARKET_ONLY_NO_EXPORT_FEE"
+        if export_live is not None
+        else "EXPORT_SOURCE_UNAVAILABLE"
     )
 
     rows = [
@@ -481,9 +501,9 @@ def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[
         prop("pricing", "pricing.import_levies_eur_kwh", levies, "EUR/kWh", availability=AVAILABLE if levies is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":2,"step":0.001}),
         prop("pricing", "pricing.import_vat_pct", vat, "%", availability=AVAILABLE if vat is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":30,"step":0.1}),
         prop("pricing", "pricing.export_fee_eur_kwh", export_fee, "EUR/kWh", availability=AVAILABLE if export_fee is not None else CONFIGURATION_REQUIRED, editable=True, editor="number", operation_id="energy.pricing.set_property", constraints={"min":0,"max":2,"step":0.001}),
-        prop("pricing", "pricing.import_effective_price_eur_kwh", import_effective, "EUR/kWh", availability=AVAILABLE if import_effective is not None else CONFIGURATION_REQUIRED),
-        prop("pricing", "pricing.export_effective_price_eur_kwh", export_effective, "EUR/kWh", availability=AVAILABLE if export_effective is not None else CONFIGURATION_REQUIRED),
-        prop("pricing", "pricing.export_compensation_current_eur_kwh", export_effective, "EUR/kWh", availability=AVAILABLE if export_effective is not None else CONFIGURATION_REQUIRED),
+        prop("pricing", "pricing.import_effective_price_eur_kwh", import_effective, "EUR/kWh", availability=AVAILABLE if import_effective is not None else CONFIGURATION_REQUIRED, reason_code=import_effective_reason, quality="authoritative" if import_effective_reason == "FULL_TARIFF" else "estimated"),
+        prop("pricing", "pricing.export_effective_price_eur_kwh", export_effective, "EUR/kWh", availability=AVAILABLE if export_effective is not None else CONFIGURATION_REQUIRED, reason_code=export_effective_reason, quality="authoritative" if export_effective_reason == "FULL_TARIFF" else "estimated"),
+        prop("pricing", "pricing.export_compensation_current_eur_kwh", export_effective, "EUR/kWh", availability=AVAILABLE if export_effective is not None else CONFIGURATION_REQUIRED, reason_code=export_effective_reason, quality="authoritative" if export_effective_reason == "FULL_TARIFF" else "estimated"),
         prop("pricing", "pricing.future_prices", deepcopy(facts.get("pricing.future_prices")), availability=AVAILABLE if facts.get("pricing.future_prices") is not None else UNAVAILABLE),
         prop("pricing", "pricing.currency", facts.get("pricing.currency") or ("EUR" if import_market is not None or export_live is not None else None), availability=AVAILABLE if (facts.get("pricing.currency") is not None or import_market is not None or export_live is not None) else UNAVAILABLE),
         prop("pricing", "pricing.tariff", deepcopy(facts.get("pricing.tariff")), availability=AVAILABLE if facts.get("pricing.tariff") is not None else UNAVAILABLE),
@@ -691,23 +711,48 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
 
     price_by = by_key(pricing_properties(facts, settings))
     import_price = number((price_by.get("pricing.import_price_current_eur_kwh") or {}).get("value"))
+    raw_intervals = facts.get("pricing.future_prices")
+    future_intervals: list[dict[str, Any]] = []
+    for value in raw_intervals if isinstance(raw_intervals, list) else []:
+        future_intervals.extend(value if isinstance(value, list) else [value])
+    future_intervals = [row for row in future_intervals if isinstance(row, dict)]
     grid_policy = strategy.get("flexible_loads.grid_policy", "cheap_only")
     objective = strategy.get("flexible_loads.objective", "balanced")
     solar_policy = strategy.get("flexible_loads.solar_policy", "prefer")
 
-    def grid_allowed() -> bool:
+    def price_for_bucket(meta: dict[str, Any]) -> float | None:
+        try:
+            start = datetime.fromisoformat(str(meta.get("start_at") or meta.get("start_time")).replace("Z", "+00:00"))
+            end = datetime.fromisoformat(str(meta.get("end_at") or meta.get("end_time")).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return import_price
+        for row in future_intervals:
+            try:
+                at = datetime.fromisoformat(str(row.get("time") or row.get("start") or row.get("start_time")).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            if at.tzinfo is None and start.tzinfo is not None:
+                at = at.replace(tzinfo=start.tzinfo)
+            if start <= at < end:
+                price = number(row.get("price") if "price" in row else row.get("value"))
+                if price is not None:
+                    return price
+        return import_price
+
+    def grid_allowed(price: float | None) -> bool:
         if solar_policy == "only" or grid_policy in {"never", "not_applicable", "avoid_or_unavailable"}:
             return False
         if grid_policy == "always_allowed":
             return True
         if grid_policy == "cheap_only":
-            return import_price is not None and import_price <= 0.30
+            return price is not None and price <= 0.30
         if grid_policy == "if_needed_for_minimum":
             return objective in {"deadline_first", "resilience_first"}
         return grid_policy == "if_needed_for_preferred"
-
-    allow_grid = grid_allowed()
     fallback_kw = number(planning_cfg.get("explicit_baseload_fallback_kw"))
+    bootstrap_kw = number(planning_cfg.get("bootstrap_baseload_kw"))
+    if fallback_kw is None:
+        fallback_kw = bootstrap_kw
     window_start = int(planning_cfg.get("solar_window_start_hour", 7))
     window_end = int(planning_cfg.get("solar_window_end_hour", 20))
 
@@ -724,6 +769,8 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         requested = round(sum(asset_remaining.values()), 4)
         complete = solar_total is not None and demand is not None
         warnings: list[str] = [] if complete else ["incomplete_forecast_or_demand_evidence"]
+        if bootstrap_kw is not None and number(planning_cfg.get("explicit_baseload_fallback_kw")) is None:
+            warnings.append("baseload_bootstrap_from_metered_home_average")
         learned_fallback = _learned_baseload_fallback_kw(baseload_profile)
         if fallback_kw is None and learned_fallback is not None:
             missing_hours = [
@@ -739,7 +786,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         buckets: list[dict[str, Any]] = []
 
         def can_sustain_minimum(start_index: int, min_power: float, minimum_runtime: int, battery_at_start: float | None) -> bool:
-            if minimum_runtime <= 0 or min_power <= 0 or allow_grid:
+            if minimum_runtime <= 0 or min_power <= 0:
                 return True
             remaining_minutes = minimum_runtime
             battery_sim = max(0.0, battery_at_start or 0.0) if battery_at_start is not None else 0.0
@@ -758,14 +805,16 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                 home_deficit = max(0.0, home_for_segment - solar_for_segment)
                 battery_for_home = min(battery_sim, home_deficit)
                 battery_sim -= battery_for_home
-                if home_deficit - battery_for_home > 1e-6:
+                bucket_grid_allowed = grid_allowed(price_for_bucket(bucket_meta[future_index]))
+                if home_deficit - battery_for_home > 1e-6 and not bucket_grid_allowed:
                     return False
                 surplus = max(0.0, solar_for_segment - home_for_segment)
                 needed = min_power * fraction
                 local = surplus + battery_sim
-                if local + 1e-6 < needed:
+                if local + 1e-6 < needed and not bucket_grid_allowed:
                     return False
-                battery_sim -= max(0.0, needed - surplus)
+                if not bucket_grid_allowed:
+                    battery_sim -= max(0.0, needed - surplus)
                 remaining_minutes -= available_minutes
             return remaining_minutes <= 0
 
@@ -774,9 +823,11 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             max_minutes = int(meta["runtime_minutes"])
             solar_b = solar_curve[index]
             home_b = home_curve[index]
+            bucket_price = price_for_bucket(meta)
+            bucket_grid_allowed = grid_allowed(bucket_price)
             local_surplus = max(0.0, (solar_b or 0.0) - (home_b or 0.0)) if solar_b is not None and home_b is not None else 0.0
             local_energy_for_flex = local_surplus + max(0.0, battery_remaining or 0.0)
-            available_for_flex = float("inf") if allow_grid else local_energy_for_flex
+            available_for_flex = float("inf") if bucket_grid_allowed else local_energy_for_flex
             flex_allocs: list[dict[str, Any]] = []
             flex_energy = 0.0
 
@@ -809,7 +860,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                     if not continuing and not can_sustain_minimum(index, min_power, minimum_runtime, battery_remaining):
                         continue
                     min_energy = min_power * (required_minutes / 60.0) if required_minutes > 0 else 0.0
-                    if not allow_grid and min_energy > available_for_flex + 1e-6:
+                    if not bucket_grid_allowed and min_energy > available_for_flex + 1e-6:
                         continue
                     max_energy = max_power * duration
                     energy = min(need, max_energy, available_for_flex)
@@ -842,8 +893,9 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                         "minimum_power_kw": round(min_power, 3),
                         "effective_min_power_kw": round(min_power, 3),
                         "effective_max_power_kw": round(max_power, 3),
-                        "allocation_state": "advisory",
-                        "plan_execution_allowed": False,
+                        "allocation_state": "scheduled" if mode == "automatic" else "advisory",
+                        "plan_execution_allowed": mode == "automatic",
+                        "planned_import_price_eur_kwh": bucket_price,
                     })
 
             source_need = home_b + flex_energy if home_b is not None else None
@@ -932,6 +984,8 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                 "advisory_lane_balance_delta_kwh": round(source_total - use_total, 6) if source_total is not None and use_total is not None else None,
                 "planning_state": "ready" if complete else "incomplete",
                 "forecast_quality": "estimated" if complete else "incomplete",
+                "import_price_eur_kwh": bucket_price,
+                "grid_policy_allows_import": bucket_grid_allowed,
                 "estimation_disclosure": "Forecast and learned baseload; advisory only.",
                 "battery_ledger": {
                     "start_usable_kwh": round(battery_start_bucket, 4) if battery_start_bucket is not None else None,
@@ -984,7 +1038,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             },
             "candidates": [aid for aid, value in sorted(asset_remaining.items()) if original_need.get(aid, 0.0) > 0],
             "quality": {"availability": AVAILABLE if complete else INCOMPLETE, "estimated": True, "warnings": sorted(set(warnings))},
-            "policy_evidence": {"grid_policy": grid_policy, "grid_allowed_for_flexible": allow_grid, "solar_policy": solar_policy, "battery_policy": battery_policy, "objective": objective, "import_price_eur_kwh": import_price, "reserve_target_pct": reserve_pct},
+            "policy_evidence": {"grid_policy": grid_policy, "grid_allowed_for_flexible": any(grid_allowed(price_for_bucket(meta)) for meta in bucket_meta), "grid_allowed_bucket_count": sum(1 for meta in bucket_meta if grid_allowed(price_for_bucket(meta))), "grid_bucket_count": len(bucket_meta), "solar_policy": solar_policy, "battery_policy": battery_policy, "objective": objective, "current_import_price_eur_kwh": import_price, "reserve_target_pct": reserve_pct},
             "battery_ledger": {"start_usable_kwh": round(battery_start, 4) if battery_start is not None else None, "end_usable_kwh": round(battery_remaining, 4) if battery_remaining is not None else None, "protected_reserve_kwh": round(protected, 4) if protected is not None else None},
             "source_refs": ["sensor.energy_forecast_property_index", "sensor.energy_consumption_property_index", "sensor.energy_flexible_asset_index", "sensor.energy_strategy_effective_index", "sensor.energy_pricing_property_index"],
             "summary": {"lane_totals": lane_totals},

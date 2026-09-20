@@ -386,7 +386,7 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
                 "candidate_count": 0, "issues": [], "fact_key": f"flexible:{source_id}:{key}",
             })
         rows.append(_asset(
-            f"flexible_load_{_hash(source_id)}", "flexible_load",
+            source_id, "flexible_load",
             str(item.get("display_name") or source_id),
             integration_domain=str(item.get("source_domain") or "mobility"), normalization_status="READY",
             runtime_truth=True, lifecycle_scope="producer_runtime", source_domain=str(item.get("source_domain") or "mobility"),
@@ -404,7 +404,7 @@ def apply_runtime_values(
 ) -> list[dict[str, Any]]:
     rows = deepcopy(logical_assets) + _runtime_only_assets(flexible_assets or [])
     flexible_by_logical = {
-        f"flexible_load_{_hash(str(item.get('asset_id') or ''))}": item
+        str(item.get("asset_id")): item
         for item in (flexible_assets or []) if item.get("asset_id")
     }
     for asset in rows:

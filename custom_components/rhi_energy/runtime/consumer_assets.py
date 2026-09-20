@@ -66,6 +66,10 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
         envelope = asset.get("effective_charging_envelope")
         if not isinstance(envelope, dict):
             envelope = asset.get("effective_power_capability")
+        if not isinstance(envelope, dict):
+            # Mobility V2 publishes the authoritative physical kW envelope and
+            # requested-power write/readback readiness under its limits contract.
+            envelope = asset.get("limits")
         envelope = deepcopy(envelope) if isinstance(envelope, dict) else {}
         envelope_ready = bool(
             envelope
@@ -92,14 +96,21 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
             "requested_power_execution_ready": bool(
                 envelope_ready
                 and envelope_max_kw is not None
-                and (command_refs.get("adjust_power") or command_refs.get("set_power"))
+                and (
+                    asset.get("requested_power_execution_ready")
+                    or envelope.get("requested_power_execution_ready")
+                    or envelope.get("requested_power_kw_write_supported")
+                    or command_refs.get("adjust_power")
+                    or command_refs.get("set_power")
+                )
             ),
             "minimum_runtime_minutes": number(first("minimum_runtime_minutes", "min_runtime_minutes")),
             "operating_state": operating_state,
             "availability_state": first("availability_state", "availability") or "AVAILABLE",
             "target_soc_pct": number(first("target_soc_pct")),
             "current_soc_pct": number(first("soc_pct", "current_soc_pct")),
-            "deadline": first("deadline", "target_time", "departure_time"),
+            "deadline": first("ready_by", "deadline", "target_time", "departure_time"),
+            "ready_by": first("ready_by", "deadline", "target_time", "departure_time"),
             "command_refs": command_refs,
             "source_property_resolution": property_evidence,
         }

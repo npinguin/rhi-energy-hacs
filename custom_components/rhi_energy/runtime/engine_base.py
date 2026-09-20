@@ -246,7 +246,22 @@ class EnergyRuntime:
             return str(value) if _present(value) else None
         if key == "pricing.future_prices":
             value = attrs.get("prices") or attrs.get("raw_today") or attrs.get("raw_tomorrow") or raw
-            return deepcopy(value) if _present(value) else None
+            if not _present(value):
+                return None
+            rows = value if isinstance(value, list) else [value]
+            normalized = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                price = _price_to_eur_kwh(
+                    row.get("price") if "price" in row else row.get("value"),
+                    unit,
+                )
+                when = row.get("time") or row.get("start") or row.get("start_time")
+                if price is None or when is None:
+                    continue
+                normalized.append({**deepcopy(row), "time": str(when), "price": price, "unit": "EUR/kWh"})
+            return normalized or None
         if key == "pricing.currency":
             value = raw or attrs.get("currency")
             return str(value) if _present(value) else None
@@ -446,9 +461,14 @@ class EnergyRuntime:
         export_rows = [row for row in price_rows if row.get("market_role") == "export"]
         if len(import_rows) == 1:
             row = import_rows[0]
-            prop = _properties(row).get("pricing.spot_eur_kwh") or {}
+            props = _properties(row)
+            prop = props.get("pricing.spot_eur_kwh") or {}
             facts["pricing.import_price_current_eur_kwh"] = facts.get(prop.get("fact_key"))
             facts["pricing.spot_eur_kwh"] = facts.get(prop.get("fact_key"))
+            for key in ("pricing.future_prices", "pricing.currency", "pricing.tariff"):
+                optional = props.get(key) or {}
+                if optional.get("fact_key"):
+                    facts[key] = facts.get(optional.get("fact_key"))
             facts["price_source.source_id"] = row.get("asset_id")
             facts["price_source.source_integration"] = row.get("integration_domain")
         elif len(import_rows) > 1:
@@ -689,7 +709,33 @@ class EnergyRuntime:
             else "UNAVAILABLE"
         )
         settings = deepcopy(self.store.data.get("settings") or {})
-        settings["baseload_profile"] = deepcopy((self.store.data.get("metering") or {}).get("baseload_profile") or {})
+        configured_flexible = settings.get("flexible_loads") or {}
+        for asset in flexible:
+            intent = configured_flexible.get(str(asset.get("asset_id") or ""))
+            if isinstance(intent, dict) and intent.get("ready_by"):
+                asset["deadline"] = intent["ready_by"]
+                asset["ready_by"] = intent["ready_by"]
+        metering_state = self.store.data.get("metering") or {}
+        settings["baseload_profile"] = deepcopy(metering_state.get("baseload_profile") or {})
+        # Bootstrap planning from accumulated canonical Home Consumption when the
+        # learned hourly profile is still young. This is historical metered
+        # evidence, not an extrapolation of one instantaneous power sample.
+        today_meter = ((metering_state.get("periods") or {}).get("today") or {})
+        today_home_kwh = number(today_meter.get("home_consumption_kwh"))
+        today_home_coverage_s = number(
+            (today_meter.get("field_coverage_seconds") or {}).get("home_consumption_kwh")
+        )
+        planning_settings = settings.setdefault("planning", {})
+        if (
+            planning_settings.get("explicit_baseload_fallback_kw") is None
+            and today_home_kwh is not None
+            and today_home_coverage_s is not None
+            and today_home_coverage_s >= 1800
+        ):
+            planning_settings["bootstrap_baseload_kw"] = round(
+                max(0.0, float(today_home_kwh)) / (float(today_home_coverage_s) / 3600.0),
+                6,
+            )
         now_local = datetime.now(ZoneInfo(self.hass.config.time_zone))
         plan = deterministic_plan(facts, settings, flexible, now_local)
         intel = intelligence(plan, facts, settings, flexible)

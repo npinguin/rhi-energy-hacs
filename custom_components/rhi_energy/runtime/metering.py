@@ -235,12 +235,16 @@ class EnergyMetering:
         grid_export = number(facts.get("grid_export.power_kw"))
         return {
             "import_cost_eur": (
-                grid_import * import_price
+                0.0
+                if grid_import == 0
+                else grid_import * import_price
                 if grid_import is not None and import_price is not None
                 else None
             ),
             "export_revenue_eur": (
-                grid_export * export_price
+                0.0
+                if grid_export == 0
+                else grid_export * export_price
                 if grid_export is not None and export_price is not None
                 else None
             ),

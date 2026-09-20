@@ -279,6 +279,15 @@ def _flexible_projection(snapshot: dict[str, Any], command_rows: list[dict[str, 
                 prop(aid, f"{aid}.operating_state", asset.get("operating_state"), availability=asset.get("availability_state") or AVAILABLE),
                 prop(aid, f"{aid}.target_soc_pct", number(asset.get("target_soc_pct")), "%"),
                 prop(aid, f"{aid}.current_soc_pct", number(asset.get("current_soc_pct")), "%"),
+                prop(
+                    aid,
+                    f"{aid}.ready_by",
+                    asset.get("ready_by") or asset.get("deadline"),
+                    editable=True,
+                    editor="datetime",
+                    operation_id="energy.property.write",
+                    availability=AVAILABLE,
+                ),
             ]
         )
     return assets, props
@@ -302,15 +311,18 @@ def _value_projection(
         key: (prices.get(key) or {}).get("value")
         for key in tariff_keys
     }
-    pricing_complete = all(value is not None for value in tariff_values.values())
+    full_tariff_configured = all(value is not None for value in tariff_values.values())
+    effective_import = number((prices.get("pricing.import_effective_price_eur_kwh") or {}).get("value"))
+    effective_export = number((prices.get("pricing.export_effective_price_eur_kwh") or {}).get("value"))
+    pricing_usable = effective_import is not None and effective_export is not None
 
     import_cost = actuals["import_cost_eur"]
     export_revenue = actuals["export_revenue_eur"]
     net = actuals["net_energy_cost_eur"]
-    complete = bool(actuals.get("actual_complete", actuals["available"])) and pricing_complete
+    complete = bool(actuals.get("actual_complete", actuals["available"])) and pricing_usable
     availability = (
         AVAILABLE if complete
-        else CONFIGURATION_REQUIRED if not pricing_complete
+        else CONFIGURATION_REQUIRED if not pricing_usable
         else "NOT_EVALUATED"
     )
     rows = [
@@ -332,7 +344,8 @@ def _value_projection(
         "export_revenue_eur": export_revenue,
         "net_energy_cost_eur": net,
         "actual_value_ready": complete,
-        "pricing_complete": pricing_complete,
+        "pricing_complete": pricing_usable,
+        "full_tariff_configured": full_tariff_configured,
         "savings_ready": False,
         "currency": "EUR",
         "tariff_breakdown": {
@@ -347,14 +360,14 @@ def _value_projection(
             "ACTUAL_COMPLETE_COUNTERFACTUAL_NOT_EVALUATED"
             if complete
             else "PRICING_CONFIGURATION_REQUIRED"
-            if not pricing_complete
+            if not pricing_usable
             else "NOT_EVALUATED"
         ),
         "interpretation": (
             "Actual import cost minus export revenue from timestamp-matched interval integration."
             if complete
-            else "Pricing configuration is incomplete."
-            if not pricing_complete
+            else "Effective pricing evidence is unavailable."
+            if not pricing_usable
             else "Interval financial evidence is still accumulating."
         ),
     }
@@ -958,39 +971,70 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         "health_reason":plan.get("reason") or "planning_unavailable"
     }}
     d0 = planning_horizons.get("D0") or {}
+    current_bucket = next(
+        (bucket for bucket in d0.get("buckets") or [] if isinstance(bucket, dict)),
+        {},
+    )
+    auto_mode = (
+        ((snapshot.get("settings") or {}).get("strategy") or {}).get("energy.automation_mode")
+        or ((snapshot.get("settings") or {}).get("strategy") or {}).get("energy.operating_mode")
+        or "advice"
+    )
+    execution_enabled = planning_status == AVAILABLE and auto_mode == "automatic"
+    commands_by_asset: dict[str, list[dict[str, Any]]] = {}
+    for command in command_rows:
+        commands_by_asset.setdefault(str(command.get("target_asset_id") or ""), []).append(command)
     current_allocations = []
-    for bucket in d0.get("buckets") or []:
-        if not isinstance(bucket, dict):
+    for allocation in current_bucket.get("asset_allocations") or current_bucket.get("allocations") or []:
+        if not isinstance(allocation, dict):
             continue
-        for allocation in bucket.get("asset_allocations") or bucket.get("allocations") or []:
-            if not isinstance(allocation, dict):
-                continue
-            current_allocations.append({
-                **deepcopy(allocation),
-                "horizon_id": "D0",
-                "bucket_start": bucket.get("start") or bucket.get("start_at"),
-                "bucket_end": bucket.get("end") or bucket.get("end_at"),
-                "action": "WAIT",
-                "action_state": "ADVISORY",
-                "command_required": False,
-                "plan_execution_allowed": False,
-                "reason_code": "ADVISORY_PLAN_NOT_EXECUTION_INTENT",
-            })
+        aid = str(allocation.get("asset_id") or "")
+        asset_commands = commands_by_asset.get(aid, [])
+        start_ready = any(
+            row.get("role") == "start" and row.get("availability") == AVAILABLE
+            for row in asset_commands
+        )
+        adjust_ready = any(
+            row.get("role") == "adjust" and row.get("availability") == AVAILABLE
+            for row in asset_commands
+        )
+        executable = execution_enabled and start_ready and adjust_ready
+        current_allocations.append({
+            **deepcopy(allocation),
+            "horizon_id": "D0",
+            "bucket_start": current_bucket.get("start_time") or current_bucket.get("start_at"),
+            "bucket_end": current_bucket.get("end_time") or current_bucket.get("end_at"),
+            "action": "START_OR_ADJUST" if executable else "ADVISE",
+            "action_state": "EXECUTABLE" if executable else "ADVISORY",
+            "command_required": executable,
+            "plan_execution_allowed": executable,
+            "reason_code": (
+                "CURRENT_BUCKET_EXECUTION_READY"
+                if executable
+                else "AUTOMATION_MODE_NOT_AUTOMATIC"
+                if auto_mode != "automatic"
+                else "PRODUCER_COMMAND_NOT_READY"
+            ),
+        })
     current_intent = current_allocations[0] if current_allocations else None
     operational_health = "OK" if planning_status == AVAILABLE else planning_status
     operational_attrs = {
         **_base("operational_tactical_first_multi_asset_v2"),
-        "ownership_model": "Energy owns advisory allocation; producer domains own physical actuation.",
-        "allocation_policy": "Canonical D0 bucket allocations only; no second planning engine.",
-        "action_readiness_rule": "Every projected row is advisory WAIT until an admitted producer-owned command exists.",
+        "ownership_model": "Energy owns planning and scheduling; producer domains own physical actuation.",
+        "allocation_policy": "Canonical current D0 bucket allocations only; no second planning engine.",
+        "action_readiness_rule": "Automatic execution is admitted only when the current canonical allocation and producer command readiness are both available.",
         "capacity_source": "sensor.energy_planning_index",
         "reconciliations_json": jdump([]),
-        "dispatch_actions_json": jdump([]),
+        "dispatch_actions_json": jdump([
+            row for row in current_allocations if row.get("plan_execution_allowed")
+        ]),
         "allocation_summary_json": jdump({
             "plan_id": plan.get("plan_id"),
             "allocation_count": len(current_allocations),
             "horizon_id": "D0",
-            "plan_execution_allowed": False,
+            "bucket_start": current_bucket.get("start_time") or current_bucket.get("start_at"),
+            "bucket_end": current_bucket.get("end_time") or current_bucket.get("end_at"),
+            "plan_execution_allowed": execution_enabled,
         }),
         "current_action_intents_json": jdump(current_allocations),
         "current_action_intent_json": jdump(current_intent),
@@ -1000,12 +1044,14 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
                 "display_name": asset.get("display_name"),
                 "energy_to_target_kwh": asset.get("energy_to_target_kwh"),
                 "planning_hold": asset.get("planning_hold", False),
+                "ready_by": asset.get("ready_by") or asset.get("deadline"),
             }
             for asset in flex_assets
         ]),
         "health": operational_health,
-        "health_reason": plan.get("reason") or "canonical_v2_advisory_plan_projection",
-        "plan_execution_allowed": False,
+        "health_reason": plan.get("reason") or "canonical_v2_operational_plan_projection",
+        "automation_mode": auto_mode,
+        "plan_execution_allowed": execution_enabled,
     }
     projections["energy_operational_plan_index"] = {
         "state": "ready" if planning_status == AVAILABLE else planning_status,

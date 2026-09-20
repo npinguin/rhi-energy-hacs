@@ -23,7 +23,6 @@ from ..compat_core import (
     AVAILABLE,
     PENDING,
     UNSUPPORTED,
-    automatic_execution_decision,
     by_key,
     command_state_key,
     number,
@@ -218,6 +217,25 @@ class EnergyInteractionEngine:
             else:
                 settings["metering_selected_period"] = normalized
                 result.update(status="CONFIRMED", reason="persisted_metering_context", readback_value=normalized)
+        elif property_id.endswith(".ready_by"):
+            asset_id = property_id[: -len(".ready_by")]
+            asset = self._find_asset(asset_id)
+            try:
+                ready_by = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+                if ready_by.tzinfo is None:
+                    ready_by = ready_by.replace(tzinfo=ZoneInfo(self.hass.config.time_zone))
+            except (TypeError, ValueError):
+                ready_by = None
+            if asset is None or ready_by is None:
+                result["reason"] = "asset_or_datetime_invalid"
+            else:
+                per_asset = settings.setdefault("flexible_loads", {}).setdefault(asset_id, {})
+                per_asset["ready_by"] = ready_by.isoformat()
+                result.update(
+                    status="CONFIRMED",
+                    reason="persisted_flexible_load_planning_intent",
+                    readback_value=per_asset["ready_by"],
+                )
         elif property_id.endswith(".requested_power_kw"):
             asset_id = property_id[: -len(".requested_power_kw")]
             numeric = number(value)
@@ -359,6 +377,11 @@ class EnergyInteractionEngine:
                 else:
                     holds.pop(target, None)
                     row.update(status="CONFIRMED", dispatch_state="LOCAL_COMPLETE", reason="planning_hold_cleared")
+                    await self.store.async_save()
+                    strategy = (self.store.data.get("settings") or {}).get("strategy", {})
+                    mode = strategy.get("energy.automation_mode") or strategy.get("energy.operating_mode")
+                    if mode == "automatic":
+                        await self._execute_plan("resume")
             elif command_id in {
                 "energy.command.start_flexible_load",
                 "energy.command.stop_flexible_load",
@@ -599,15 +622,41 @@ class EnergyInteractionEngine:
             return
         await self._execute_plan("automatic")
 
+    @staticmethod
+    def _current_plan_allocations(snapshot: dict[str, Any], now: datetime) -> tuple[dict[str, dict[str, Any]], str]:
+        plan = snapshot.get("plan") or {}
+        d0 = (plan.get("planning_horizons") or {}).get("D0") or {}
+        if ((d0.get("quality") or {}).get("availability")) != AVAILABLE:
+            return {}, "planning_horizon_unavailable"
+        for bucket in d0.get("buckets") or []:
+            try:
+                start = datetime.fromisoformat(str(bucket.get("start_time") or bucket.get("start_at")))
+                end = datetime.fromisoformat(str(bucket.get("end_time") or bucket.get("end_at")))
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=now.tzinfo)
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=now.tzinfo)
+            except (TypeError, ValueError):
+                continue
+            if start <= now < end:
+                rows = {
+                    str(row.get("asset_id")): deepcopy(row)
+                    for row in bucket.get("asset_allocations") or []
+                    if isinstance(row, dict) and row.get("asset_id")
+                }
+                return rows, "current_d0_bucket"
+        return {}, "no_current_planning_bucket"
+
     async def _execute_plan(self, origin: str) -> None:
         snap = self.runtime.snapshot
         facts = snap.get("facts") or {}
-        export_kw = facts.get("grid_export.power_kw")
         holds = (self.store.data.get("settings") or {}).get("holds", {})
         now = datetime.now(ZoneInfo(self.hass.config.time_zone))
         assets = list(snap.get("flexible_assets", []))
+        allocations, plan_reason = self._current_plan_allocations(snap, now)
 
-        # Negative safety guard has precedence and may only reduce/stop.
+        # Protective control always wins over positive scheduling.
+        protected: set[str] = set()
         for asset in assets:
             asset_id = str(asset["asset_id"])
             decision = protective_execution_decision(
@@ -618,31 +667,76 @@ class EnergyInteractionEngine:
             if decision["action"] == "stop":
                 result = await self.invoke_command("energy.command.stop_flexible_load", asset_id, {})
                 if result.get("status") in {PENDING, "CONFIRMED"}:
+                    protected.add(asset_id)
                     self._last_auto[asset_id] = now
 
-        # At most one positive handoff per evaluation. Requested-power readback must be
-        # CONFIRMED before the producer start command is admitted; PENDING is never
-        # treated as proof that the requested power was applied.
+        if not allocations and plan_reason != "current_d0_bucket":
+            self.store.add_activity({
+                "activity_type": "plan_execution",
+                "origin": origin,
+                "status": "not_executed",
+                "reason": plan_reason,
+            })
+            await self.store.async_save()
+            self._notify()
+            return
+
         for asset in assets:
             asset_id = str(asset["asset_id"])
-            last = self._last_auto.get(asset_id)
-            if last and (now - last).total_seconds() < 300:
+            if asset_id in protected:
                 continue
-            decision = automatic_execution_decision(export_kw, asset, bool(holds.get(asset_id)))
-            if decision["action"] != "start":
+            allocation = allocations.get(asset_id)
+            held = bool(holds.get(asset_id))
+            operating = str(asset.get("operating_state") or "").lower()
+            running = operating in {"running", "charging", "active", "on"}
+
+            # A managed hold or absence from the current plan bucket means this
+            # load must not consume flexible energy in this bucket.
+            if held or allocation is None:
+                if running:
+                    result = await self.invoke_command(
+                        "energy.command.stop_flexible_load", asset_id, {}
+                    )
+                    if result.get("status") in {PENDING, "CONFIRMED"}:
+                        self._last_auto[asset_id] = now
                 continue
-            target = decision["target_power_kw"]
-            power_result = await self.invoke_command(
-                "energy.command.set_flexible_load_power",
-                asset_id,
-                {"requested_power_kw": target},
-            )
-            if power_result.get("status") != "CONFIRMED":
-                break
-            start_result = await self.invoke_command("energy.command.start_flexible_load", asset_id, {})
-            if start_result.get("status") in {PENDING, "CONFIRMED"}:
-                self._last_auto[asset_id] = now
-            break
+
+            target = number(allocation.get("planned_power_kw"))
+            if target is None or target <= 0:
+                if running:
+                    await self.invoke_command(
+                        "energy.command.stop_flexible_load", asset_id, {}
+                    )
+                continue
+
+            current_request = number(asset.get("requested_power_kw"))
+            if current_request is None or abs(current_request - target) > 0.11:
+                power_result = await self.invoke_command(
+                    "energy.command.set_flexible_load_power",
+                    asset_id,
+                    {"requested_power_kw": target},
+                )
+                # Physical setpoint readback is authoritative. The next timer/event
+                # cycle continues only after the durable command becomes CONFIRMED.
+                if power_result.get("status") != "CONFIRMED":
+                    continue
+
+            if not running:
+                start_result = await self.invoke_command(
+                    "energy.command.start_flexible_load", asset_id, {}
+                )
+                if start_result.get("status") in {PENDING, "CONFIRMED"}:
+                    self._last_auto[asset_id] = now
+
+        self.store.add_activity({
+            "activity_type": "plan_execution",
+            "origin": origin,
+            "status": "evaluated",
+            "reason": plan_reason,
+            "planned_asset_count": len(allocations),
+        })
+        await self.store.async_save()
+        self._notify()
 
     async def async_stop(self) -> None:
         if callable(self._remove_runtime):
