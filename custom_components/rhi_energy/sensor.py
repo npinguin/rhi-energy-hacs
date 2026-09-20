@@ -37,6 +37,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         EnergyBatteryMetricSensor(entry, runtime, "soc_pct"),
         EnergyBatteryMetricSensor(entry, runtime, "capacity_kwh"),
         EnergyBatteryMetricSensor(entry, runtime, "available_kwh"),
+        EnergyPlanningLayerSensor(entry, projector, "strategic"),
+        EnergyPlanningLayerSensor(entry, projector, "tactical"),
+        EnergyPlanningLayerSensor(entry, projector, "operational"),
         EnergyReleaseSensor(entry, state),
         EnergyHealthSensor(entry, manager, runtime),
         EnergyConfigurationSensor(entry, manager, provider),
@@ -64,35 +67,28 @@ class _EnergySensor(SensorEntity):
         }
 
 
-_PLANNING_LAYER_BY_ENTITY = {
-    "energy_strategy_profile_index": "strategic",
-    "energy_strategy_effective_index": "strategic",
-    "energy_outlook_property_index": "tactical",
-    "energy_planning_index": "tactical",
-    "energy_operational_plan_index": "operational",
-    "energy_planning_experience_index": "operational",
+_PLANNING_LAYER_SOURCES = {
+    "strategic": ("energy_strategy_profile_index", "energy_strategy_effective_index"),
+    "tactical": ("energy_outlook_property_index", "energy_planning_index"),
+    "operational": ("energy_operational_plan_index", "energy_planning_experience_index"),
+}
+_PLANNING_LAYER_PRIMARY = {
+    "strategic": "energy_strategy_effective_index",
+    "tactical": "energy_planning_index",
+    "operational": "energy_operational_plan_index",
 }
 
 
 class LegacyPublicContractSensor(_EnergySensor):
-    """Compatibility surface. These are product/runtime entities, not monitoring indexes."""
+    """Stable public V1 facade. Never move these identities between HA devices."""
 
     def __init__(self, entry: ConfigEntry, projector, object_id: str) -> None:
         super().__init__(entry)
         self._projector = projector
         self._object_id = object_id
-        self._planning_layer = _PLANNING_LAYER_BY_ENTITY.get(object_id)
         self._attr_name = object_id
         self._attr_suggested_object_id = object_id
         self._attr_unique_id = f"rhi_energy:compat:{object_id}"
-        if self._planning_layer:
-            self._attr_device_info = {
-                "identifiers": {(DOMAIN, "logical:planning")},
-                "name": "Energy Planning",
-                "manufacturer": "Robotix Home Intelligence",
-                "model": "Energy logical object · Planning",
-                "sw_version": RELEASE,
-            }
 
     @property
     def native_value(self):
@@ -100,11 +96,53 @@ class LegacyPublicContractSensor(_EnergySensor):
 
     @property
     def extra_state_attributes(self):
-        attrs = dict(self._projector.get(self._object_id).get("attributes") or {})
-        if self._planning_layer:
-            attrs["planning_layer"] = self._planning_layer
-            attrs["logical_device_role"] = "energy_planning"
-        return attrs
+        return dict(self._projector.get(self._object_id).get("attributes") or {})
+
+
+class EnergyPlanningLayerSensor(SensorEntity):
+    """Native HA planning-device view over existing canonical public contracts."""
+
+    _attr_has_entity_name = False
+    _attr_should_poll = False
+
+    def __init__(self, entry: ConfigEntry, projector, layer: str) -> None:
+        self._entry = entry
+        self._projector = projector
+        self._layer = layer
+        self._sources = _PLANNING_LAYER_SOURCES[layer]
+        self._primary = _PLANNING_LAYER_PRIMARY[layer]
+        self._attr_name = f"{layer.title()} Planning"
+        self._attr_suggested_object_id = f"energy_planning_{layer}"
+        self._attr_unique_id = f"rhi_energy:planning:{layer}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "logical:planning")},
+            "name": "Energy Planning",
+            "manufacturer": "Robotix Home Intelligence",
+            "model": "Energy logical object · Planning",
+            "sw_version": RELEASE,
+        }
+
+    @property
+    def native_value(self):
+        return self._projector.get(self._primary).get("state")
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "planning_layer": self._layer,
+            "logical_device_role": "energy_planning",
+            "authoritative_source_entities": [f"sensor.{source}" for source in self._sources],
+            "source_states": {
+                source: self._projector.get(source).get("state")
+                for source in self._sources
+            },
+            "projection_only": True,
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        for source in self._sources:
+            self.async_on_remove(self._projector.add_callback(source, self.async_write_ha_state))
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -434,6 +472,9 @@ class EnergyLogicalEntityManager:
             for asset in rows
             if asset.get("asset_id")
         }
+        # The Planning logical device is a stable additive projection over the
+        # fixed public contracts, not a compiled source-backed logical asset.
+        desired_devices.add("logical:planning")
         producer_available = bool(
             (self._runtime.snapshot.get("producer_publication_availability") or {}).get("mobility")
         )

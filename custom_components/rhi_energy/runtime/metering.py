@@ -15,16 +15,18 @@ from zoneinfo import ZoneInfo
 from homeassistant.core import HomeAssistant
 
 try:
-    from .consumer_assets import flexible_power_total
+    from .consumer_assets import physical_connection_power_total
 except ImportError:  # Direct runpy/static regression execution.
     from pathlib import Path as _Path
     import runpy as _runpy
-    flexible_power_total = _runpy.run_path(
+    _consumer_assets = _runpy.run_path(
         str(_Path(__file__).resolve().parent / "consumer_assets.py")
-    )["flexible_power_total"]
+    )
+    physical_connection_power_total = _consumer_assets["physical_connection_power_total"]
 
 BASELOAD_SAMPLE_MINUTES = 15
 PERSIST_DEBOUNCE_SECONDS = 10
+BASELOAD_PROFILE_SEMANTICS_VERSION = 2
 
 
 def _period_keys(now: datetime) -> dict[str, str]:
@@ -139,8 +141,16 @@ class EnergyMetering:
         state.setdefault("last_powers", {})
         state.setdefault("last_flexible_powers", {})
         state.setdefault("last_financial_rates", {})
-        state.setdefault("baseload_profile", {})
-        state.setdefault("baseload_last_sample_bucket", None)
+        # E0.15.16: v1 learned Home Consumption after subtracting flexible
+        # power a second time.  That profile cannot be reused as household
+        # forecast evidence under the corrected semantics.
+        if state.get("baseload_profile_semantics_version") != BASELOAD_PROFILE_SEMANTICS_VERSION:
+            state["baseload_profile"] = {}
+            state["baseload_last_sample_bucket"] = None
+            state["baseload_profile_semantics_version"] = BASELOAD_PROFILE_SEMANTICS_VERSION
+        else:
+            state.setdefault("baseload_profile", {})
+            state.setdefault("baseload_last_sample_bucket", None)
         keys = _period_keys(now)
         for period_id, key in keys.items():
             row = state["periods"].get(period_id)
@@ -260,16 +270,18 @@ class EnergyMetering:
                 pass
         return start
 
-    def _learn_baseload(self, now: datetime, facts: dict[str, Any], flexible_kw: float | None) -> None:
+    def _learn_baseload(self, now: datetime, facts: dict[str, Any]) -> None:
         home = facts.get("home_consumption.power_kw")
-        if not isinstance(home, (int, float)) or flexible_kw is None:
+        if not isinstance(home, (int, float)):
             return
         state = self.store.data.setdefault("metering", {})
         bucket = _baseload_bucket(now)
         if state.get("baseload_last_sample_bucket") == bucket:
             return
         state["baseload_last_sample_bucket"] = bucket
-        base = max(0.0, float(home) - max(0.0, float(flexible_kw)))
+        # home_consumption.power_kw is already the canonical residual excluding
+        # physical flexible loads; subtracting them again corrupts the baseline.
+        base = max(0.0, float(home))
         profile = state.setdefault("baseload_profile", {})
         key = f"{now.hour:02d}"
         row = profile.get(key) if isinstance(profile.get(key), dict) else {"avg_kw": 0.0, "samples": 0}
@@ -313,9 +325,10 @@ class EnergyMetering:
             for a in active_flexible_rows
             if isinstance(a.get("power_kw"), (int, float))
         }
-        flexible_total = flexible_power_total(
-            flexible_rows,
-            producer_available=bool(snap.get("mobility_publication_available")),
+        producer_available = bool(snap.get("mobility_publication_available"))
+        physical_flexible_total = physical_connection_power_total(
+            snap.get("connections") or [],
+            producer_available=producer_available,
         )
         current = {
             "solar_kwh": facts.get("solar.power_kw"),
@@ -325,7 +338,7 @@ class EnergyMetering:
             "home_consumption_kwh": facts.get("home_consumption.power_kw"),
             "battery_charge_kwh": max(0.0, -facts.get("battery.power_kw")) if isinstance(facts.get("battery.power_kw"), (int, float)) else None,
             "battery_discharge_kwh": max(0.0, facts.get("battery.power_kw")) if isinstance(facts.get("battery.power_kw"), (int, float)) else None,
-            "flexible_loads_energy_in_kwh": flexible_total,
+            "flexible_loads_energy_in_kwh": physical_flexible_total,
         }
         last_at = state.get("last_update")
         last = state.get("last_powers") or {}
@@ -361,7 +374,7 @@ class EnergyMetering:
             for row in state["periods"].values():
                 self._mark_gap(row, last, now, last_financial)
 
-        self._learn_baseload(now, facts, flexible_total)
+        self._learn_baseload(now, facts)
         state["last_update"] = now.isoformat()
         state["last_powers"] = current
         state["last_flexible_powers"] = flexible_powers

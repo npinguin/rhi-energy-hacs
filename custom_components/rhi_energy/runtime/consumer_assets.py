@@ -129,3 +129,28 @@ def flexible_power_total(assets: list[dict[str, Any]], *, producer_available: bo
     if any(value is None for value in values):
         return None
     return round(sum(float(value) for value in values if value is not None), 6)
+
+
+def physical_connection_power_total(
+    connections: list[dict[str, Any]], *, producer_available: bool
+) -> float | None:
+    """Return additive physical flexible-load power from producer-owned connections.
+
+    Vehicle/consumer power is attribution and may legitimately appear more than once
+    when multiple logical producer assets point at one physical charger.  Electrical
+    balance therefore uses each physical connection asset exactly once.
+    """
+    if not producer_available:
+        return None
+    active = [
+        row for row in connections
+        if isinstance(row, dict)
+        and str(row.get("lifecycle_status") or "active").lower()
+        not in {"disabled", "inactive"}
+    ]
+    if not active:
+        return 0.0
+    values = [number(row.get("power_kw")) for row in active]
+    if any(value is None for value in values):
+        return None
+    return round(sum(max(0.0, float(value)) for value in values if value is not None), 6)

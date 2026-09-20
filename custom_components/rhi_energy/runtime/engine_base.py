@@ -28,7 +28,7 @@ from ..compat_core import (
     overview_snapshot,
 )
 from ..semantic import property_definitions
-from .consumer_assets import flexible_power_total, normalize_mobility_consumers
+from .consumer_assets import flexible_power_total, normalize_mobility_consumers, physical_connection_power_total
 from .event_flow import SourceEventCoalescer
 from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
@@ -613,8 +613,12 @@ class EnergyRuntime:
         consumers, connections, producer_availability, producer_metadata = self._producer_assets()
         flexible = normalize_mobility_consumers(consumers)
         producer_available = bool(producer_availability.get("mobility"))
-        flexible_power = flexible_power_total(
+        attributed_flexible_power = flexible_power_total(
             flexible,
+            producer_available=producer_available,
+        )
+        flexible_power = physical_connection_power_total(
+            connections,
             producer_available=producer_available,
         )
         home_power = None
@@ -625,6 +629,7 @@ class EnergyRuntime:
             else:
                 runtime_issues.append("consumption_split_inconsistent:flexible_exceeds_site")
         facts["flexible_loads.power_kw"] = flexible_power
+        facts["flexible_loads.attributed_power_kw"] = attributed_flexible_power
         facts["home_consumption.power_kw"] = home_power
         facts["consumption.power_kw"] = consumption["power_kw"]
         facts["consumption.health"] = (

@@ -33,8 +33,22 @@ def _command(interaction, asset_id: str, role: str) -> dict:
     )
 
 
+_ROLE_LABELS = {
+    "start": "Start charging",
+    "stop": "Stop charging",
+    "pause": "Pause managed charging",
+    "resume": "Resume managed charging",
+}
+_ROLE_COMMANDS = {
+    "start": "energy.command.start_flexible_load",
+    "stop": "energy.command.stop_flexible_load",
+    "pause": "energy.command.pause_flexible_load",
+    "resume": "energy.command.resume_flexible_load",
+}
+
+
 class EnergyChargingButton(ButtonEntity):
-    """Start/stop through Energy admission and the producer-owned command boundary."""
+    """Logical charging controls through Energy's durable command lifecycle."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -45,7 +59,7 @@ class EnergyChargingButton(ButtonEntity):
         self._interaction = interaction
         self._asset_id = asset_id
         self._role = role
-        self._attr_name = "Start charging" if role == "start" else "Stop charging"
+        self._attr_name = _ROLE_LABELS[role]
         self._attr_unique_id = f"rhi_energy:logical:{asset_id}:command:{role}"
 
     @property
@@ -64,12 +78,9 @@ class EnergyChargingButton(ButtonEntity):
         return _command(self._interaction, self._asset_id, self._role).get("availability") == "AVAILABLE"
 
     async def async_press(self) -> None:
-        command_id = (
-            "energy.command.start_flexible_load"
-            if self._role == "start"
-            else "energy.command.stop_flexible_load"
+        await self._interaction.invoke_command(
+            _ROLE_COMMANDS[self._role], self._asset_id, {}
         )
-        await self._interaction.invoke_command(command_id, self._asset_id, {})
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -98,7 +109,7 @@ class EnergyChargingButtonManager:
         for row in self._interaction.command_rows():
             role = str(row.get("role") or "")
             asset_id = str(row.get("target_asset_id") or "")
-            if role not in {"start", "stop"} or not asset_id or row.get("supported") is not True:
+            if role not in _ROLE_COMMANDS or not asset_id or row.get("supported") is not True:
                 continue
             uid = f"rhi_energy:logical:{asset_id}:command:{role}"
             desired[uid] = (asset_id, role)
