@@ -150,10 +150,39 @@ def _logical_asset_row(asset):
         "selection_mode": asset.get("selection_mode"),
         "selected_device_ids": [str(v) for v in (asset.get("selected_device_ids") or [])][:20],
         "parent_asset_id": asset.get("parent_asset_id"),
+        "linked_battery_asset_ids": [
+            str(value) for value in (asset.get("linked_battery_asset_ids") or []) if value
+        ],
+        "battery_correction_required": bool(asset.get("battery_correction_required")),
+        "battery_linkage_resolution": asset.get("battery_linkage_resolution"),
         "property_count": len(asset.get("properties") or []),
         "available_property_count": asset.get("available_property_count"),
         "properties": properties,
     }
+
+
+def _solar_battery_correction_rows(logical_assets):
+    """Expose bounded semantic proof for SolarEdge inverter battery correction."""
+    rows = []
+    for asset in logical_assets or []:
+        if not isinstance(asset, dict) or asset.get("object_class") != "solar_inverter":
+            continue
+        rows.append({
+            "inverter_asset_id": asset.get("asset_id"),
+            "integration_domain": asset.get("integration_domain"),
+            "device_registry_id": asset.get("device_registry_id"),
+            "config_entry_id": asset.get("config_entry_id"),
+            "linked_battery_asset_ids": [
+                str(value)
+                for value in (asset.get("linked_battery_asset_ids") or [])
+                if value
+            ][:8],
+            "battery_correction_required": bool(
+                asset.get("battery_correction_required")
+            ),
+            "battery_linkage_resolution": asset.get("battery_linkage_resolution"),
+        })
+    return rows[:16]
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry):
@@ -274,6 +303,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "objects": [_logical_asset_row(row) for row in (snap.get("logical_assets") or model.get("logical_assets") or [])[:120] if isinstance(row, dict)],
         },
         "layered_model": {
+            "runtime_status_authority": "runtime_evaluated_system_planning_intelligence_assets",
+            "materialization_records_scope": "structural_compile_state_not_runtime_readiness",
             "generation": deepcopy(model.get("generation") or snap.get("generation") or {}),
             "layer_contract_version": model.get("layer_contract_version"),
             "model_fingerprint": model.get("model_fingerprint") or snap.get("model_fingerprint"),
@@ -345,6 +376,14 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
                     "orphan_proxy_device_count"
                 )
                 or 0
+            ),
+            "solar_inverter_battery_corrections": _solar_battery_correction_rows(
+                snap.get("logical_assets") or model.get("logical_assets") or []
+            ),
+            "solar_inverter_battery_correction_count": len(
+                _solar_battery_correction_rows(
+                    snap.get("logical_assets") or model.get("logical_assets") or []
+                )
             ),
         },
         "execution": {

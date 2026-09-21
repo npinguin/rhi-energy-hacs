@@ -319,6 +319,7 @@ def _value_projection(
     import_cost = actuals["import_cost_eur"]
     export_revenue = actuals["export_revenue_eur"]
     net = actuals["net_energy_cost_eur"]
+    financial_result = actuals["net_financial_result_eur"]
     complete = bool(actuals.get("actual_complete", actuals["available"])) and pricing_usable
     availability = (
         AVAILABLE if complete
@@ -329,20 +330,28 @@ def _value_projection(
         prop("value", "value.import_cost_eur", import_cost, "EUR", availability=availability),
         prop("value", "value.export_revenue_eur", export_revenue, "EUR", availability=availability),
         prop("value", "value.net_energy_cost_eur", net, "EUR", availability=availability),
+        prop(
+            "value",
+            "value.net_financial_result_eur",
+            financial_result,
+            "EUR",
+            availability=availability,
+        ),
         prop("value", "value.self_consumption_value_eur", None, "EUR", availability="NOT_EVALUATED"),
         prop("value", "value.avoided_grid_cost_eur", None, "EUR", availability="NOT_EVALUATED"),
         prop("value", "value.savings_eur", None, "EUR", availability="NOT_EVALUATED"),
     ]
-    for row in rows[:3]:
+    for row in rows[:4]:
         row["evidence_method"] = actuals["evidence_method"]
-    rows[3]["additive"] = False
-    rows[4].update({"alias_of": "value.self_consumption_value_eur", "additive": False})
-    rows[5].update({"canonical_total": True, "additive": True})
+    rows[4]["additive"] = False
+    rows[5].update({"alias_of": "value.self_consumption_value_eur", "additive": False})
+    rows[6].update({"canonical_total": True, "additive": True})
     summary = {
         "period_id": meter.get("period_id"),
         "import_cost_eur": import_cost,
         "export_revenue_eur": export_revenue,
         "net_energy_cost_eur": net,
+        "net_financial_result_eur": financial_result,
         "actual_value_ready": complete,
         "pricing_complete": pricing_usable,
         "full_tariff_configured": full_tariff_configured,
@@ -947,6 +956,21 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         "unresolved_horizon_kwh": unresolved_total,
         "participating_load_count": participating_count,
     }
+    d1_summary = {
+        **d1_totals,
+        "flexible_total_need_kwh": total_need,
+        "planned_flexible_energy_kwh": planned_tomorrow_total,
+        "planned_tomorrow_kwh": planned_tomorrow_total,
+        "planned_horizon_kwh": planned_tomorrow_total,
+        "carry_in_unresolved_kwh": (
+            round(max(0.0, total_need - planned_today_total), 3)
+            if total_need is not None
+            else None
+        ),
+        "still_unresolved_kwh": unresolved_total,
+        "unresolved_horizon_kwh": unresolved_total,
+        "participating_load_count": participating_count,
+    }
     projections["energy_planning_index"]={"state":planning_status,"attributes":{
         **_property_attrs(planning_rows,"energy_planning_index_v2_compat",index_type="planning_index",asset_type="planning"),
         "planning_owner":"rhi_energy",
@@ -961,6 +985,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         "planning_assets_json":jdump(planning_assets),
         "planning_assets_by_id":jdump(planning_assets_by_id),
         "planning_today_totals_json":jdump(d0_summary),
+        "planning_tomorrow_totals_json":jdump(d1_summary),
         "planning_combined_totals_json":jdump(combined_summary),
         "planning_lane_totals_json":jdump(planning_lane_totals),
         "planning_horizon_totals_by_id":jdump(planning_lane_totals),
@@ -1057,9 +1082,53 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         "state": "ready" if planning_status == AVAILABLE else planning_status,
         "attributes": operational_attrs,
     }
-    p_summary={"plan_id":plan.get("plan_id"),"health":plan.get("health"),"decision":intel.get("decision"),"recommendation":intel.get("recommendation"),"next_actions":[intel.get("recommendation")] if intel.get("recommendation") else []}
-    p_assets=[{"asset_id":a.get("asset_id"),"display_name":a.get("display_name"),"energy_to_target_kwh":a.get("energy_to_target_kwh"),"planning_hold":a.get("planning_hold",False)} for a in flex_assets]
-    projections["energy_planning_experience_index"]={"state":planning_status,"attributes":{**_base("energy_planning_experience_index_v2_compat"),"ux_rule":"Render backend planning summaries and next actions; do not infer readiness.","health":plan.get("health") or UNAVAILABLE,"health_reason":plan.get("reason") or "planning_unavailable","assets_json":jdump(p_assets),"summary_json":jdump(p_summary)}}
+    p_summary = {
+        "plan_id": plan.get("plan_id"),
+        "health": plan.get("health"),
+        "decision": intel.get("decision"),
+        "recommendation": intel.get("recommendation"),
+        "next_actions": [intel.get("recommendation")] if intel.get("recommendation") else [],
+        "flexible_total_need_kwh": total_need,
+        "planned_today_kwh": planned_today_total,
+        "planned_tomorrow_kwh": planned_tomorrow_total,
+        "planned_horizon_kwh": planned_horizon_total,
+        "still_unresolved_kwh": unresolved_total,
+    }
+    p_assets = [
+        {
+            "asset_id": a.get("asset_id"),
+            "display_name": a.get("display_name"),
+            "energy_to_target_kwh": a.get("energy_to_target_kwh"),
+            "planning_hold": a.get("planning_hold", False),
+            "planned_today_kwh": (
+                planning_assets_by_id.get(str(a.get("asset_id") or ""), {}).get("planned_today_kwh")
+            ),
+            "planned_tomorrow_kwh": (
+                planning_assets_by_id.get(str(a.get("asset_id") or ""), {}).get("planned_tomorrow_kwh")
+            ),
+            "planned_horizon_kwh": (
+                planning_assets_by_id.get(str(a.get("asset_id") or ""), {}).get("planned_horizon_kwh")
+            ),
+            "unresolved_horizon_kwh": (
+                planning_assets_by_id.get(str(a.get("asset_id") or ""), {}).get("unresolved_horizon_kwh")
+            ),
+        }
+        for a in flex_assets
+    ]
+    projections["energy_planning_experience_index"] = {
+        "state": planning_status,
+        "attributes": {
+            **_base("energy_planning_experience_index_v2_compat"),
+            "ux_rule": "Render backend planning summaries and next actions; do not infer readiness.",
+            "health": plan.get("health") or UNAVAILABLE,
+            "health_reason": plan.get("reason") or "planning_unavailable",
+            "assets_json": jdump(p_assets),
+            "summary_json": jdump(p_summary),
+            "planning_today_totals_json": jdump(d0_summary),
+            "planning_tomorrow_totals_json": jdump(d1_summary),
+            "planning_combined_totals_json": jdump(combined_summary),
+        },
+    }
     projections["energy_command_index"]={"state":AVAILABLE if command_rows else UNAVAILABLE,"attributes":{**_base("energy_command_index_v2_compat"),"index_type":"command_index","commands_json":jdump(command_rows),"commands":jdump(command_rows),"command_count":len(command_rows),"execution_owner":"rhi_energy","physical_target_owner":"producer_domain"}}
     projections["energy_intelligence_property_index"]={"state":intel.get("availability") or UNAVAILABLE,"attributes":{**_property_attrs(intelligence_rows,"energy_intelligence_property_index_v2_compat",index_type="intelligence_property_index",asset_type="intelligence"),"intelligence_model":"deterministic_capacity_aware_v1","decision_contract":"backend_owned","current_decision_json":jdump(intel),"influencing_policies_json":jdump(effective),"configured_not_relevant_policies_json":jdump([]),"scheduler_contract":"planning_and_execution_separated"}}
     flexible_value_rows=[]

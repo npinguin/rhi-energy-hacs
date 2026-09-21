@@ -626,7 +626,12 @@ def _lane_totals(buckets: list[dict[str, Any]], *, complete: bool, solar: float 
             "contract": "advisory_lane_totals_v1",
             "basis": "incomplete_evidence",
             "sources": {"solar_kwh": solar, "battery_out_kwh": None, "grid_in_kwh": None},
-            "consumers": {"home_kwh": demand, "battery_in_kwh": None, "flexible_assets": []},
+            "consumers": {
+                "home_kwh": demand,
+                "battery_in_kwh": None,
+                "flexible_loads_kwh": None,
+                "flexible_assets": [],
+            },
             "boundary": {"grid_out_kwh": None},
             "source_total_kwh": None,
             "use_total_kwh": None,
@@ -667,7 +672,11 @@ def _lane_totals(buckets: list[dict[str, Any]], *, complete: bool, solar: float 
         "consumers": {
             "home_kwh": home_sum,
             "battery_in_kwh": 0.0,
-            "flexible_assets": [{"asset_id": key, "planned_energy_kwh": value} for key, value in sorted(flex_by_asset.items())],
+            "flexible_loads_kwh": flex_sum,
+            "flexible_assets": [
+                {"asset_id": key, "planned_energy_kwh": value}
+                for key, value in sorted(flex_by_asset.items())
+            ],
         },
         "boundary": {"grid_out_kwh": export_sum},
         "source_total_kwh": source_total,

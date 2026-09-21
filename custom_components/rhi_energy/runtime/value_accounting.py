@@ -36,14 +36,20 @@ def interval_actuals(meter: dict[str, Any]) -> dict[str, Any]:
     actual_complete = available and period_quality == "OK"
     partial_evidence = numeric_complete and (not financial_complete or not period_readable)
 
+    net_energy_cost = round(import_cost - export_revenue, 4) if available else None
+    # Product-facing financial result uses the intuitive accounting sign:
+    # revenue - cost.  Net energy cost remains the inverse cost-oriented view.
+    net_financial_result = (
+        round(export_revenue - import_cost, 4) if available else None
+    )
+
     return {
         "available": available,
         "actual_complete": actual_complete,
         "import_cost_eur": import_cost if available else None,
         "export_revenue_eur": export_revenue if available else None,
-        "net_energy_cost_eur": (
-            round(import_cost - export_revenue, 4) if available else None
-        ),
+        "net_energy_cost_eur": net_energy_cost,
+        "net_financial_result_eur": net_financial_result,
         "evidence_method": "interval_integrated_timestamp_matched_actuals",
         "quality": (
             "OK" if actual_complete else "PARTIAL" if partial_evidence else "UNKNOWN"
