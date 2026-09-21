@@ -294,6 +294,12 @@ def _build_domain_assets(
                 for value in inverter.get("linked_battery_asset_ids") or []
                 if value
             ]
+            inverter_asset["battery_correction_required"] = bool(
+                inverter.get("battery_correction_required")
+            )
+            inverter_asset["battery_linkage_resolution"] = str(
+                inverter.get("battery_linkage_resolution") or "not_required"
+            )
             out.append(inverter_asset)
             for index, phase in enumerate(inverter.get("phases") or [], start=1):
                 pid = str(phase.get("asset_id") or "")

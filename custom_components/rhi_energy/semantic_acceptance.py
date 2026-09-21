@@ -685,21 +685,71 @@ _COLLECTION_CONCEPTS = set(_SEMANTIC_ACCEPTORS)
 
 
 def _materialize_structural_relations(concepts: dict[str, Any]) -> None:
-    """Resolve source-topology evidence once, before measurement runtime starts."""
+    """Resolve Energy source relations once from Foundation-selected evidence.
+
+    Explicit HA device topology is authoritative when Foundation publishes it.
+    SolarEdge Modbus Multi currently exposes battery and inverter entities under
+    the same config entry without exporting their HA via-device relation through
+    SelectedDomainBuildInput.  For that integration only, a unique accepted
+    inverter within the exact same config entry is sufficient semantic evidence
+    to associate its accepted battery unit(s).  Ambiguous config-entry topology
+    is never guessed and is marked as correction-required so runtime fails closed.
+    """
     batteries_by_parent: dict[str, list[str]] = {}
+    batteries_by_config: dict[tuple[str, str], list[str]] = {}
+    inverters_by_config: dict[tuple[str, str], list[dict[str, Any]]] = {}
+
     for provider in ((concepts.get("battery_system") or {}).get("providers") or []):
+        integration = str(provider.get("integration_domain") or "")
         for unit in provider.get("units") or []:
-            parent_device_id = str(unit.get("via_device_registry_id") or "")
             asset_id = str(unit.get("asset_id") or "")
+            parent_device_id = str(unit.get("via_device_registry_id") or "")
+            config_entry_id = str(unit.get("config_entry_id") or "")
             if parent_device_id and asset_id:
                 batteries_by_parent.setdefault(parent_device_id, []).append(asset_id)
+            if integration and config_entry_id and asset_id:
+                batteries_by_config.setdefault(
+                    (integration, config_entry_id), []
+                ).append(asset_id)
 
-    for provider in ((concepts.get("solar_production") or {}).get("providers") or []):
+    solar_providers = (concepts.get("solar_production") or {}).get("providers") or []
+    for provider in solar_providers:
+        integration = str(provider.get("integration_domain") or "")
+        for inverter in provider.get("inverters") or []:
+            config_entry_id = str(inverter.get("config_entry_id") or "")
+            if integration and config_entry_id:
+                inverters_by_config.setdefault(
+                    (integration, config_entry_id), []
+                ).append(inverter)
+
+    for provider in solar_providers:
+        integration = str(provider.get("integration_domain") or "")
         for inverter in provider.get("inverters") or []:
             inverter_device_id = str(inverter.get("device_registry_id") or "")
-            inverter["linked_battery_asset_ids"] = sorted(
-                set(batteries_by_parent.get(inverter_device_id, []))
-            )
+            explicit = sorted(set(batteries_by_parent.get(inverter_device_id, [])))
+            config_entry_id = str(inverter.get("config_entry_id") or "")
+            config_key = (integration, config_entry_id)
+            same_config_batteries = sorted(set(batteries_by_config.get(config_key, [])))
+
+            linked = explicit
+            resolution = "explicit_via_device" if explicit else "not_required"
+            correction_required = bool(explicit)
+
+            if (
+                not linked
+                and integration == "solaredge_modbus_multi"
+                and same_config_batteries
+            ):
+                correction_required = True
+                if len(inverters_by_config.get(config_key, [])) == 1:
+                    linked = same_config_batteries
+                    resolution = "unique_config_entry"
+                else:
+                    resolution = "ambiguous_config_entry"
+
+            inverter["linked_battery_asset_ids"] = linked
+            inverter["battery_correction_required"] = correction_required
+            inverter["battery_linkage_resolution"] = resolution
 
 
 def accept_energy_selected_inputs(

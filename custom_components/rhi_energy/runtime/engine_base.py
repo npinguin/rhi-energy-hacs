@@ -316,15 +316,16 @@ class EnergyRuntime:
                 for value in asset.get("linked_battery_asset_ids") or []
                 if value
             ]
-            if linked_ids:
-                linked_values = [
-                    facts.get(f"{linked_id}.power_kw")
-                    for linked_id in linked_ids
-                ]
+            correction_required = bool(asset.get("battery_correction_required"))
+            if linked_ids or correction_required:
                 context["linked_battery_present"] = True
-                context["linked_battery_power_kw"] = complete_numeric_sum(
-                    linked_values,
-                    expected_count=len(linked_ids),
+                context["linked_battery_power_kw"] = (
+                    complete_numeric_sum(
+                        [facts.get(f"{linked_id}.power_kw") for linked_id in linked_ids],
+                        expected_count=len(linked_ids),
+                    )
+                    if linked_ids
+                    else None
                 )
         return normalizer(key, value, context)
 
