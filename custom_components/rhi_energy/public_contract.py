@@ -149,8 +149,28 @@ def _fact_rows(snapshot: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
         )
     for unit in snapshot.get("battery_units") or []:
         aid = str(unit.get("asset_id") or "battery_unit")
+        unit_power = number(unit.get("power_kw"))
+        unit_state = battery_state_from_power(unit_power)
         for key, unit_name in (("power_kw", "kW"), ("soc_pct", "%"), ("capacity_kwh", "kWh"), ("available_kwh", "kWh")):
             battery.append(prop(aid, f"{aid}.{key}", number(unit.get(key)), unit_name))
+        # Child product state is explicit.  UX must never infer unit health from
+        # one optional power property or coerce a missing power value to zero.
+        battery.append(
+            prop(
+                aid,
+                f"{aid}.state",
+                unit_state,
+                availability=AVAILABLE if unit_state is not None else UNAVAILABLE,
+            )
+        )
+        battery.append(
+            prop(
+                aid,
+                f"{aid}.health",
+                unit.get("health"),
+                availability=AVAILABLE if unit.get("health") is not None else UNAVAILABLE,
+            )
+        )
 
     grid_net = number(f.get("grid.net_power_kw"))
     grid_direction = grid_flow_direction(grid_net)
@@ -640,7 +660,15 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
             row["contributors_json"] = jdump(flexible_contributors)
     assets = _assets(snap)
     relationships = _relationships(snap, assets)
-    strategy_rows = rows["strategy"]
+    strategy_rows = [
+        {
+            **row,
+            "profile_id": str(row.get("group") or "home"),
+            "strategy_profile_id": str(row.get("group") or "home"),
+            "subdomain_id": str(row.get("group") or "home"),
+        }
+        for row in rows["strategy"]
+    ]
     pricing_rows = rows["pricing"]
     plan = snap.get("plan") or {}
     intel = snap.get("intelligence") or {}
@@ -876,7 +904,34 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     projections["energy_consumer_mix_index"]={"state":consumer_state,"attributes":{**_base("energy_consumer_mix_index_v2_compat"),"index_type":"consumer_mix_index","ownership_policy":"Energy aggregates producer-domain public assets without owning physical targets.","availability":consumer_state,"source_attribution_availability":INCOMPLETE,"cost_attribution_availability":INCOMPLETE if pricing_available else CONFIGURATION_REQUIRED,"context_json":jdump({"type":"period","value":selected_period}),"summary_json":jdump(mix_summary),"assets_json":jdump(mix_assets)}}
     projections["energy_flexible_asset_index"]={"state":consumer_state,"attributes":{**_property_attrs(flex_props,"energy_flexible_asset_index_v2_compat"),"projection_schema":"energy_flexible_asset_projection_v2","source_of_truth":"sensor.mobility_energy_asset_publication","source_entities_json":jdump(["sensor.mobility_energy_asset_publication"]),"primary_iteration_attribute":"assets_json","assets_json":jdump(flex_assets),"command_state_source":"sensor.energy_command_index","canonical_mobility_source":"sensor.mobility_energy_asset_publication","health":"OK" if consumer_state==AVAILABLE else consumer_state}}
     projections["energy_connection_property_index"]={"state":connection_state,"attributes":{**_property_attrs(connection_props,"energy_connection_property_index_v2_compat",index_type="typed_property_index",asset_type="connection",lookup_rule="properties_by_key",iteration_rule="connections_json[]"),"source_contract_registry":"canonical_only_sensor.mobility_energy_asset_publication","source_owner":"sensor.mobility_energy_asset_publication","connections_json":jdump(connection_assets),"connection_total_power_kw":connection_summary["connection_total_power_kw"],"snapshot_revision":connection_summary["snapshot_revision"],"observed_at":connection_summary["observed_at"],"source_contract":connection_summary["source_contract"],"recalculation_forbidden":True,"relationship_recalculation_allowed":False,"ux_guardrail":"Render connection snapshot only; no relationship lookup.","health":"OK" if connection_state==AVAILABLE else connection_state,"health_reason":"Mobility publication projected without inferred connection truth."}}
-    projections["energy_strategy_profile_index"]={"state":AVAILABLE,"attributes":{**_property_attrs(strategy_rows,"energy_strategy_profile_index_v2_compat",index_type="strategy_profile_index"),"configured_operating_mode":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"energy_operating_mode_value":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"energy_operating_mode":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"profiles_json":jdump([{"profile_id":"configured","properties":strategy_rows}]),"profiles_by_id_json":jdump({"configured":{"profile_id":"configured","properties":strategy_rows}}),"published_profile_count":1,"properties_json":jdump(strategy_rows),"product_status":AVAILABLE,"product_reason":"Persistent V2 strategy configuration is available."}}
+    strategy_profile_labels = {
+        "home": "Home Intelligence",
+        "battery": "Home Battery",
+        "solar": "Solar",
+        "grid": "Grid",
+        "flexible_loads": "Flexible Loads",
+        "resilience": "Resilience",
+    }
+    strategy_profiles = [
+        {
+            "profile_id": profile_id,
+            "strategy_profile_id": profile_id,
+            "profile_type": profile_id,
+            "asset_type": profile_id,
+            "profile_label": strategy_profile_labels.get(profile_id, profile_id.replace("_", " ").title()),
+            "display_name": strategy_profile_labels.get(profile_id, profile_id.replace("_", " ").title()),
+            "editable_property_ids": [
+                str(row.get("property_id") or row.get("key"))
+                for row in strategy_by_scope.get(profile_id, [])
+                if row.get("editable") is True
+            ],
+            "editable_field_rows": deepcopy(strategy_by_scope.get(profile_id, [])),
+            "properties": deepcopy(strategy_by_scope.get(profile_id, [])),
+        }
+        for profile_id in ("home", "battery", "solar", "grid", "flexible_loads", "resilience")
+        if strategy_by_scope.get(profile_id)
+    ]
+    projections["energy_strategy_profile_index"]={"state":AVAILABLE,"attributes":{**_property_attrs(strategy_rows,"energy_strategy_profile_index_v2_compat",index_type="strategy_profile_index"),"configured_operating_mode":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"energy_operating_mode_value":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"energy_operating_mode":(store_data.get("settings") or {}).get("strategy",{}).get("energy.operating_mode","advice"),"profiles_json":jdump(strategy_profiles),"profiles_by_id_json":jdump({row["profile_id"]:row for row in strategy_profiles}),"published_profile_count":len(strategy_profiles),"properties_json":jdump(strategy_rows),"product_status":AVAILABLE,"product_reason":"Persistent V2 strategy configuration is available."}}
     projections["energy_strategy_effective_index"]={"state":AVAILABLE,"attributes":{**_base("energy_strategy_effective_index_v2_compat"),"ownership_boundary":"configured_intent_is_strategy_effective_values_are_read_only","editable":False,"editable_source":"sensor.energy_strategy_profile_index","effective_strategies_json":jdump(strategies_by_asset),"strategies_by_asset_id_json":jdump({r["asset_id"]:r for r in strategies_by_asset}),"effective_subdomains_json":jdump(effective),"current_policies_json":jdump(effective),"configured_strategy_owner":"sensor.energy_strategy_profile_index","effective_property_rule":"effective values are read-only policy resolution; never commands"}}
     planning_lane_totals = {
         hid: deepcopy(((row.get("summary") or {}).get("lane_totals") or {}))
@@ -903,7 +958,8 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         planned_today = round(float(d0_by_asset.get(aid, 0.0)), 3) if aid else 0.0
         planned_tomorrow = round(float(d1_by_asset.get(aid, 0.0)), 3) if aid else 0.0
         planned_horizon = round(planned_today + planned_tomorrow, 3)
-        unresolved = round(max(0.0, need - planned_horizon), 3) if need is not None else None
+        unresolved_after_today = round(max(0.0, need - planned_today), 3) if need is not None else None
+        unresolved_after_horizon = round(max(0.0, need - planned_horizon), 3) if need is not None else None
         planning_assets.append({
             "asset_id": aid,
             "display_name": asset.get("display_name"),
@@ -913,9 +969,11 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
             "planned_today_kwh": planned_today,
             "planned_tomorrow_kwh": planned_tomorrow,
             "planned_horizon_kwh": planned_horizon,
-            "unresolved_horizon_kwh": unresolved,
+            "unresolved_today_kwh": unresolved_after_today,
+            "carry_to_tomorrow_kwh": unresolved_after_today,
+            "unresolved_horizon_kwh": unresolved_after_horizon,
             "planned": planned_horizon > 0.001,
-            "waiting": bool(need is not None and unresolved is not None and unresolved > 0.001 and planned_horizon <= 0.001),
+            "waiting": bool(need is not None and unresolved_after_horizon is not None and unresolved_after_horizon > 0.001 and planned_horizon <= 0.001),
             "state": "planned" if planned_horizon > 0.001 else "waiting" if need is not None and need > 0.001 else "available",
             "status": "PLANNED" if planned_horizon > 0.001 else "WAITING" if need is not None and need > 0.001 else "AVAILABLE",
             "user_summary_label": "Planned" if planned_horizon > 0.001 else "Waiting" if need is not None and need > 0.001 else "Available",
@@ -932,43 +990,47 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
     planned_today_total = round(sum(row.get("planned_today_kwh") or 0.0 for row in planning_assets), 3)
     planned_tomorrow_total = round(sum(row.get("planned_tomorrow_kwh") or 0.0 for row in planning_assets), 3)
     planned_horizon_total = round(planned_today_total + planned_tomorrow_total, 3)
-    unresolved_total = round(sum(row.get("unresolved_horizon_kwh") or 0.0 for row in planning_assets if row.get("unresolved_horizon_kwh") is not None), 3) if total_need is not None else None
+    unresolved_today_total = round(sum(row.get("unresolved_today_kwh") or 0.0 for row in planning_assets if row.get("unresolved_today_kwh") is not None), 3) if total_need is not None else None
+    unresolved_horizon_total = round(sum(row.get("unresolved_horizon_kwh") or 0.0 for row in planning_assets if row.get("unresolved_horizon_kwh") is not None), 3) if total_need is not None else None
     participating_count = sum(1 for row in planning_assets if (row.get("need_kwh") or 0.0) > 0.001 or (row.get("planned_horizon_kwh") or 0.0) > 0.001)
 
     d0_summary = {
         **d0_totals,
+        "horizon_id": "D0",
+        "need_scope": "initial_need_entering_today",
         "flexible_total_need_kwh": total_need,
         "planned_flexible_energy_kwh": planned_today_total,
         "planned_today_kwh": planned_today_total,
-        "still_unresolved_kwh": unresolved_total,
-        "unresolved_horizon_kwh": unresolved_total,
+        "still_unresolved_kwh": unresolved_today_total,
+        "unresolved_horizon_kwh": unresolved_today_total,
+        "carry_out_kwh": unresolved_today_total,
         "participating_load_count": participating_count,
     }
     combined_summary = {
         "D0": d0_totals,
         "D1": d1_totals,
+        "horizon_id": "D0_D1",
+        "need_scope": "initial_need_entering_planning_horizon",
         "flexible_total_need_kwh": total_need,
         "planned_flexible_energy_kwh": planned_horizon_total,
         "planned_today_kwh": planned_today_total,
         "planned_tomorrow_kwh": planned_tomorrow_total,
         "planned_horizon_kwh": planned_horizon_total,
-        "still_unresolved_kwh": unresolved_total,
-        "unresolved_horizon_kwh": unresolved_total,
+        "still_unresolved_kwh": unresolved_horizon_total,
+        "unresolved_horizon_kwh": unresolved_horizon_total,
         "participating_load_count": participating_count,
     }
     d1_summary = {
         **d1_totals,
-        "flexible_total_need_kwh": total_need,
+        "horizon_id": "D1",
+        "need_scope": "carry_in_after_today",
+        "flexible_total_need_kwh": unresolved_today_total,
         "planned_flexible_energy_kwh": planned_tomorrow_total,
         "planned_tomorrow_kwh": planned_tomorrow_total,
         "planned_horizon_kwh": planned_tomorrow_total,
-        "carry_in_unresolved_kwh": (
-            round(max(0.0, total_need - planned_today_total), 3)
-            if total_need is not None
-            else None
-        ),
-        "still_unresolved_kwh": unresolved_total,
-        "unresolved_horizon_kwh": unresolved_total,
+        "carry_in_unresolved_kwh": unresolved_today_total,
+        "still_unresolved_kwh": unresolved_horizon_total,
+        "unresolved_horizon_kwh": unresolved_horizon_total,
         "participating_load_count": participating_count,
     }
     projections["energy_planning_index"]={"state":planning_status,"attributes":{
@@ -1092,7 +1154,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         "planned_today_kwh": planned_today_total,
         "planned_tomorrow_kwh": planned_tomorrow_total,
         "planned_horizon_kwh": planned_horizon_total,
-        "still_unresolved_kwh": unresolved_total,
+        "still_unresolved_kwh": unresolved_horizon_total,
     }
     p_assets = [
         {
@@ -1108,6 +1170,12 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
             ),
             "planned_horizon_kwh": (
                 planning_assets_by_id.get(str(a.get("asset_id") or ""), {}).get("planned_horizon_kwh")
+            ),
+            "unresolved_today_kwh": (
+                planning_assets_by_id.get(str(a.get("asset_id") or ""), {}).get("unresolved_today_kwh")
+            ),
+            "carry_to_tomorrow_kwh": (
+                planning_assets_by_id.get(str(a.get("asset_id") or ""), {}).get("carry_to_tomorrow_kwh")
             ),
             "unresolved_horizon_kwh": (
                 planning_assets_by_id.get(str(a.get("asset_id") or ""), {}).get("unresolved_horizon_kwh")

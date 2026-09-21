@@ -174,6 +174,7 @@ class EnergyInteractionEngine:
         }
         pricing_map = {
             "pricing.spot_eur_kwh": "spot_fallback_eur_kwh",
+            "pricing.spot_price_current_eur_kwh": "spot_fallback_eur_kwh",
             "pricing.import_network_eur_kwh": "import_network_eur_kwh",
             "pricing.import_levies_eur_kwh": "import_levies_eur_kwh",
             "pricing.import_vat_pct": "import_vat_pct",

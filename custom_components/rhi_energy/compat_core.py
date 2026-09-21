@@ -86,9 +86,13 @@ def prop(
 ) -> dict[str, Any]:
     if availability is None:
         availability = AVAILABLE if value is not None else UNAVAILABLE
+    # All editable public Energy properties share one stable write boundary.
+    # Domain-specific ownership stays inside Energy's write_property dispatcher;
+    # the UX never needs pricing/strategy-specific transport contracts.
     write = {
         "supported": editable,
-        "operation_id": operation_id if editable else None,
+        "operation_id": "energy.property.write" if editable else None,
+        "owner_operation_id": operation_id if editable else None,
         "operation_kind": "property_write" if editable else None,
         "service": "script.energy_write_public_property" if editable else None,
         "data": {"property_id": key} if editable else {},
