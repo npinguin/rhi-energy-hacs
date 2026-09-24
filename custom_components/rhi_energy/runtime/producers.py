@@ -14,19 +14,28 @@ def mobility_entity_ids() -> tuple[str, str]:
 
 def read_mobility_energy_assets(hass: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     state = hass.states.get(MOBILITY_ENERGY_V2_ENTITY)
-    if not state or state.attributes.get("contract_id") != "MOBILITY_ENERGY_V2":
+    if not state:
         return [], [], {}
-    consumers = jload(state.attributes.get("consumer_assets"), [])
-    connections = jload(state.attributes.get("connection_assets"), [])
+    attrs = state.attributes
+    if attrs.get("contract_id") != "MOBILITY_ENERGY_V2":
+        return [], [], {}
+    if (
+        attrs.get("publisher") != "rhi_mobility"
+        or attrs.get("command_provider_id") != "mobility.command.v2"
+        or attrs.get("contains_physical_bindings") is True
+    ):
+        return [], [], {}
+    consumers = jload(attrs.get("consumer_assets"), [])
+    connections = jload(attrs.get("connection_assets"), [])
     metadata = {
-        "contract_id": state.attributes.get("contract_id"),
-        "publisher": state.attributes.get("publisher"),
-        "command_provider_id": state.attributes.get("command_provider_id"),
-        "contains_physical_bindings": bool(state.attributes.get("contains_physical_bindings")),
-        "periodization_owner": state.attributes.get("periodization_owner"),
-        "attribution_owner": state.attributes.get("attribution_owner"),
-        "planning_owner": state.attributes.get("planning_owner"),
-        "physical_execution_owner": state.attributes.get("physical_execution_owner"),
+        "contract_id": attrs.get("contract_id"),
+        "publisher": attrs.get("publisher"),
+        "command_provider_id": attrs.get("command_provider_id"),
+        "contains_physical_bindings": bool(attrs.get("contains_physical_bindings")),
+        "periodization_owner": attrs.get("periodization_owner"),
+        "attribution_owner": attrs.get("attribution_owner"),
+        "planning_owner": attrs.get("planning_owner"),
+        "physical_execution_owner": attrs.get("physical_execution_owner"),
         "source_entity_id": MOBILITY_ENERGY_V2_ENTITY,
         "source_state": state.state,
         "source_last_updated": state.last_updated.isoformat(),
