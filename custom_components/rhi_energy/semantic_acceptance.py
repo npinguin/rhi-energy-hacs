@@ -230,7 +230,10 @@ def _candidate_metadata(candidate: dict[str, Any]) -> dict[str, Any]:
     return {
         "display_name": evidence.get("device_name") or evidence.get("entity_name") or evidence.get("original_name"),
         "manufacturer": evidence.get("device_manufacturer"),
+        "brand": evidence.get("device_manufacturer"),
         "model": evidence.get("device_model"),
+        "variant": evidence.get("device_variant"),
+        "model_year": evidence.get("device_model_year"),
         "via_device_registry_id": evidence.get("via_device_registry_id"),
         "device_registry_id": source.get("device_registry_id") or evidence.get("device_registry_id"),
         "config_entry_id": source.get("config_entry_id"),

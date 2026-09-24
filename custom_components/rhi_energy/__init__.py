@@ -13,7 +13,9 @@ from .const import (
     DOMAIN,
     DOMAIN_ID,
     FOUNDATION_MIN_RELEASE,
+    INTEROP_PROVIDER_REGISTRY_KEY,
     PLATFORMS,
+    PROFILE_CATALOG_PROVIDER_ID,
     RELEASE,
     SHARED_BASELINE_VERSION,
 )
@@ -21,6 +23,8 @@ from .runtime.interaction import EnergyInteractionEngine
 from .runtime.metering import EnergyMetering
 from .migration import async_prepare_legacy_entity_takeover
 from .public_projector import PublicContractProjector
+from .profile_catalog import EnergyProfileCatalogProvider
+from .visual_catalog import EnergyVisualAssetCatalogProvider
 from .contracts.publication import EnergyBuildSpecificationProvider
 from .runtime.engine_base import EnergyRuntime
 from .services import async_register_services, async_unregister_services
@@ -68,6 +72,17 @@ def _shared_registry_api():
             f"loaded_baseline={foundation_baseline}"
         )
     return register_domain_build_specification_provider, unregister_domain_build_specification_provider
+
+
+def _visual_registry_api():
+    try:
+        from custom_components.rhi_foundation.visual_asset_registry import (
+            register_visual_asset_catalog_provider,
+            unregister_visual_asset_catalog_provider,
+        )
+    except (ImportError, ModuleNotFoundError):
+        return None, None
+    return register_visual_asset_catalog_provider, unregister_visual_asset_catalog_provider
 
 
 def _ensure_publication_provider(hass: HomeAssistant) -> EnergyBuildSpecificationProvider:
@@ -149,6 +164,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     interaction = EnergyInteractionEngine(hass, store, runtime, metering, manager)
     projector = PublicContractProjector(runtime, store, metering, interaction, manager)
     supervision = EnergyDomainSupervision(hass, entry.entry_id)
+    profile_catalog_provider = EnergyProfileCatalogProvider()
+    visual_catalog_provider = EnergyVisualAssetCatalogProvider()
+    interop = hass.data.setdefault(INTEROP_PROVIDER_REGISTRY_KEY, {})
+    visual_registration_unsub = None
     services = None
     manager.add_model_callback(runtime.activate_model)
     try:
@@ -158,10 +177,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "metering": metering, "interaction": interaction, "public_projector": projector,
             "services": services, "migration": migration, "supervision": supervision,
             "supervision_unsubscribe": None,
+            "profile_catalog_provider": profile_catalog_provider,
+            "visual_catalog_provider": visual_catalog_provider,
+            "visual_registration_unsub": None,
             "execution_model": "prebound_canonical_v2_runtime",
             "shared_baseline_version": SHARED_BASELINE_VERSION,
         }
         hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
+        interop[PROFILE_CATALOG_PROVIDER_ID] = profile_catalog_provider
+        register_visual, _unregister_visual = _visual_registry_api()
+        if callable(register_visual):
+            handle = register_visual(
+                hass,
+                publisher_domain=DOMAIN,
+                provider=visual_catalog_provider,
+                publication_revision=visual_catalog_provider.publication_revision,
+            )
+            visual_registration_unsub = handle if callable(handle) else None
+            state["visual_registration_unsub"] = visual_registration_unsub
         await manager.async_start()
         runtime.activate_model(manager.domain_model)
         await metering.async_start()
@@ -186,6 +219,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             unregister_domain_supervision(hass, supervision)
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        if interop.get(PROFILE_CATALOG_PROVIDER_ID) is profile_catalog_provider:
+            interop.pop(PROFILE_CATALOG_PROVIDER_ID, None)
+        if callable(visual_registration_unsub):
+            visual_registration_unsub()
         # Keep DBS publication registered after a runtime setup failure. It is an
         # independent configuration-time contract and lets Foundation diagnose/configure.
         raise
@@ -198,6 +235,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not unloaded:
         return False
     state = hass.data.get(DOMAIN, {}).pop(entry.entry_id, {})
+    interop = hass.data.get(INTEROP_PROVIDER_REGISTRY_KEY, {})
+    profile_catalog_provider = state.get("profile_catalog_provider")
+    if interop.get(PROFILE_CATALOG_PROVIDER_ID) is profile_catalog_provider:
+        interop.pop(PROFILE_CATALOG_PROVIDER_ID, None)
+    visual_registration_unsub = state.get("visual_registration_unsub")
+    if callable(visual_registration_unsub):
+        visual_registration_unsub()
     supervision = state.get("supervision")
     supervision_unsubscribe = state.get("supervision_unsubscribe")
     if callable(supervision_unsubscribe):

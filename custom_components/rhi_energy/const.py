@@ -1,14 +1,16 @@
-"""Constants for RHI Energy E0.15.31 canonical asset profile contract on Shared Baseline 1.8.1."""
+"""Constants for RHI Energy E0.15.33 profile and solar asset closure on Shared Baseline 1.8.1."""
 DOMAIN = "rhi_energy"
 DOMAIN_ID = "energy"
-RELEASE = "E0.15.32"
-RELEASE_NAME = "MOBILITY_VISUAL_REF_PASS_THROUGH"
+RELEASE = "E0.15.33"
+RELEASE_NAME = "ENERGY_PROFILE_SOLAR_ASSET_CLOSURE"
 SHARED_BASELINE_ID = "RHI_SHARED_ARCHITECTURE_BASELINE"
 SHARED_BASELINE_VERSION = "1.8.1"
 SHARED_BASELINE_CHECKSUM = "sha256:e76a3fb3539f9bc8b2b1b07976cf1372b39319b97887465669d4c452c07f7e52"
 PUBLICATION_REVISION = 13
 PUBLICATION_CONTRACT = "domain_build_specification_v1.2.0"
 BUILD_INPUT_REGISTRY_KEY = "rhi_selected_domain_build_input_registry"
+INTEROP_PROVIDER_REGISTRY_KEY = "rhi_domain_interop_provider_registry"
+PROFILE_CATALOG_PROVIDER_ID = "energy.profile_catalog.v2"
 SELECTED_BUILD_INPUTS_CHANGED_EVENT = "rhi_selected_domain_build_inputs_changed"
 PLATFORMS = ["sensor", "button", "number", "datetime"]
 STORE_VERSION = 2

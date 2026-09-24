@@ -75,6 +75,8 @@ CANONICAL_OBJECT_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "battery": {"owner": "energy", "member_of": ("battery_system",)},
     "battery_system": {"owner": "energy", "members": "battery"},
     "solar_inverter": {"owner": "energy", "member_of": ("solar_production",)},
+    "solar_optimizer": {"owner": "energy", "member_of": ("solar_inverter",)},
+    "solar_panel": {"owner": "energy", "member_of": ("solar_optimizer",)},
     "solar_production": {"owner": "energy", "members": "solar_inverter"},
     "grid_connection": {"owner": "energy"},
     "home_consumption": {"owner": "energy", "derived": True},
@@ -93,6 +95,7 @@ OBJECT_CLASS_LABELS: Final[dict[str, str]] = {
     "price_source": "Energy Price Source",
     "gas_meter": "Gas Meter",
     "solar_optimizer": "Solar Optimizer",
+    "solar_panel": "Solar Panel",
     "home_consumption": "Home Consumption",
     "flexible_load": "Flexible Energy Load",
 }
@@ -159,6 +162,9 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
         {"input_id":"optimizer_power","role":"power","property_key":"solar_optimizer.power_w","fact_key":"solar_optimizer.power_w","name":"Power","unit":"W","kind":"power","required":True,"platform":"sensor","object_scope":"device","many":False},
         {"input_id":"optimizer_energy","role":"energy","property_key":"solar_optimizer.energy_kwh","fact_key":"solar_optimizer.energy_kwh","name":"Energy","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"device","many":False},
         {"input_id":"panel_identity","role":"panel_identity","property_key":"solar_optimizer.panel_identity","fact_key":"solar_optimizer.panel_identity","name":"Panel","unit":None,"kind":"text","required":False,"platform":"sensor","object_scope":"device","many":False},
+    ),
+    "solar_panel": (
+        {"input_id":"panel_identity","role":"identity","property_key":"solar_panel.identity","fact_key":None,"name":"Panel identity","unit":None,"kind":"text","required":False,"platform":"sensor","object_scope":"child","many":False},
     ),
     "home_consumption": (
         {"input_id":None,"role":None,"property_key":"home_consumption.power_kw","fact_key":"home_consumption.power_kw","name":"Power","unit":"kW","kind":"power","required":True,"derived":True,"platform":"sensor","object_scope":"runtime","many":False},

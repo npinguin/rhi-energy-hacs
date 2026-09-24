@@ -8,19 +8,24 @@ not re-run semantic discovery or integration matching.
 from __future__ import annotations
 
 from copy import deepcopy
-import hashlib
 from typing import Any
 
 try:
     from ..models import LogicalAsset, LogicalProperty
-    from ..semantic import OBJECT_CLASS_LABELS, object_fact_key, property_definitions
+    from ..semantic import object_fact_key, property_definitions
+    from .asset_profiles import binding_index as build_binding_index, binding_source, enrich_asset, identity, solar_panel_asset
     from .resolution import compatibility_availability, resolve_property
 except ImportError:  # direct runpy tests
     from pathlib import Path as _Path
     import runpy as _runpy
     _root = _Path(__file__).resolve().parents[1]
     _semantic = _runpy.run_path(str(_root / "semantic.py"))
-    OBJECT_CLASS_LABELS = _semantic["OBJECT_CLASS_LABELS"]
+    _asset_profiles = _runpy.run_path(str(_root / "runtime" / "asset_profiles.py"))
+    build_binding_index = _asset_profiles["binding_index"]
+    binding_source = _asset_profiles["binding_source"]
+    enrich_asset = _asset_profiles["enrich_asset"]
+    identity = _asset_profiles["identity"]
+    solar_panel_asset = _asset_profiles["solar_panel_asset"]
     object_fact_key = _semantic["object_fact_key"]
     property_definitions = _semantic["property_definitions"]
     _resolution = _runpy.run_path(str(_root / "runtime" / "resolution.py"))
@@ -28,35 +33,6 @@ except ImportError:  # direct runpy tests
     resolve_property = _resolution["resolve_property"]
     LogicalAsset = dict  # type: ignore[assignment,misc]
     LogicalProperty = dict  # type: ignore[assignment,misc]
-
-
-def _hash(value: str, length: int = 10) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()[:length]
-
-
-def _bindings(model: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        str(row.get("binding_id")): row
-        for row in (model.get("accepted_bindings") or [])
-        if isinstance(row, dict) and row.get("binding_id")
-    }
-
-
-def _source(binding: dict[str, Any] | None) -> dict[str, Any]:
-    if not binding:
-        return {}
-    source = binding.get("source_identity") or {}
-    return {
-        "binding_id": binding.get("binding_id"),
-        "raw_capability_id": binding.get("raw_capability_id"),
-        "integration_domain": source.get("integration_domain"),
-        "device_registry_id": source.get("device_registry_id"),
-        "config_entry_id": source.get("config_entry_id"),
-        "entity_registry_id": source.get("entity_registry_id"),
-        "current_entity_id": source.get("current_entity_id"),
-        "unique_id": source.get("unique_id"),
-        "target_scope": source.get("target_scope"),
-    }
 
 
 def _asset(
@@ -76,8 +52,11 @@ def _asset(
     source_domain: str = "energy",
     device_registry_id: str | None = None,
     via_device_registry_id: str | None = None,
+    identity: dict[str, Any] | None = None,
+    profile_id: str | None = None,
+    visual_ref: str | None = None,
 ) -> LogicalAsset:
-    return {
+    asset: LogicalAsset = {
         "asset_id": asset_id,
         "object_class": object_class,
         "asset_type": object_class,
@@ -97,7 +76,11 @@ def _asset(
         "source_domain": source_domain,
         "device_registry_id": device_registry_id,
         "via_device_registry_id": via_device_registry_id,
+        "identity": identity or {},
+        "profile_id": profile_id,
+        "visual_ref": visual_ref,
     }
+    return enrich_asset(asset)
 
 
 def _role_binding(
@@ -118,16 +101,10 @@ def _properties(
     binding_index: dict[str, dict[str, Any]],
     *,
     aggregate_roles: set[str] | None = None,
-    include_roles: set[str] | None = None,
-    exclude_roles: set[str] | None = None,
 ) -> list[LogicalProperty]:
     rows: list[LogicalProperty] = []
     for spec in property_definitions(object_class):
         role = str(spec.get("role") or "") or None
-        if include_roles is not None and role not in include_roles:
-            continue
-        if exclude_roles and role in exclude_roles:
-            continue
         binding, binding_ids = _role_binding(roles, role, binding_index)
         derived_from_bound = bool(spec.get("derived") and role and roles.get(role))
         supported = bool(binding_ids or derived_from_bound or (role and aggregate_roles and role in aggregate_roles))
@@ -153,7 +130,7 @@ def _properties(
                 "binding_ids": binding_ids,
                 "issues": [],
                 "fact_key": object_fact_key(asset_id, property_key),
-                **_source(binding),
+                **binding_source(binding),
             }
         )
     return rows
@@ -163,16 +140,12 @@ def _selection(build_inputs: dict[str, dict[str, Any]], builder_id: str) -> dict
     return (build_inputs.get(builder_id) or {}).get("selection") or {}
 
 
-def _selected_devices(build_inputs: dict[str, dict[str, Any]], builder_id: str) -> list[str]:
-    return [str(value) for value in _selection(build_inputs, builder_id).get("selected_device_ids") or [] if str(value)]
-
-
 def _build_domain_assets(
     build_inputs: dict[str, dict[str, Any]],
     model: dict[str, Any],
 ) -> list[LogicalAsset]:
     concepts = model.get("concepts") or {}
-    binding_index = _bindings(model)
+    binding_index = build_binding_index(model)
     out: list[LogicalAsset] = []
 
     # Battery: system aggregate + physical units.
@@ -208,6 +181,7 @@ def _build_domain_assets(
                 selected_device_ids=[str(unit.get("device_registry_id"))] if unit.get("device_registry_id") else [],
                 device_registry_id=str(unit.get("device_registry_id") or "") or None,
                 via_device_registry_id=str(unit.get("via_device_registry_id") or "") or None,
+                identity=identity(unit),
                 properties=_properties("battery", uid, unit.get("bindings") or {}, binding_index),
             ))
 
@@ -287,6 +261,7 @@ def _build_domain_assets(
                 selected_device_ids=[str(inverter.get("device_registry_id"))] if inverter.get("device_registry_id") else [],
                 device_registry_id=str(inverter.get("device_registry_id") or "") or None,
                 via_device_registry_id=str(inverter.get("via_device_registry_id") or "") or None,
+                identity=identity(inverter),
                 properties=_properties("solar_production", iid, inverter.get("bindings") or {}, binding_index),
             )
             inverter_asset["linked_battery_asset_ids"] = [
@@ -325,6 +300,7 @@ def _build_domain_assets(
                     selected_device_ids=[str(meter.get("device_registry_id"))] if meter.get("device_registry_id") else [],
                     device_registry_id=str(meter.get("device_registry_id") or "") or None,
                     via_device_registry_id=str(meter.get("via_device_registry_id") or "") or None,
+                    identity=identity(meter),
                     properties=_properties("gas_meter", aid, meter.get("bindings") or {"total": meter.get("binding")}, binding_index),
                 ))
     for provider in ((concepts.get("solar_optimizer") or {}).get("providers") or []):
@@ -333,15 +309,27 @@ def _build_domain_assets(
         for optimizer in provider.get("optimizers") or []:
             aid = str(optimizer.get("asset_id") or "")
             if aid:
-                out.append(_asset(
+                optimizer_asset = _asset(
                     aid, "solar_optimizer", str(optimizer.get("display_name") or "Solar Optimizer"),
                     builder_id=builder, integration_domain=integration,
                     normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
                     selected_device_ids=[str(optimizer.get("device_registry_id"))] if optimizer.get("device_registry_id") else [],
                     device_registry_id=str(optimizer.get("device_registry_id") or "") or None,
                     via_device_registry_id=str(optimizer.get("via_device_registry_id") or "") or None,
+                    identity=identity(optimizer),
                     properties=_properties("solar_optimizer", aid, optimizer.get("bindings") or {}, binding_index),
-                ))
+                )
+                out.append(optimizer_asset)
+                panel_binding = (optimizer.get("bindings") or {}).get("panel_identity")
+                if panel_binding:
+                    out.append(solar_panel_asset(
+                        optimizer_asset_id=aid,
+                        panel_binding_id=str(panel_binding),
+                        binding=binding_index.get(str(panel_binding)),
+                        builder_id=builder,
+                        integration_domain=integration,
+                        normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
+                    ))
     return out
 
 

@@ -7,28 +7,23 @@ from typing import Any
 
 try:
     from .const import RELEASE
+    from .profile_catalog import EnergyProfileCatalogProvider, profile_context
+    from .visual_catalog import resolve_visual_ref
 except ImportError:  # direct runpy tests
     from pathlib import Path as _Path
     import runpy as _runpy
 
-    RELEASE = _runpy.run_path(str(_Path(__file__).resolve().parent / "const.py"))["RELEASE"]
+    _root = _Path(__file__).resolve().parent
+    RELEASE = _runpy.run_path(str(_root / "const.py"))["RELEASE"]
+    _profiles = _runpy.run_path(str(_root / "profile_catalog.py"))
+    _visual = _runpy.run_path(str(_root / "visual_catalog.py"))
+    EnergyProfileCatalogProvider = _profiles["EnergyProfileCatalogProvider"]
+    profile_context = _profiles["profile_context"]
+    resolve_visual_ref = _visual["resolve_visual_ref"]
 
 PUBLIC_CONTRACT_V2 = "2.0.0"
 
-PUBLIC_PROFILE_CONTRACT = "ENERGY_ASSET_PROFILE_V2"
-
-
-def _profile_id(asset: dict[str, Any]) -> str:
-    """Return one stable domain profile id from already-normalized Energy identity.
-
-    Profiles classify Energy device types and integration families. They are not
-    commercial SKU identity and never derive semantics from display names or artwork.
-    """
-    asset_type = str(asset.get("asset_type") or asset.get("object_class") or "unknown").strip().lower()
-    integration = str(asset.get("integration_domain") or asset.get("source_domain") or "energy").strip().lower()
-    safe_type = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in asset_type)
-    safe_integration = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in integration)
-    return f"energy.{safe_type}.{safe_integration}"
+PUBLIC_PROFILE_CONTRACT = "ENERGY_PROFILE_CATALOG_V2"
 
 
 def _publication(asset: dict[str, Any]) -> dict[str, Any]:
@@ -69,41 +64,28 @@ def _decorate_objects(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
         asset_type = str(asset.get("asset_type") or asset.get("object_class") or "").strip()
         if asset_type:
             asset["asset_type"] = asset_type
-        asset["profile_id"] = _profile_id(asset)
+        context = profile_context(asset)
+        if not asset.get("profile_id"):
+            asset["profile_id"] = context.get("profile_id")
+        if not asset.get("technical_specification"):
+            asset["technical_specification"] = context.get("technical_specification") or {}
+        asset["capabilities"] = sorted(
+            set(asset.get("capabilities") or [])
+            | set(context.get("profile_capabilities") or [])
+        )
+        asset["visual_ref"] = resolve_visual_ref(
+            asset_type,
+            asset.get("visual_ref"),
+            context.get("profile_visual_ref"),
+        )
         asset["property_publication"] = _publication(asset)
         decorated.append(asset)
     return decorated
 
 
-def _profile_catalog(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Build a small read-only catalog from canonical Energy asset metadata."""
-    profiles: dict[str, dict[str, Any]] = {}
-    for asset in objects:
-        profile_id = str(asset.get("profile_id") or _profile_id(asset))
-        row = profiles.setdefault(
-            profile_id,
-            {
-                "contract_id": PUBLIC_PROFILE_CONTRACT,
-                "profile_id": profile_id,
-                "asset_type": str(asset.get("asset_type") or asset.get("object_class") or ""),
-                "profile_scope": "domain_asset_type",
-                "source_domain": str(asset.get("source_domain") or "energy"),
-                "integration_domain": str(asset.get("integration_domain") or ""),
-                "builder_ids": [],
-                "property_keys": [],
-                "required_property_keys": [],
-                "editable": False,
-            },
-        )
-        builder_id = str(asset.get("builder_id") or "")
-        if builder_id and builder_id not in row["builder_ids"]:
-            row["builder_ids"].append(builder_id)
-        publication = asset.get("property_publication") or {}
-        row["property_keys"] = sorted(set(row["property_keys"]) | set(publication.get("expected_property_keys") or []))
-        row["required_property_keys"] = sorted(
-            set(row["required_property_keys"]) | set(publication.get("required_property_keys") or [])
-        )
-    return [profiles[key] for key in sorted(profiles)]
+def _profile_catalog() -> list[dict[str, Any]]:
+    """Return the same read-only local product-profile pattern used by Mobility."""
+    return EnergyProfileCatalogProvider().snapshot()["profiles"]
 
 
 def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -213,7 +195,7 @@ def build_public_contract_v2(
         },
         "health": source.get("health") or "UNKNOWN",
         "objects": objects,
-        "profiles": _profile_catalog(objects),
+        "profiles": _profile_catalog(),
         "relationships": _relationships(source),
         "planning": deepcopy(source.get("plan") or {}),
         "intelligence": deepcopy(source.get("intelligence") or {}),
@@ -221,7 +203,7 @@ def build_public_contract_v2(
         "commands": deepcopy(command_rows),
         "summary": {
             "object_count": len(objects),
-            "profile_count": len(_profile_catalog(objects)),
+            "profile_count": len(_profile_catalog()),
             "property_count": sum(len(asset.get("properties") or []) for asset in objects),
             "unresolved_property_count": unresolved,
             "relationship_count": len(_relationships(source)),

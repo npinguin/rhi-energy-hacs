@@ -106,6 +106,11 @@ class LogicalAsset(TypedDict, total=False):
     device_registry_id: str
     via_device_registry_id: str
     market_role: str
+    identity: dict[str, Any]
+    profile_id: str | None
+    technical_specification: dict[str, Any]
+    capabilities: list[str]
+    visual_ref: str
 
 
 class EnergyDomainModel(TypedDict, total=False):

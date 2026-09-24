@@ -1,0 +1,124 @@
+{
+  "kind": "RHI_ENERGY_PROFILE_CATALOG",
+  "contract_version": "1.0.0",
+  "release": "E0.15.33",
+  "authority": "rhi_energy",
+  "rules": {
+    "canonical_v2_authority": true,
+    "identity_key": "manufacturer + model + variant + model_year",
+    "exact_profile_resolution_only": true,
+    "integration_domain_is_not_product_identity": true,
+    "custom_identity_without_profile_allowed": true,
+    "runtime_internet_dependency": false,
+    "packaged_profiles_are_defaults": true,
+    "runtime_truth_in_profile_forbidden": true,
+    "user_policy_in_profile_forbidden": true,
+    "artwork_path_in_profile_forbidden": true,
+    "command_capability_in_profile_forbidden": true
+  },
+  "profiles": [
+    {
+      "profile_type": "solar_inverter",
+      "profile_id": "solaredge_rws_8k",
+      "display_name": "SolarEdge RWS 8 kW",
+      "short_name": "SolarEdge RWS",
+      "vendor": "SolarEdge",
+      "brand": "SolarEdge",
+      "model": "RWS",
+      "variant": "8 kW",
+      "model_year": "",
+      "rated_power_kw": 8,
+      "capabilities": [
+        "produces_energy",
+        "measures_power",
+        "measures_energy",
+        "battery_interface"
+      ],
+      "visual_ref": "energy.solar_inverter.solaredge.rws",
+      "auto_resolve": false,
+      "catalog_role": "installed_product"
+    },
+    {
+      "profile_type": "battery",
+      "profile_id": "byd_battery_box_premium_lvs_5_module_20kwh",
+      "display_name": "BYD Battery-Box Premium LVS · 5 modules / 20 kWh",
+      "short_name": "BYD LVS 20 kWh",
+      "vendor": "BYD",
+      "brand": "BYD",
+      "model": "Battery-Box Premium LVS",
+      "variant": "5 modules / 20 kWh",
+      "model_year": "",
+      "nominal_capacity_kwh": 20,
+      "module_count": 5,
+      "capabilities": [
+        "stores_energy",
+        "measures_power",
+        "measures_energy",
+        "measures_soc",
+        "supports_reserve"
+      ],
+      "visual_ref": "energy.battery.byd.lvs",
+      "auto_resolve": false,
+      "catalog_role": "installed_product"
+    },
+    {
+      "profile_type": "battery",
+      "profile_id": "solaredge_48v_home_battery",
+      "display_name": "SolarEdge 48V Home Battery",
+      "short_name": "SolarEdge 48V Battery",
+      "vendor": "SolarEdge",
+      "brand": "SolarEdge",
+      "model": "48V Home Battery",
+      "variant": "Installed battery",
+      "model_year": "",
+      "capabilities": [
+        "stores_energy",
+        "measures_power",
+        "measures_energy",
+        "measures_soc",
+        "supports_reserve"
+      ],
+      "visual_ref": "energy.battery.solaredge.48v",
+      "auto_resolve": false,
+      "catalog_role": "installed_product"
+    },
+    {
+      "profile_type": "solar_optimizer",
+      "profile_id": "solaredge_power_optimizer",
+      "display_name": "SolarEdge Power Optimizer",
+      "short_name": "SolarEdge Optimizer",
+      "vendor": "SolarEdge",
+      "brand": "SolarEdge",
+      "model": "Power Optimizer",
+      "variant": "Installed optimizer",
+      "model_year": "",
+      "capabilities": [
+        "produces_energy",
+        "measures_power",
+        "measures_energy",
+        "panel_attached"
+      ],
+      "visual_ref": "energy.solar_optimizer.solaredge",
+      "auto_resolve": false,
+      "catalog_role": "installed_product"
+    },
+    {
+      "profile_type": "solar_panel",
+      "profile_id": "installed_solar_panel",
+      "display_name": "Installed Solar Panel",
+      "short_name": "Solar Panel",
+      "vendor": "",
+      "brand": "",
+      "model": "",
+      "variant": "Installed PV module",
+      "model_year": "",
+      "capabilities": [
+        "produces_energy",
+        "optimizer_attachable"
+      ],
+      "visual_ref": "energy.solar_panel.generic",
+      "auto_resolve": false,
+      "catalog_role": "installed_product"
+    }
+  ]
+}
