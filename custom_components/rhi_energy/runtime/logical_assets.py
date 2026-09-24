@@ -405,6 +405,8 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
         asset["participation_state"] = item.get("participation_state")
         asset["operating_state"] = item.get("operating_state")
         asset["availability_state"] = item.get("availability_state")
+        asset["visual_ref"] = item.get("visual_ref")
+        asset["producer_asset_type"] = item.get("source_asset_kind") or item.get("asset_type")
         rows.append(asset)
     return rows
 

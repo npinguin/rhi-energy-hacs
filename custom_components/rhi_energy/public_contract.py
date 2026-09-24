@@ -455,7 +455,7 @@ def _connection_projection(snapshot: dict[str, Any]) -> tuple[str, list[dict[str
         if power is not None: known_power.append(power)
         connection_state=raw.get("connection_state"); operating_state=raw.get("operating_state"); flow=raw.get("energy_flow_direction")
         ux_visible=connection_state in {"connected","asset_connected"} or (power is not None and abs(power)>0.05)
-        connections.append({"connection_asset_id":asset_id,"asset_id":asset_id,"display_name":raw.get("display_name") or asset_id.replace("_"," ").title(),"connected_asset_id":raw.get("connected_asset_id") or "","connection_state":connection_state or "unknown","operating_state":operating_state or "unknown","energy_flow_direction":flow or "unknown","power_kw":power,"health":str(raw.get("health") or "UNKNOWN"),"ux_visible":ux_visible,"ux_role":"charging_connection","source_owner":"sensor.mobility_energy_asset_publication"})
+        connections.append({"connection_asset_id":asset_id,"asset_id":asset_id,"display_name":raw.get("display_name") or asset_id.replace("_"," ").title(),"visual_ref":raw.get("visual_ref"),"connected_asset_id":raw.get("connected_asset_id") or "","connection_state":connection_state or "unknown","operating_state":operating_state or "unknown","energy_flow_direction":flow or "unknown","power_kw":power,"health":str(raw.get("health") or "UNKNOWN"),"ux_visible":ux_visible,"ux_role":"charging_connection","source_owner":"sensor.mobility_energy_asset_publication"})
         for key,value,unit in (("power_kw",power,"kW"),("connection_state",connection_state,None),("operating_state",operating_state,None),("connected_asset_id",raw.get("connected_asset_id"),None),("energy_flow_direction",flow,None)):
             properties.append(prop(asset_id,f"{asset_id}.{key}",value,unit,source_type="producer_publication",quality="authoritative",reason_code="mobility_publication_value" if value is not None else "mobility_publication_value_unavailable"))
     metadata=((snapshot.get("producer_publication_metadata") or {}).get("mobility") or {})
@@ -497,12 +497,12 @@ def _assets(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         caps = item.get("capabilities") if isinstance(item.get("capabilities"), dict) else {}
         command_refs = item.get("command_refs") if isinstance(item.get("command_refs"), dict) else {}
-        out.append(_asset_row(aid, "consumer", item.get("display_name") or aid.replace("_", " ").title(), "sensor.energy_consumer_property_index", item.get("availability_state") or AVAILABLE, ux_asset_type=item.get("ux_asset_type") or item.get("asset_type") or "flexible_load", asset_role="energy_consumer", cluster_role="contributor_detail", parent_asset_id="consumer", source_domain=item.get("source_domain") or "mobility", capabilities=sorted(set([str(k) for k in caps.keys()] + [str(k) for k in command_refs.keys()])), energy_asset_class=item.get("energy_asset_class") or "generic_flexible_load"))
+        out.append(_asset_row(aid, "consumer", item.get("display_name") or aid.replace("_", " ").title(), "sensor.energy_consumer_property_index", item.get("availability_state") or AVAILABLE, ux_asset_type=item.get("ux_asset_type") or item.get("asset_type") or "flexible_load", asset_role="energy_consumer", cluster_role="contributor_detail", parent_asset_id="consumer", source_domain=item.get("source_domain") or "mobility", capabilities=sorted(set([str(k) for k in caps.keys()] + [str(k) for k in command_refs.keys()])), energy_asset_class=item.get("energy_asset_class") or "generic_flexible_load", visual_ref=item.get("visual_ref")))
     for item in connections:
         if not isinstance(item,dict): continue
         aid=str(item.get("asset_id") or item.get("connection_asset_id") or "")
         if not aid: continue
-        out.append(_asset_row(aid,"connection",item.get("display_name") or aid.replace("_"," ").title(),"sensor.energy_connection_property_index",item.get("availability_state") or AVAILABLE,ux_asset_type="energy_connection",asset_role="energy_connection_metering_asset",cluster_role="contributor_detail",parent_asset_id="connection",source_domain=item.get("source_domain") or "mobility",capabilities=["power_kw","connection_state","operating_state"]))
+        out.append(_asset_row(aid,"connection",item.get("display_name") or aid.replace("_"," ").title(),"sensor.energy_connection_property_index",item.get("availability_state") or AVAILABLE,ux_asset_type="energy_connection",asset_role="energy_connection_metering_asset",cluster_role="contributor_detail",parent_asset_id="connection",source_domain=item.get("source_domain") or "mobility",capabilities=["power_kw","connection_state","operating_state"],visual_ref=item.get("visual_ref")))
 
     # The object-centric expansion keeps stable R1.89.45 aggregate rows above
     # untouched; logical V2 objects are additive children so existing YAML/Lovelace
@@ -881,6 +881,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
             "asset_id":aid,
             "display_name":a.get("display_name") or aid.replace("_"," ").title(),
             "category":a.get("asset_type") or "other",
+            "visual_ref":a.get("visual_ref"),
             "controllability":"FLEXIBLE",
             "current_power_kw":number(a.get("power_kw")),
             "energy_today_kwh":number(today_flexible.get(aid)),
@@ -963,6 +964,7 @@ def project_all(snapshot: dict[str, Any], store_data: dict[str, Any], command_ro
         planning_assets.append({
             "asset_id": aid,
             "display_name": asset.get("display_name"),
+            "visual_ref": asset.get("visual_ref"),
             "energy_to_target_kwh": need,
             "need_kwh": need,
             "energy_needed_kwh": need,
