@@ -166,11 +166,14 @@ class EnergyPublicV2Sensor(_EnergySensor):
     def extra_state_attributes(self):
         contract = self._projector.get_v2()
         return {
+            "contract_visibility": "ux_safe",
+            "contract_id": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
             "contract_version": contract.get("contract_version"),
             "release": contract.get("release"),
             "domain_model_revision": contract.get("domain_model_revision"),
             "summary": contract.get("summary") or {},
             "objects": contract.get("objects") or [],
+            "profiles": contract.get("profiles") or [],
             "relationships": contract.get("relationships") or [],
             "planning": contract.get("planning") or {},
             "intelligence": contract.get("intelligence") or {},

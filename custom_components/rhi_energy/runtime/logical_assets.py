@@ -391,7 +391,7 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
                 "status": "NORMALIZED",
                 "candidate_count": 0, "issues": [], "fact_key": f"flexible:{source_id}:{key}",
             })
-        rows.append(_asset(
+        asset = _asset(
             source_id, "flexible_load",
             str(item.get("display_name") or source_id),
             integration_domain=str(item.get("source_domain") or "mobility"), normalization_status="READY",
@@ -399,7 +399,13 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
             selected_device_ids=[source_device_id] if source_device_id else [],
             device_registry_id=source_device_id,
             properties=props,
-        ))
+        )
+        # Explicit producer/domain conclusions are copied into the canonical
+        # Energy object. The UX must not reconstruct these from labels or power.
+        asset["participation_state"] = item.get("participation_state")
+        asset["operating_state"] = item.get("operating_state")
+        asset["availability_state"] = item.get("availability_state")
+        rows.append(asset)
     return rows
 
 

@@ -81,12 +81,15 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
         envelope_max_kw = number(
             envelope.get("max_power_kw", envelope.get("maximum_power_kw"))
         ) if envelope_ready else None
+        lifecycle_state = str(first("lifecycle_state", "lifecycle_status") or "active").strip().lower()
+        participation_state = "disabled" if lifecycle_state in {"disabled", "inactive"} else "participating"
         normalized = {
             **deepcopy(asset),
             "asset_id": str(asset["asset_id"]),
             "display_name": display_name,
             "asset_type": "flexible_asset",
             "energy_asset_role": "flexible_load",
+            "participation_state": participation_state,
             "power_kw": power,
             "energy_to_target_kwh": number(first("energy_to_target_kwh", "required_energy_kwh", "energy_need_kwh")),
             "requested_power_kw": number(first("requested_power_kw", "requested_charge_power_kw")),

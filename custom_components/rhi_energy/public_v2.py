@@ -15,6 +15,96 @@ except ImportError:  # direct runpy tests
 
 PUBLIC_CONTRACT_V2 = "2.0.0"
 
+PUBLIC_PROFILE_CONTRACT = "ENERGY_ASSET_PROFILE_V2"
+
+
+def _profile_id(asset: dict[str, Any]) -> str:
+    """Return one stable domain profile id from already-normalized Energy identity.
+
+    Profiles classify Energy device types and integration families. They are not
+    commercial SKU identity and never derive semantics from display names or artwork.
+    """
+    asset_type = str(asset.get("asset_type") or asset.get("object_class") or "unknown").strip().lower()
+    integration = str(asset.get("integration_domain") or asset.get("source_domain") or "energy").strip().lower()
+    safe_type = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in asset_type)
+    safe_integration = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in integration)
+    return f"energy.{safe_type}.{safe_integration}"
+
+
+def _publication(asset: dict[str, Any]) -> dict[str, Any]:
+    props = [row for row in asset.get("properties") or [] if isinstance(row, dict)]
+    published = sorted({str(row.get("property_key")) for row in props if row.get("property_key")})
+    required = sorted({
+        str(row.get("property_key"))
+        for row in props
+        if row.get("property_key") and row.get("required") is True
+    })
+    resolved = sorted({
+        str(row.get("property_key"))
+        for row in props
+        if row.get("property_key") and (row.get("resolution") or {}).get("status") == "RESOLVED"
+    })
+    missing_required = sorted(set(required) - set(published))
+    unresolved_required = sorted(set(required) - set(resolved))
+    return {
+        "authority": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
+        "expected_property_keys": published,
+        "published_property_keys": published,
+        "required_property_keys": required,
+        "missing_required_property_keys": missing_required,
+        "resolved_property_keys": resolved,
+        "unresolved_required_property_keys": unresolved_required,
+        "complete": not missing_required,
+        "resolution_complete": not unresolved_required,
+        "v1_fallback_allowed": False,
+    }
+
+
+def _decorate_objects(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    decorated: list[dict[str, Any]] = []
+    for raw in objects:
+        if not isinstance(raw, dict):
+            continue
+        asset = deepcopy(raw)
+        asset_type = str(asset.get("asset_type") or asset.get("object_class") or "").strip()
+        if asset_type:
+            asset["asset_type"] = asset_type
+        asset["profile_id"] = _profile_id(asset)
+        asset["property_publication"] = _publication(asset)
+        decorated.append(asset)
+    return decorated
+
+
+def _profile_catalog(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build a small read-only catalog from canonical Energy asset metadata."""
+    profiles: dict[str, dict[str, Any]] = {}
+    for asset in objects:
+        profile_id = str(asset.get("profile_id") or _profile_id(asset))
+        row = profiles.setdefault(
+            profile_id,
+            {
+                "contract_id": PUBLIC_PROFILE_CONTRACT,
+                "profile_id": profile_id,
+                "asset_type": str(asset.get("asset_type") or asset.get("object_class") or ""),
+                "profile_scope": "domain_asset_type",
+                "source_domain": str(asset.get("source_domain") or "energy"),
+                "integration_domain": str(asset.get("integration_domain") or ""),
+                "builder_ids": [],
+                "property_keys": [],
+                "required_property_keys": [],
+                "editable": False,
+            },
+        )
+        builder_id = str(asset.get("builder_id") or "")
+        if builder_id and builder_id not in row["builder_ids"]:
+            row["builder_ids"].append(builder_id)
+        publication = asset.get("property_publication") or {}
+        row["property_keys"] = sorted(set(row["property_keys"]) | set(publication.get("expected_property_keys") or []))
+        row["required_property_keys"] = sorted(
+            set(row["required_property_keys"]) | set(publication.get("required_property_keys") or [])
+        )
+    return [profiles[key] for key in sorted(profiles)]
+
 
 def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
@@ -97,7 +187,7 @@ def build_public_contract_v2(
     source["battery_reserve_write_supported"] = bool(
         (concepts.get("battery_system") or {}).get("reserve_binding")
     )
-    objects = deepcopy(source.get("logical_assets") or [])
+    objects = _decorate_objects(deepcopy(source.get("logical_assets") or []))
     unresolved = sum(
         1
         for asset in objects
@@ -123,6 +213,7 @@ def build_public_contract_v2(
         },
         "health": source.get("health") or "UNKNOWN",
         "objects": objects,
+        "profiles": _profile_catalog(objects),
         "relationships": _relationships(source),
         "planning": deepcopy(source.get("plan") or {}),
         "intelligence": deepcopy(source.get("intelligence") or {}),
@@ -130,6 +221,7 @@ def build_public_contract_v2(
         "commands": deepcopy(command_rows),
         "summary": {
             "object_count": len(objects),
+            "profile_count": len(_profile_catalog(objects)),
             "property_count": sum(len(asset.get("properties") or []) for asset in objects),
             "unresolved_property_count": unresolved,
             "relationship_count": len(_relationships(source)),
