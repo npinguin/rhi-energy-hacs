@@ -1,4 +1,4 @@
-"""RHI Energy V2 sensors: public Energy contract plus Baseline 1.7.1 observability."""
+"""RHI Energy V2 sensors: public Energy contract plus Shared Baseline 1.8.1 observability."""
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -20,7 +20,7 @@ from .const import (
     SHARED_BASELINE_ID,
     SHARED_BASELINE_VERSION,
 )
-from .runtime.logical_assets import OBJECT_CLASS_LABELS
+from .semantic import OBJECT_CLASS_LABELS
 from .source_topology import async_sync_source_device_topology, source_binding_index
 
 
