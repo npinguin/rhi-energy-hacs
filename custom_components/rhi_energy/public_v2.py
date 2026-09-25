@@ -9,6 +9,8 @@ try:
     from .const import RELEASE
     from .profile_catalog import EnergyProfileCatalogProvider, profile_context
     from .visual_catalog import resolve_visual_ref
+    from .runtime.canonical_semantics import pricing_properties, strategy_properties
+    from .runtime.value_accounting import interval_actuals
 except ImportError:  # direct runpy tests
     from pathlib import Path as _Path
     import runpy as _runpy
@@ -20,6 +22,11 @@ except ImportError:  # direct runpy tests
     EnergyProfileCatalogProvider = _profiles["EnergyProfileCatalogProvider"]
     profile_context = _profiles["profile_context"]
     resolve_visual_ref = _visual["resolve_visual_ref"]
+    _canonical = _runpy.run_path(str(_root / "runtime" / "canonical_semantics.py"))
+    pricing_properties = _canonical["pricing_properties"]
+    strategy_properties = _canonical["strategy_properties"]
+    _value = _runpy.run_path(str(_root / "runtime" / "value_accounting.py"))
+    interval_actuals = _value["interval_actuals"]
 
 PUBLIC_CONTRACT_V2 = "2.0.0"
 
@@ -81,10 +88,20 @@ def _decorate_objects(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
         asset["property_publication"] = _publication(asset)
         controls = []
         for prop in asset.get("properties") or []:
-            if prop.get("control_capability") is not True:
-                continue
             property_key = str(prop.get("property_key") or "")
             write_supported = prop.get("write_supported") is True
+            if write_supported and property_key:
+                prop["editable"] = True
+                prop["write"] = {
+                    "operation_id": "energy.property.write",
+                    "service": "rhi_energy.write_property",
+                    "data": {"property_id": f"logical:{asset.get('asset_id')}:{property_key}"},
+                    "value_parameter": "value",
+                    "readback_property": property_key,
+                }
+                prop["operation_state"] = "IDLE"
+            if prop.get("control_capability") is not True:
+                continue
             control = {
                 "control_id": property_key,
                 "target_asset_id": asset.get("asset_id"),
@@ -197,6 +214,30 @@ def build_public_contract_v2(
         (concepts.get("battery_system") or {}).get("reserve_binding")
     )
     objects = _decorate_objects(deepcopy(source.get("logical_assets") or []))
+    settings = deepcopy(store_data.get("settings") or {})
+    pricing_rows = pricing_properties(source.get("facts") or {}, settings)
+    strategy_rows = strategy_properties(settings)
+    canonical_configuration = {
+        "pricing": {
+            "properties": pricing_rows,
+            "availability": "AVAILABLE" if any(row.get("availability") == "AVAILABLE" for row in pricing_rows) else "UNAVAILABLE",
+        },
+        "strategy": {
+            "configured_properties": strategy_rows,
+            "effective_properties": deepcopy(strategy_rows),
+            "effective_state": "AVAILABLE",
+            "effective_reason": "configured_policy_is_effective_without_runtime_override",
+        },
+    }
+    activity = [deepcopy(row) for row in (store_data.get("activity") or []) if isinstance(row, dict)][-100:]
+    metering_periods = deepcopy(((store_data.get("metering") or {}).get("periods") or {}))
+    value_accounting = {
+        period_id: interval_actuals(period)
+        for period_id, period in metering_periods.items()
+        if isinstance(period, dict)
+    }
+    selected_period = str(settings.get("metering_selected_period") or "today")
+    selected_value = deepcopy(value_accounting.get(selected_period) or {})
     unresolved = sum(
         1
         for asset in objects
@@ -224,10 +265,18 @@ def build_public_contract_v2(
         "objects": objects,
         "profiles": _profile_catalog(),
         "relationships": _relationships(source),
+        "configuration": canonical_configuration,
         "planning": deepcopy(source.get("plan") or {}),
         "intelligence": deepcopy(source.get("intelligence") or {}),
         "overview": deepcopy(source.get("overview") or {}),
         "commands": deepcopy(command_rows),
+        "activity": activity,
+        "value_accounting": {
+            "selected_period_id": selected_period,
+            "selected": selected_value,
+            "periods": value_accounting,
+            "net_financial_result_eur": selected_value.get("net_financial_result_eur"),
+        },
         "summary": {
             "object_count": len(objects),
             "profile_count": len(_profile_catalog()),
@@ -236,6 +285,10 @@ def build_public_contract_v2(
             "executable_control_count": sum(sum(1 for row in asset.get("controls") or [] if row.get("supported") is True) for asset in objects),
             "unresolved_property_count": unresolved,
             "relationship_count": len(_relationships(source)),
+            "configuration_property_count": len(pricing_rows) + len(strategy_rows),
+            "command_count": len(command_rows),
+            "activity_count": len(activity),
+            "value_accounting_period_count": len(value_accounting),
             "system_object_count": len(source.get("system_assets") or model.get("system_assets") or []),
             "planning_object_count": len(source.get("planning_assets") or model.get("planning_assets") or []),
             "intelligence_object_count": len(source.get("intelligence_assets") or model.get("intelligence_assets") or []),
@@ -258,3 +311,13 @@ def compatibility_snapshot(contract: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(source, dict):
         raise ValueError("energy_v2_compatibility_envelope_missing")
     return deepcopy(source)
+
+
+def public_v2_sensor_attributes(contract: dict[str, Any]) -> dict[str, Any]:
+    """Expose the complete canonical V2 payload on the Home Assistant sensor."""
+    payload = published_v2(contract)
+    return {
+        "contract_visibility": "ux_safe",
+        "contract_id": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
+        **payload,
+    }

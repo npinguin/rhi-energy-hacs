@@ -6,7 +6,7 @@ from typing import Any
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.core import HomeAssistant, ServiceCall
 
-from .compat_core import jload
+from .runtime.canonical_semantics import jload
 from .const import DOMAIN
 
 CANONICAL_SERVICES=("write_property","invoke_command")

@@ -4,7 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from ..compat_core import jload
+from .canonical_semantics import jload
 from ..const import MOBILITY_COMMAND_V2_ENTITY, MOBILITY_ENERGY_V2_ENTITY
 
 

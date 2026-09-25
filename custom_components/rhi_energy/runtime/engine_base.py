@@ -16,7 +16,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
 from ..adapters import get_normalizer
-from ..compat_core import (
+from .canonical_semantics import (
     aggregate_battery_soc,
     battery_state_from_power,
     complete_numeric_sum,

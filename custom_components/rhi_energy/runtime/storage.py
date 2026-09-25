@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from ..compat_core import default_settings
+from .canonical_semantics import default_settings
 from ..const import STORE_KEY, STORE_VERSION
 
 

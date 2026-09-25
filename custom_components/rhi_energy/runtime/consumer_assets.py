@@ -5,11 +5,11 @@ from copy import deepcopy
 from typing import Any
 
 try:
-    from ..compat_core import number
+    from .canonical_semantics import number
 except ImportError:  # Direct runpy/static regression execution.
     from pathlib import Path as _Path
     import runpy as _runpy
-    number = _runpy.run_path(str(_Path(__file__).resolve().parents[1] / "compat_core.py"))["number"]
+    number = _runpy.run_path(str(_Path(__file__).resolve().parent / "canonical_semantics.py"))["number"]
 
 _UNKNOWN = {"unknown", "unavailable", "none", ""}
 _RESOLVED_STATUSES = {"RESOLVED", "NORMALIZED", "MATCHED", "AVAILABLE"}

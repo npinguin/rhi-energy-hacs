@@ -25,6 +25,7 @@ from .const import (
 from .canonical_device import canonical_device_info, source_device_ids, sync_canonical_device_topology
 from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
 from .source_topology import async_sync_source_device_topology, source_binding_index
+from .public_v2 import public_v2_sensor_attributes
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -72,20 +73,8 @@ class _EnergySensor(SensorEntity):
         }
 
 
-_PLANNING_LAYER_SOURCES = {
-    "strategic": ("energy_strategy_profile_index", "energy_strategy_effective_index"),
-    "tactical": ("energy_outlook_property_index", "energy_planning_index"),
-    "operational": ("energy_operational_plan_index", "energy_planning_experience_index"),
-}
-_PLANNING_LAYER_PRIMARY = {
-    "strategic": "energy_strategy_effective_index",
-    "tactical": "energy_planning_index",
-    "operational": "energy_operational_plan_index",
-}
-
-
 class LegacyPublicContractSensor(_EnergySensor):
-    """Stable public V1 facade. Never move these identities between HA devices."""
+    """Temporary frozen V1 projection over canonical V2/runtime truth."""
 
     def __init__(self, entry: ConfigEntry, projector, object_id: str) -> None:
         super().__init__(entry)
@@ -104,8 +93,16 @@ class LegacyPublicContractSensor(_EnergySensor):
         return dict(self._projector.get(self._object_id).get("attributes") or {})
 
 
+
+_PLANNING_LAYER_CANONICAL_REFS = {
+    "strategic": ("energy:configuration:strategy",),
+    "tactical": ("energy:contract:planning", "energy:configuration:pricing"),
+    "operational": ("energy:contract:planning", "energy:contract:commands"),
+}
+
+
 class EnergyPlanningLayerSensor(SensorEntity):
-    """Native HA planning-device view over existing canonical public contracts."""
+    """Native HA planning view over the canonical Energy V2 decision only."""
 
     _attr_has_entity_name = False
     _attr_should_poll = False
@@ -114,8 +111,6 @@ class EnergyPlanningLayerSensor(SensorEntity):
         self._entry = entry
         self._projector = projector
         self._layer = layer
-        self._sources = _PLANNING_LAYER_SOURCES[layer]
-        self._primary = _PLANNING_LAYER_PRIMARY[layer]
         self._attr_name = f"{layer.title()} Planning"
         self._attr_suggested_object_id = f"energy_planning_{layer}"
         self._attr_unique_id = f"rhi_energy:planning:{layer}"
@@ -127,29 +122,36 @@ class EnergyPlanningLayerSensor(SensorEntity):
             "sw_version": RELEASE,
         }
 
+    def _state(self) -> str:
+        contract = self._projector.get_v2()
+        if self._layer == "strategic":
+            strategy = ((contract.get("configuration") or {}).get("strategy") or {})
+            return str(strategy.get("effective_state") or "UNAVAILABLE")
+        planning = contract.get("planning") or {}
+        if self._layer == "tactical":
+            return str(planning.get("health") or "UNAVAILABLE")
+        d0 = ((planning.get("planning_horizons") or {}).get("D0") or {})
+        return str(((d0.get("quality") or {}).get("availability")) or planning.get("health") or "UNAVAILABLE")
+
     @property
     def native_value(self):
-        return self._projector.get(self._primary).get("state")
+        return self._state()
 
     @property
     def extra_state_attributes(self):
+        contract = self._projector.get_v2()
         return {
             "planning_layer": self._layer,
             "logical_device_role": "energy_planning",
-            "authoritative_source_entities": [f"sensor.{source}" for source in self._sources],
-            "source_states": {
-                source: self._projector.get(source).get("state")
-                for source in self._sources
-            },
+            "canonical_source_refs": list(_PLANNING_LAYER_CANONICAL_REFS[self._layer]),
+            "domain_model_revision": contract.get("domain_model_revision"),
             "projection_only": True,
+            "v1_dependency": False,
         }
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        for source in self._sources:
-            self.async_on_remove(
-                self._projector.add_callback(source, self.async_write_ha_state)
-            )
+        self.async_on_remove(self._projector.add_v2_callback(self.async_write_ha_state))
 
 
 class EnergyPublicV2Sensor(_EnergySensor):
@@ -169,20 +171,10 @@ class EnergyPublicV2Sensor(_EnergySensor):
 
     @property
     def extra_state_attributes(self):
-        contract = self._projector.get_v2()
-        return {
-            "contract_visibility": "ux_safe",
-            "contract_id": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
-            "contract_version": contract.get("contract_version"),
-            "release": contract.get("release"),
-            "domain_model_revision": contract.get("domain_model_revision"),
-            "summary": contract.get("summary") or {},
-            "objects": contract.get("objects") or [],
-            "profiles": contract.get("profiles") or [],
-            "relationships": contract.get("relationships") or [],
-            "planning": contract.get("planning") or {},
-            "intelligence": contract.get("intelligence") or {},
-        }
+        # Expose the complete published V2 contract. The sensor is a transport
+        # surface only; it must never maintain a second field allow-list that can
+        # drift from build_public_contract_v2().
+        return public_v2_sensor_attributes(self._projector.get_v2())
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()

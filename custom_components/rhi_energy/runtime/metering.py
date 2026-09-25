@@ -222,7 +222,7 @@ class EnergyMetering:
         quality[field] = _sticky_field_quality(quality.get(field), observed=True)
 
     def _financial_rates(self, facts: dict[str, Any]) -> dict[str, float | None]:
-        from ..compat_core import by_key, number, pricing_properties
+        from .canonical_semantics import by_key, number, pricing_properties
 
         prices = by_key(pricing_properties(facts, self.store.data.get("settings") or {}))
         import_price = number(

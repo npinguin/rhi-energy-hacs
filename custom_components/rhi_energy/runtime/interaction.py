@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
-from ..compat_core import (
+from .canonical_semantics import (
     AVAILABLE,
     PENDING,
     UNSUPPORTED,
@@ -715,7 +715,7 @@ class EnergyInteractionEngine:
                         "requires_confirmation": role in {"start", "stop"},
                         "invoke": {
                             "operation_id": "energy.command.execute",
-                            "service": "script.energy_execute_public_command",
+                            "service": "rhi_energy.invoke_command",
                             "data": {"command_id": command_id, "target_asset_id": asset_id, "parameters": {}},
                         },
                         "readback": {
@@ -724,8 +724,18 @@ class EnergyInteractionEngine:
                             "result_code": last.get("reason"),
                             "feedback_confirmed": last.get("status") == "CONFIRMED",
                         },
+                        "operation_id": last.get("operation_id"),
+                        "status": last.get("status") or "IDLE",
+                        "requested_at": last.get("requested_at"),
+                        "completed_at": last.get("completed_at"),
+                        "execution_evidence": {
+                            "dispatch_state": last.get("dispatch_state"),
+                            "producer_domain": last.get("producer_domain"),
+                            "result_code": last.get("reason"),
+                            "feedback_confirmed": last.get("status") == "CONFIRMED",
+                        },
                         "execution_status": last.get("status") or "IDLE",
-                        "authoritative_readback_index": "sensor.energy_flexible_asset_index",
+                        "authoritative_readback_ref": "energy:contract:flexible_plan",
                     }
                 )
         for period in ("today", "week", "month", "year"):
@@ -748,7 +758,7 @@ class EnergyInteractionEngine:
                     "requires_confirmation": True,
                     "invoke": {
                         "operation_id": "energy.command.execute",
-                        "service": "script.energy_execute_public_command",
+                        "service": "rhi_energy.invoke_command",
                         "data": {"command_id": command_id, "target_asset_id": "metering", "period_id": period, "parameters": {}},
                     },
                     "readback": {
@@ -757,8 +767,18 @@ class EnergyInteractionEngine:
                         "result_code": last.get("reason"),
                         "feedback_confirmed": last.get("status") == "CONFIRMED",
                     },
+                    "operation_id": last.get("operation_id"),
+                    "status": last.get("status") or "IDLE",
+                    "requested_at": last.get("requested_at"),
+                    "completed_at": last.get("completed_at"),
+                    "execution_evidence": {
+                        "dispatch_state": last.get("dispatch_state"),
+                        "producer_domain": last.get("producer_domain") or "energy",
+                        "result_code": last.get("reason"),
+                        "feedback_confirmed": last.get("status") == "CONFIRMED",
+                    },
                     "execution_status": last.get("status") or "IDLE",
-                    "authoritative_readback_index": "sensor.energy_metering_property_index",
+                    "authoritative_readback_ref": "energy:object:metering",
                 }
             )
         rows.append(
@@ -776,12 +796,17 @@ class EnergyInteractionEngine:
                 "requires_confirmation": False,
                 "invoke": {
                     "operation_id": "energy.command.execute",
-                    "service": "script.energy_execute_public_command",
+                    "service": "rhi_energy.invoke_command",
                     "data": {"command_id": "energy.command.execute_plan", "target_asset_id": "energy", "parameters": {}},
                 },
                 "readback": {"state": "idle", "feedback_confirmed": True},
+                "operation_id": None,
+                "status": "IDLE",
+                "requested_at": None,
+                "completed_at": None,
+                "execution_evidence": {"dispatch_state": "IDLE", "producer_domain": "energy", "result_code": None, "feedback_confirmed": True},
                 "execution_status": "IDLE",
-                "authoritative_readback_index": "sensor.energy_planning_index",
+                "authoritative_readback_ref": "energy:contract:planning",
             }
         )
         return rows
