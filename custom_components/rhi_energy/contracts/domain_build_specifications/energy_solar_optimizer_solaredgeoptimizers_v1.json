@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.solar_optimizer.solaredgeoptimizers.v1",
-  "builder_version": "1.2.1",
+  "builder_version": "1.3.0",
   "concept": {
     "concept_id": "solar_optimizer",
     "display_name": "Solar Optimizer",
@@ -60,7 +60,8 @@
         "input_id": "optimizer_energy",
         "technical_capabilities": {
           "any_of": [
-            "energy_counter"
+            "energy_counter",
+            "energy_capacity"
           ]
         },
         "allowed_source_kinds": [
@@ -209,18 +210,500 @@
             ]
           }
         ]
+      },
+      {
+        "input_id": "optimizer_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "status_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "optimizer_last_measurement",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_last_measurement",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "last_measurement_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "optimizer_voltage",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "optimizer_voltage_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "panel_voltage",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "panel_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "voltage_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "optimizer_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "current_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "optimizer_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "temperature_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "optimizer_tilt",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_tilt",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "tilt_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "optimizer_azimuth",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "optimizer_azimuth",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "azimuth_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "zone_voltage_average",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "zone_voltage_average",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "voltage_average_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "zone_current_average",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "zone_current_average",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "current_average_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "zone_child_count",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "zone_child_count",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "child_count_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "zone_max_active_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "zone_max_active_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "max_active_power_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "site_peak_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "site_peak_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "peak_power_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "site_installation_date",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "site_installation_date",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "installation_date_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "site_last_polled",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "site_last_polled",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "last_polled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "site_inverter_count",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "site_inverter_count",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "inverter_count_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "site_obtained_from",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredgeoptimizers",
+            "raw_capability_id": "site_obtained_from",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "obtained_from"
+              }
+            ]
+          }
+        ]
       }
     ]
   },
   "declared_domain_outputs": {
     "possible_asset_types": [
+      "solar_optimizer_site",
+      "solar_zone",
       "solar_optimizer",
       "solar_panel"
     ],
     "possible_facts": [
       "solar_optimizer.power_w",
-      "solar_optimizer.energy_kwh",
-      "solar_optimizer.health"
+      "solar_optimizer.energy_total_kwh",
+      "solar_optimizer.status",
+      "solar_optimizer.last_measurement",
+      "solar_optimizer.voltage_v",
+      "solar_optimizer.optimizer_voltage_v",
+      "solar_optimizer.current_a",
+      "solar_optimizer.temperature_c",
+      "solar_optimizer.tilt_deg",
+      "solar_optimizer.azimuth_deg",
+      "solar_zone.power_w",
+      "solar_zone.energy_total_kwh",
+      "solar_zone.status",
+      "solar_zone.last_measurement",
+      "solar_zone.voltage_average_v",
+      "solar_zone.current_average_a",
+      "solar_zone.child_count",
+      "solar_zone.max_active_power_kw",
+      "solar_optimizer_site.power_w",
+      "solar_optimizer_site.energy_total_kwh",
+      "solar_optimizer_site.peak_power_kw",
+      "solar_optimizer_site.installation_date",
+      "solar_optimizer_site.last_polled",
+      "solar_optimizer_site.inverter_count"
     ],
     "possible_editable_properties": [],
     "possible_commands": []

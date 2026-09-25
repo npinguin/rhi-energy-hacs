@@ -162,6 +162,150 @@ class EnergyInteractionEngine:
         ]
         return matches[0] if len(matches) == 1 else None
 
+    def _logical_control(self, property_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+        if not property_id.startswith("logical:"):
+            return None, None, None
+        rest = property_id[len("logical:"):]
+        asset_id, separator, property_key = rest.partition(":")
+        if not separator or not asset_id or not property_key:
+            return None, None, None
+        asset = next(
+            (
+                row for row in self.runtime.snapshot.get("logical_assets") or []
+                if str(row.get("asset_id") or "") == asset_id
+            ),
+            None,
+        )
+        prop = next(
+            (
+                row for row in (asset or {}).get("properties") or []
+                if str(row.get("property_key") or "") == property_key
+            ),
+            None,
+        )
+        binding_ids = [str(item) for item in (prop or {}).get("binding_ids") or [] if item]
+        if not binding_ids and (prop or {}).get("binding_id"):
+            binding_ids = [str(prop["binding_id"])]
+        if len(binding_ids) != 1:
+            return asset, prop, None
+        binding = next(
+            (
+                row for row in (self.manager.domain_model or {}).get("accepted_bindings") or []
+                if str(row.get("binding_id") or "") == binding_ids[0]
+            ),
+            None,
+        )
+        return asset, prop, binding
+
+    @staticmethod
+    def _source_write_value(prop: dict[str, Any], binding: dict[str, Any], value: Any) -> Any:
+        kind = str(prop.get("kind") or "")
+        target_unit = str(((binding.get("technical_capability") or {}).get("native_unit")) or "")
+        semantic_unit = str(prop.get("unit") or "")
+        if kind == "power":
+            numeric = number(value)
+            if numeric is None:
+                return None
+            if semantic_unit == "kW" and target_unit == "W":
+                return numeric * 1000.0
+            if semantic_unit == "W" and target_unit == "kW":
+                return numeric / 1000.0
+            return numeric
+        if kind in {"number", "voltage", "current", "temperature", "percentage", "duration", "count", "battery"}:
+            return number(value)
+        if kind == "boolean":
+            if isinstance(value, bool):
+                return value
+            normalized = str(value).strip().lower()
+            if normalized in {"on", "true", "1", "enabled", "yes"}:
+                return True
+            if normalized in {"off", "false", "0", "disabled", "no"}:
+                return False
+            return None
+        return str(value)
+
+    async def _write_logical_property(self, property_id: str, value: Any) -> dict[str, Any]:
+        result = {
+            "property_id": property_id,
+            "requested_value": value,
+            "status": "REJECTED",
+            "reason": "logical_property_unavailable",
+        }
+        asset, prop, binding = self._logical_control(property_id)
+        if not asset or not prop or not binding:
+            return result
+        if prop.get("write_supported") is not True:
+            result["reason"] = str(prop.get("control_reason") or "write_not_supported")
+            return result
+        source = binding.get("source_identity") or {}
+        entity_id = str(source.get("current_entity_id") or "")
+        platform = str(prop.get("platform") or "")
+        if not entity_id or not entity_id.startswith(f"{platform}."):
+            result["reason"] = "authoritative_write_surface_missing"
+            return result
+
+        state = self.hass.states.get(entity_id)
+        attrs = dict(state.attributes) if state is not None else {}
+        source_value = self._source_write_value(prop, binding, value)
+        if source_value is None:
+            result["reason"] = "invalid_value"
+            return result
+
+        if platform == "select":
+            allowed = [str(item) for item in attrs.get("options") or []]
+            source_value = str(source_value)
+            if allowed and source_value not in allowed:
+                result["reason"] = "outside_source_options"
+                return result
+            service, data = "select_option", {"entity_id": entity_id, "option": source_value}
+        elif platform == "switch":
+            service = "turn_on" if bool(source_value) else "turn_off"
+            data = {"entity_id": entity_id}
+        elif platform == "number":
+            numeric = number(source_value)
+            if numeric is None:
+                result["reason"] = "invalid_number"
+                return result
+            minimum = number(attrs.get("min"))
+            maximum = number(attrs.get("max"))
+            if minimum is not None and numeric < minimum or maximum is not None and numeric > maximum:
+                result["reason"] = "outside_source_constraints"
+                return result
+            service, data = "set_value", {"entity_id": entity_id, "value": numeric}
+        else:
+            result["reason"] = "unsafe_write_platform"
+            return result
+
+        await self.hass.services.async_call(platform, service, data, blocking=True)
+        readback = self.hass.states.get(entity_id)
+        if readback is None:
+            result.update(status=PENDING, reason="write_dispatched_awaiting_readback")
+            return result
+        actual = self.runtime._convert(
+            prop,
+            readback.state,
+            readback.attributes.get("unit_of_measurement")
+            or (binding.get("technical_capability") or {}).get("native_unit"),
+            dict(readback.attributes),
+        )
+        expected = value
+        if isinstance(actual, (int, float)):
+            expected = number(value)
+            confirmed = expected is not None and abs(float(actual) - float(expected)) <= max(0.001, abs(float(expected)) * 0.001)
+        elif isinstance(actual, bool):
+            expected = self._source_write_value(prop, binding, value)
+            confirmed = actual is expected
+        else:
+            confirmed = str(actual) == str(expected)
+        result.update(
+            status="CONFIRMED" if confirmed else PENDING,
+            reason="authoritative_physical_readback_confirmed" if confirmed else "write_dispatched_readback_pending",
+            readback_value=actual,
+            target_asset_id=asset.get("asset_id"),
+            source_platform=platform,
+        )
+        return result
+
     async def write_property(self, property_id: str, value: Any) -> dict[str, Any]:
         settings = self.store.data.setdefault("settings", {})
         pricing = settings.setdefault("pricing", {})
@@ -180,7 +324,9 @@ class EnergyInteractionEngine:
             "pricing.import_vat_pct": "import_vat_pct",
             "pricing.export_fee_eur_kwh": "export_fee_eur_kwh",
         }
-        if property_id in pricing_map:
+        if property_id.startswith("logical:"):
+            result = await self._write_logical_property(property_id, value)
+        elif property_id in pricing_map:
             numeric = number(value)
             if numeric is None:
                 result["reason"] = "invalid_number"

@@ -17,6 +17,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import re
 from typing import Any
 
 try:
@@ -350,18 +351,26 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
             for candidate in local_candidates
             if (candidate.get("source_identity") or {}).get("config_entry_id")
         }
-        unit_reserves = [
-            candidate
-            for candidate in entity_reserves
-            if str((candidate.get("source_identity") or {}).get("config_entry_id") or "") in unit_config_entries
-        ]
-        if len(unit_reserves) == 1:
-            binding_id = f"energy:{asset_id}:reserve"
-            bindings.append(_binding(asset_id, "reserve", unit_reserves[0], previous.get(binding_id)))
-            role_map["reserve"] = binding_id
-            local_candidates.extend(unit_reserves)
-        elif len(unit_reserves) > 1:
-            issues.append(f"battery_reserve:{device_id}:ambiguous")
+        # Storage controls live on the inverter/storage device rather than the
+        # B1 telemetry device. Attribute them only through the exact config entry
+        # already proven by this physical battery's measurement evidence.
+        for spec in (row for row in device_specs if row.get("editable") is True):
+            role = str(spec.get("role") or "")
+            input_id = str(spec.get("input_id") or "")
+            rows = [
+                candidate
+                for candidate in inputs.get(input_id, [])
+                if str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
+                in unit_config_entries
+            ]
+            if len(rows) == 1:
+                binding_id = f"energy:{asset_id}:{role}"
+                if role not in role_map:
+                    bindings.append(_binding(asset_id, role, rows[0], previous.get(binding_id)))
+                    role_map[role] = binding_id
+                    local_candidates.extend(rows)
+            elif len(rows) > 1:
+                issues.append(f"battery_{role}:{device_id}:ambiguous")
         if role_map:
             metadata = _candidate_metadata(local_candidates[0]) if local_candidates else {}
             units.append({"asset_id": asset_id, "bindings": role_map, **metadata, "device_registry_id": device_id})
@@ -441,9 +450,10 @@ def _accept_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
 
 def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "solar_production")
-    phase_rows, local = _safe_for(build_input, "phase_power")
-    issues.extend(local)
-    inputs["phase_power"] = phase_rows
+    for phase_input in ("phase_power", "phase_current", "phase_voltage_ln", "phase_voltage_ll"):
+        phase_rows, local = _safe_for(build_input, phase_input)
+        issues.extend(local)
+        inputs[phase_input] = phase_rows
     # A Solar Inverter is a physical production object and therefore requires
     # authoritative solar-power evidence. Status/energy sibling devices may enrich
     # an anchored inverter but must never materialize an inverter by themselves.
@@ -475,14 +485,48 @@ def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any
                 local_candidates.extend(rows)
             elif len(rows) > 1:
                 issues.append(f"solar_{role}:{device_id}:ambiguous")
+        phase_candidates: dict[str, dict[str, dict[str, Any]]] = {"a": {}, "b": {}, "c": {}}
+        phase_patterns = {
+            "phase_current": (r"_ac_current_([abc])$", "current"),
+            "phase_voltage_ln": (r"_ac_voltage_([abc])n$", "voltage_ln"),
+            "phase_voltage_ll": (r"_ac_voltage_(ab|bc|ca)$", "voltage_ll"),
+            "phase_power": (r"_ac_power_([abc])$", "power"),
+        }
+        for input_id, (pattern, role) in phase_patterns.items():
+            for candidate in inputs.get(input_id, []):
+                if _candidate_device_id(candidate) != device_id:
+                    continue
+                unique_id = str((candidate.get("source_identity") or {}).get("unique_id") or "")
+                match = re.search(pattern, unique_id)
+                if not match:
+                    continue
+                token = match.group(1)
+                phase = token[0]
+                phase_candidates[phase][role] = candidate
         phases = []
-        for candidate in [candidate for candidate in inputs.get("phase_power", []) if _candidate_device_id(candidate) == device_id]:
-            phase_id = f"solar_inverter_phase_{_hash([asset_id, candidate.get('candidate_id')], 10)}"
-            binding_id = f"energy:{phase_id}:power"
-            bindings.append(_binding(phase_id, "power", candidate, previous.get(binding_id)))
-            phases.append({"asset_id": phase_id, "binding": binding_id, **_candidate_metadata(candidate)})
+        for phase in ("a", "b", "c"):
+            candidates = phase_candidates[phase]
+            if not candidates:
+                continue
+            phase_id = f"solar_inverter_phase_{_hash([asset_id, phase], 10)}"
+            phase_bindings: dict[str, str] = {}
+            for role, candidate in candidates.items():
+                binding_id = f"energy:{phase_id}:{role}"
+                bindings.append(_binding(phase_id, role, candidate, previous.get(binding_id)))
+                phase_bindings[role] = binding_id
+            metadata = _candidate_metadata(next(iter(candidates.values())))
+            phases.append({
+                "asset_id": phase_id,
+                "phase": phase.upper(),
+                "bindings": phase_bindings,
+                **metadata,
+            })
         if phases:
-            role_map["phases"] = [phase["binding"] for phase in phases]
+            role_map["phases"] = [
+                binding_id
+                for phase in phases
+                for binding_id in (phase.get("bindings") or {}).values()
+            ]
         if role_map:
             metadata = _candidate_metadata(local_candidates[0] if local_candidates else phases[0] if phases else {})
             inverters.append({"asset_id": asset_id, "device_registry_id": device_id, "bindings": role_map, "phases": phases, **metadata})
@@ -629,50 +673,109 @@ def _accept_gas(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]
 
 
 def _accept_optimizer(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
-    inputs, issues = _safe_inputs(build_input, "solar_optimizer")
-    anchors = sorted(
-        {
-            _candidate_device_id(candidate)
-            or str((candidate.get("source_identity") or {}).get("entity_registry_id") or candidate.get("candidate_id") or "")
-            for rows in inputs.values()
-            for candidate in rows
-            if _candidate_device_id(candidate)
-            or (candidate.get("source_identity") or {}).get("entity_registry_id")
+    # The integration exposes three technical layers in the same config entry:
+    # site summary, zone/string summaries and leaf optimizers. Foundation discovers
+    # candidates; Energy classifies them from exact capability evidence.
+    inputs: dict[str, list[dict[str, Any]]] = {}
+    issues: list[str] = []
+    seen_inputs: set[str] = set()
+    for object_class in ("solar_optimizer_site", "solar_zone", "solar_optimizer"):
+        for spec in input_definitions(object_class):
+            input_id = str(spec.get("input_id") or "")
+            if not input_id or input_id in seen_inputs:
+                continue
+            seen_inputs.add(input_id)
+            rows, local = _safe_for(build_input, input_id)
+            inputs[input_id] = rows
+            issues.extend(local)
+
+    def anchor_for(candidate):
+        return _candidate_device_id(candidate) or str(
+            (candidate.get("source_identity") or {}).get("entity_registry_id")
             or candidate.get("candidate_id")
-        }
-    )
+            or ""
+        )
+
+    anchors = sorted({
+        anchor_for(candidate)
+        for rows in inputs.values()
+        for candidate in rows
+        if anchor_for(candidate)
+    })
     if not anchors:
         raise ValueError("no_semantically_safe_input")
+
     builder_id = str(build_input.get("builder_id") or "optimizer")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
     provider_id = f"optimizer_provider_{_hash([integration, builder_id], 8)}"
     bindings: list[AcceptedSourceBinding] = []
+    sites: list[dict[str, Any]] = []
+    zones: list[dict[str, Any]] = []
     optimizers: list[dict[str, Any]] = []
 
-    def anchor_for(candidate):
-        return _candidate_device_id(candidate) or str((candidate.get("source_identity") or {}).get("entity_registry_id") or candidate.get("candidate_id") or "")
+    site_markers = {
+        "site_peak_power", "site_installation_date", "site_last_polled",
+        "site_inverter_count", "site_obtained_from",
+    }
+    zone_markers = {
+        "zone_voltage_average", "zone_current_average", "zone_child_count",
+        "zone_max_active_power",
+    }
 
     for anchor in anchors:
-        asset_id = f"solar_optimizer_{_hash([builder_id, anchor], 10)}"
+        present_inputs = {
+            input_id
+            for input_id, rows in inputs.items()
+            if any(anchor_for(candidate) == anchor for candidate in rows)
+        }
+        if present_inputs & site_markers:
+            object_class, prefix, target = "solar_optimizer_site", "solar_optimizer_site", sites
+        elif present_inputs & zone_markers:
+            object_class, prefix, target = "solar_zone", "solar_zone", zones
+        else:
+            object_class, prefix, target = "solar_optimizer", "solar_optimizer", optimizers
+
+        asset_id = f"{prefix}_{_hash([builder_id, anchor], 10)}"
         role_map: dict[str, str] = {}
         local_candidates: list[dict[str, Any]] = []
-        for spec in input_definitions("solar_optimizer"):
+        for spec in input_definitions(object_class):
             role = str(spec.get("role") or "")
             input_id = str(spec.get("input_id") or "")
-            rows = [candidate for candidate in inputs.get(input_id, []) if anchor_for(candidate) == anchor]
+            rows = [
+                candidate for candidate in inputs.get(input_id, [])
+                if anchor_for(candidate) == anchor
+            ]
             if len(rows) == 1:
                 binding_id = f"energy:{asset_id}:{role}"
                 bindings.append(_binding(asset_id, role, rows[0], previous.get(binding_id)))
                 role_map[role] = binding_id
                 local_candidates.extend(rows)
             elif len(rows) > 1:
-                issues.append(f"optimizer_{role}:{anchor}:ambiguous")
+                issues.append(f"{object_class}_{role}:{anchor}:ambiguous")
+
         if role_map:
             metadata = _candidate_metadata(local_candidates[0]) if local_candidates else {}
-            optimizers.append({"asset_id": asset_id, "bindings": role_map, **metadata, "device_registry_id": metadata.get("device_registry_id") or anchor})
-    if not optimizers:
+            target.append({
+                "asset_id": asset_id,
+                "asset_type": object_class,
+                "bindings": role_map,
+                **metadata,
+                "device_registry_id": metadata.get("device_registry_id") or anchor,
+            })
+
+    if not sites and not zones and not optimizers:
         raise ValueError("no_semantically_safe_input")
-    return bindings, {"asset_id": provider_id, "asset_type": "solar_optimizer_collection", "optimizers": optimizers, "builder_id": builder_id, "integration_domain": integration, "normalization_status": "READY" if all("power" in (item.get("bindings") or {}) for item in optimizers) and not issues else "DEGRADED"}, issues
+    leaf_ready = all("power" in (item.get("bindings") or {}) for item in optimizers)
+    return bindings, {
+        "asset_id": provider_id,
+        "asset_type": "solar_optimizer_collection",
+        "sites": sites,
+        "zones": zones,
+        "optimizers": optimizers,
+        "builder_id": builder_id,
+        "integration_domain": integration,
+        "normalization_status": "READY" if leaf_ready and not issues else "DEGRADED",
+    }, issues
 
 
 _SEMANTIC_ACCEPTORS = {

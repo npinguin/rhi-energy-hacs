@@ -11,7 +11,7 @@ _VARIANTS = ["thumbnail", "card", "hero", "detail"]
 _GENERIC_TYPES = (
     "battery_system", "battery", "grid_connection", "grid_phase", "solar_production",
     "solar_inverter", "solar_inverter_phase", "solar_forecast", "price_source",
-    "gas_meter", "solar_optimizer", "solar_panel", "home_consumption", "flexible_load",
+    "gas_meter", "solar_optimizer_site", "solar_zone", "solar_optimizer", "solar_panel", "home_consumption", "flexible_load",
 )
 _SPECIFIC_REFS = {
     "energy.solar_inverter.solaredge.rws",

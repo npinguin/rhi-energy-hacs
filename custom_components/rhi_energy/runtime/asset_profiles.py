@@ -44,11 +44,35 @@ def binding_source(binding: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def property_control_metadata(spec: dict[str, Any], binding: dict[str, Any] | None) -> dict[str, Any]:
+    technical = (binding or {}).get("technical_capability") or {}
+    platform = str(spec.get("platform") or "sensor")
+    writable = bool(binding and technical.get("writable") is True)
+    editable = bool(spec.get("editable") and writable)
+    readback_safe = editable and platform in {"number", "select", "switch"}
+    return {
+        "editable": readback_safe,
+        "editor": spec.get("editor") if writable else None,
+        "write_supported": readback_safe,
+        "control_capability": writable,
+        "control_reason": (
+            "authoritative_state_readback_available"
+            if readback_safe
+            else "action_readback_not_defined"
+            if writable and platform == "button"
+            else None
+        ),
+        "technical_capability": technical,
+    }
+
+
 _TYPE_CAPABILITIES: dict[str, set[str]] = {
     "battery_system": {"stores_energy"},
     "battery": {"stores_energy"},
     "solar_production": {"produces_energy"},
     "solar_inverter": {"produces_energy"},
+    "solar_optimizer_site": {"produces_energy", "aggregates_optimizers"},
+    "solar_zone": {"produces_energy", "aggregates_optimizers"},
     "solar_optimizer": {"produces_energy"},
     "solar_panel": {"produces_energy"},
     "grid_connection": {"imports_energy", "exports_energy"},
@@ -81,6 +105,8 @@ def enrich_asset(asset: dict[str, Any]) -> dict[str, Any]:
         caps.add("measures_soc")
     if any("reserve" in key for key in keys):
         caps.add("supports_reserve")
+    if any(bool(row.get("write_supported")) for row in properties):
+        caps.add("controllable")
     context = profile_context(asset)
     if not asset.get("profile_id"):
         asset["profile_id"] = context.get("profile_id")

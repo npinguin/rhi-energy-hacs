@@ -13,7 +13,8 @@ from typing import Any
 try:
     from ..models import LogicalAsset, LogicalProperty
     from ..semantic import object_fact_key, property_definitions
-    from .asset_profiles import binding_index as build_binding_index, binding_source, enrich_asset, identity, solar_panel_asset
+    from .asset_profiles import binding_index as build_binding_index, binding_source, enrich_asset, identity, property_control_metadata, solar_panel_asset
+    from .optimizer_topology import optimizer_descriptors
     from .resolution import compatibility_availability, resolve_property
 except ImportError:  # direct runpy tests
     from pathlib import Path as _Path
@@ -23,9 +24,11 @@ except ImportError:  # direct runpy tests
     _asset_profiles = _runpy.run_path(str(_root / "runtime" / "asset_profiles.py"))
     build_binding_index = _asset_profiles["binding_index"]
     binding_source = _asset_profiles["binding_source"]
+    property_control_metadata = _asset_profiles["property_control_metadata"]
     enrich_asset = _asset_profiles["enrich_asset"]
     identity = _asset_profiles["identity"]
     solar_panel_asset = _asset_profiles["solar_panel_asset"]
+    optimizer_descriptors = _runpy.run_path(str(_root / "runtime" / "optimizer_topology.py"))["optimizer_descriptors"]
     object_fact_key = _semantic["object_fact_key"]
     property_definitions = _semantic["property_definitions"]
     _resolution = _runpy.run_path(str(_root / "runtime" / "resolution.py"))
@@ -115,24 +118,16 @@ def _properties(
             continue
         status = "NORMALIZED" if binding else "MATCHED" if supported else "MISSING" if spec.get("required") else "UNSUPPORTED"
         property_key = str(spec.get("property_key") or "")
-        rows.append(
-            {
-                "property_key": property_key,
-                "display_name": str(spec.get("name") or property_key),
-                "unit": spec.get("unit"),
-                "kind": str(spec.get("kind") or "text"),
-                "platform": str(spec.get("platform") or "sensor"),
-                "input_id": spec.get("input_id"),
-                "required": bool(spec.get("required")),
-                "derived": bool(spec.get("derived") or (role and aggregate_roles and role in aggregate_roles)),
-                "status": status,
-                "candidate_count": len(binding_ids),
-                "binding_ids": binding_ids,
-                "issues": [],
-                "fact_key": object_fact_key(asset_id, property_key),
-                **binding_source(binding),
-            }
-        )
+        rows.append({
+            "property_key": property_key, "display_name": str(spec.get("name") or property_key),
+            "unit": spec.get("unit"), "kind": str(spec.get("kind") or "text"),
+            "platform": str(spec.get("platform") or "sensor"), "input_id": spec.get("input_id"),
+            "required": bool(spec.get("required")),
+            "derived": bool(spec.get("derived") or (role and aggregate_roles and role in aggregate_roles)),
+            "status": status, "candidate_count": len(binding_ids), "binding_ids": binding_ids,
+            "issues": [], "fact_key": None if str(spec.get("kind") or "") == "action" else object_fact_key(asset_id, property_key),
+            **property_control_metadata(spec, binding), **binding_source(binding),
+        })
     return rows
 
 
@@ -279,11 +274,20 @@ def _build_domain_assets(
             for index, phase in enumerate(inverter.get("phases") or [], start=1):
                 pid = str(phase.get("asset_id") or "")
                 if pid:
+                    phase_bindings = phase.get("bindings") or (
+                        {"power": phase.get("binding")} if phase.get("binding") else {}
+                    )
                     out.append(_asset(
-                        pid, "solar_inverter_phase", f"Solar Inverter Phase {index}",
-                        builder_id=builder, integration_domain=integration, parent_asset_id=iid,
-                        normalization_status="READY" if phase.get("binding") else "DEGRADED",
-                        properties=_properties("solar_inverter_phase", pid, {"power": phase.get("binding")}, binding_index),
+                        pid,
+                        "solar_inverter_phase",
+                        f"Solar Inverter Phase {phase.get('phase') or index}",
+                        builder_id=builder,
+                        integration_domain=integration,
+                        parent_asset_id=iid,
+                        normalization_status="READY" if phase_bindings else "DEGRADED",
+                        properties=_properties(
+                            "solar_inverter_phase", pid, phase_bindings, binding_index
+                        ),
                     ))
 
     # Device collections.
@@ -304,32 +308,27 @@ def _build_domain_assets(
                     properties=_properties("gas_meter", aid, meter.get("bindings") or {"total": meter.get("binding")}, binding_index),
                 ))
     for provider in ((concepts.get("solar_optimizer") or {}).get("providers") or []):
-        builder = str(provider.get("builder_id") or "")
-        integration = str(provider.get("integration_domain") or "")
-        for optimizer in provider.get("optimizers") or []:
-            aid = str(optimizer.get("asset_id") or "")
-            if aid:
-                optimizer_asset = _asset(
-                    aid, "solar_optimizer", str(optimizer.get("display_name") or "Solar Optimizer"),
-                    builder_id=builder, integration_domain=integration,
-                    normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
-                    selected_device_ids=[str(optimizer.get("device_registry_id"))] if optimizer.get("device_registry_id") else [],
-                    device_registry_id=str(optimizer.get("device_registry_id") or "") or None,
-                    via_device_registry_id=str(optimizer.get("via_device_registry_id") or "") or None,
-                    identity=identity(optimizer),
-                    properties=_properties("solar_optimizer", aid, optimizer.get("bindings") or {}, binding_index),
-                )
-                out.append(optimizer_asset)
-                panel_binding = (optimizer.get("bindings") or {}).get("panel_identity")
-                if panel_binding:
-                    out.append(solar_panel_asset(
-                        optimizer_asset_id=aid,
-                        panel_binding_id=str(panel_binding),
-                        binding=binding_index.get(str(panel_binding)),
-                        builder_id=builder,
-                        integration_domain=integration,
-                        normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
-                    ))
+        builder, integration = str(provider.get("builder_id") or ""), str(provider.get("integration_domain") or "")
+        health = str(provider.get("normalization_status") or "DEGRADED")
+        for descriptor in optimizer_descriptors(provider):
+            row, object_class = descriptor["row"], str(descriptor["object_class"])
+            aid = str(row.get("asset_id") or "")
+            out.append(_asset(
+                aid, object_class, str(descriptor["display_name"]), builder_id=builder,
+                integration_domain=integration, normalization_status=health,
+                parent_asset_id=descriptor.get("parent_asset_id"),
+                selected_device_ids=[str(row["device_registry_id"])] if row.get("device_registry_id") else [],
+                device_registry_id=str(row.get("device_registry_id") or "") or None,
+                via_device_registry_id=str(row.get("via_device_registry_id") or "") or None,
+                identity=identity(row), properties=_properties(object_class, aid, row.get("bindings") or {}, binding_index),
+            ))
+            if descriptor.get("panel_binding"):
+                panel_binding = str(descriptor["panel_binding"])
+                out.append(solar_panel_asset(
+                    optimizer_asset_id=aid, panel_binding_id=panel_binding,
+                    binding=binding_index.get(panel_binding), builder_id=builder,
+                    integration_domain=integration, normalization_status=health,
+                ))
     return out
 
 

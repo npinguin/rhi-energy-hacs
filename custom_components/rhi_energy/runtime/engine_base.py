@@ -272,8 +272,15 @@ class EnergyRuntime:
             return _unit_to_w(raw, unit) if prop.get("unit") == "W" else _unit_to_kw(raw, unit)
         if kind == "energy":
             return _unit_to_kwh(raw, unit)
-        if kind in {"battery", "gas"}:
+        if kind in {"battery", "gas", "number", "voltage", "current", "temperature", "percentage", "duration", "count"}:
             return number(raw)
+        if kind == "boolean":
+            value = str(raw).strip().lower()
+            if value in {"on", "true", "1", "enabled", "yes"}:
+                return True
+            if value in {"off", "false", "0", "disabled", "no"}:
+                return False
+            return None
         if kind == "monetary":
             return _price_to_eur_kwh(raw, unit)
         return raw if _present(raw) else None
@@ -307,6 +314,26 @@ class EnergyRuntime:
             value = complete_numeric_sum(values, expected_count=len(values))
         else:
             value = values[0] if values and all(item == values[0] for item in values) else None
+        if prop.get("write_supported") and contexts:
+            attrs = contexts[0] or {}
+            constraints: dict[str, Any] = {}
+            if isinstance(attrs.get("options"), (list, tuple)):
+                constraints["allowed"] = [str(item) for item in attrs["options"]]
+            for source_key, target_key in (
+                ("min", "min"), ("max", "max"), ("step", "step"),
+                ("native_min_value", "min"), ("native_max_value", "max"),
+                ("native_step", "step"),
+            ):
+                if source_key in attrs and attrs.get(source_key) is not None:
+                    constraints[target_key] = attrs.get(source_key)
+            if constraints:
+                prop["constraints"] = constraints
+            prop["write"] = {
+                "supported": True,
+                "operation_id": "energy.property.write",
+                "property_id": f"logical:{asset.get('asset_id')}:{key}",
+                "readback_property": key,
+            }
         value = dark_zero(self.hass, key, value)
         normalizer = get_normalizer(asset.get("integration_domain"))
         context = {"asset": asset, "property": prop, "binding_ids": binding_ids, "attributes": contexts}

@@ -79,6 +79,33 @@ def _decorate_objects(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
             context.get("profile_visual_ref"),
         )
         asset["property_publication"] = _publication(asset)
+        controls = []
+        for prop in asset.get("properties") or []:
+            if prop.get("control_capability") is not True:
+                continue
+            property_key = str(prop.get("property_key") or "")
+            write_supported = prop.get("write_supported") is True
+            control = {
+                "control_id": property_key,
+                "target_asset_id": asset.get("asset_id"),
+                "kind": "action" if str(prop.get("kind") or "") == "action" else "property_write",
+                "editor": prop.get("editor"),
+                "supported": write_supported,
+                "readback_required": True,
+                "reason": (
+                    "authoritative_state_readback_available"
+                    if write_supported
+                    else str(prop.get("control_reason") or "authoritative_readback_not_defined")
+                ),
+            }
+            if write_supported:
+                control["operation_id"] = "energy.property.write"
+                control["property_id"] = f"logical:{asset.get('asset_id')}:{property_key}"
+                control["readback_property"] = property_key
+                if prop.get("constraints"):
+                    control["constraints"] = deepcopy(prop["constraints"])
+            controls.append(control)
+        asset["controls"] = controls
         decorated.append(asset)
     return decorated
 
@@ -205,6 +232,8 @@ def build_public_contract_v2(
             "object_count": len(objects),
             "profile_count": len(_profile_catalog()),
             "property_count": sum(len(asset.get("properties") or []) for asset in objects),
+            "control_capability_count": sum(len(asset.get("controls") or []) for asset in objects),
+            "executable_control_count": sum(sum(1 for row in asset.get("controls") or [] if row.get("supported") is True) for asset in objects),
             "unresolved_property_count": unresolved,
             "relationship_count": len(_relationships(source)),
             "system_object_count": len(source.get("system_assets") or model.get("system_assets") or []),

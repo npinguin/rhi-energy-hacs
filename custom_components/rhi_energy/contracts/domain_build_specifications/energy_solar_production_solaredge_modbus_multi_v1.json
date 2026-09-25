@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.solar_production.solaredge_modbus_multi.v1",
-  "builder_version": "1.2.2",
+  "builder_version": "1.3.0",
   "concept": {
     "concept_id": "solar_production",
     "display_name": "Solar Production",
@@ -375,6 +375,897 @@
             ]
           }
         ]
+      },
+      {
+        "input_id": "solar_dc_voltage",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_dc_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_dc_voltage"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_dc_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_dc_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_dc_current"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_ac_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_ac_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_energy_kwh"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_ac_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_current"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_frequency",
+        "technical_capabilities": {
+          "any_of": [
+            "frequency_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_ac_frequency",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_frequency"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_reactive_power",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_reactive_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_var"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_apparent_power",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_apparent_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_va"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_power_factor",
+        "technical_capabilities": {
+          "any_of": [
+            "percentage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_power_factor",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_pf"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_temp_sink"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_last_update",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_last_update",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_last_update_timestamp"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_version",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "solar_version",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "active_power_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "active_power_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "active_power_limit_set"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "current_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "current_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "max_current"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "cosphi_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "cosphi_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "cosphi_set"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "site_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "site_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "site_limit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "external_production_max_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "external_production_max_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "external_production_max"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "limit_control_mode_write",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "limit_control_mode_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "limit_control_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "limit_control_write",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "limit_control_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "limit_control"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "reactive_power_mode_write",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "reactive_power_mode_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "reactive_power_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "advanced_power_control_write",
+        "technical_capabilities": {
+          "any_of": [
+            "binary_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "advanced_power_control_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "adv_pwr_ctrl"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "negative_site_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "binary_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "negative_site_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "negative_site_limit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "external_production_write",
+        "technical_capabilities": {
+          "any_of": [
+            "binary_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "external_production_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "external_production"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "commit_power_settings_command",
+        "technical_capabilities": {
+          "any_of": [
+            "button_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "commit_power_settings_command",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "commit_pwr_settings"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "default_power_settings_command",
+        "technical_capabilities": {
+          "any_of": [
+            "button_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "default_power_settings_command",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "default_pwr_settings"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "refresh_command",
+        "technical_capabilities": {
+          "any_of": [
+            "button_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "refresh_command",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_refresh"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "power_reduce_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "power_reduce_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "power_reduce"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "phase_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "phase_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_current_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "phase_voltage_ln",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "phase_voltage_ln",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_voltage_"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "inverter_grid_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "inverter_grid_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_grid_status_on_off"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "inverter_vendor_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "inverter_vendor_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_status_vendor"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "inverter_rrcr_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "inverter_rrcr_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_rrcr"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "phase_voltage_ll",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "phase_voltage_ll",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_ac_voltage_"
+              }
+            ]
+          }
+        ]
       }
     ]
   },
@@ -386,10 +1277,45 @@
     "possible_facts": [
       "solar.power_kw",
       "solar.energy_today_kwh",
-      "solar.health"
+      "solar.health",
+      "solar.dc_voltage_v",
+      "solar.dc_current_a",
+      "solar.ac_power_kw",
+      "solar.ac_energy_total_kwh",
+      "solar.ac_current_a",
+      "solar.ac_frequency_hz",
+      "solar.reactive_power_var",
+      "solar.apparent_power_va",
+      "solar.power_factor_pct",
+      "solar.temperature_c",
+      "solar.last_update",
+      "solar.version",
+      "solar.grid_status",
+      "solar.vendor_status",
+      "solar.rrcr_status",
+      "solar_phase.current_a",
+      "solar_phase.voltage_ln_v",
+      "solar_phase.voltage_ll_v"
     ],
-    "possible_editable_properties": [],
-    "possible_commands": []
+    "possible_editable_properties": [
+      "solar.active_power_limit_pct",
+      "solar.current_limit_a",
+      "solar.cosphi",
+      "solar.site_limit_kw",
+      "solar.external_production_max_kw",
+      "solar.limit_control_mode",
+      "solar.limit_control",
+      "solar.reactive_power_mode",
+      "solar.advanced_power_control",
+      "solar.negative_site_limit",
+      "solar.external_production_enabled",
+      "solar.power_reduce_pct"
+    ],
+    "possible_commands": [
+      "solar.command.commit_power_settings",
+      "solar.command.restore_default_power_settings",
+      "solar.command.refresh"
+    ]
   },
   "build_policy": {
     "auto_prepare_when_unambiguous": true,

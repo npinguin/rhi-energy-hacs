@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.battery_system.solaredge_modbus_multi.v1",
-  "builder_version": "1.2.3",
+  "builder_version": "1.3.0",
   "concept": {
     "concept_id": "battery_system",
     "display_name": "Home Battery System",
@@ -609,6 +609,1104 @@
             ]
           }
         ]
+      },
+      {
+        "input_id": "battery_available_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_available_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_avail_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_available_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_avail_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_available_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_avail_energy"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_available_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_avail_energy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_state_of_health",
+        "technical_capabilities": {
+          "any_of": [
+            "percentage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_state_of_health",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_battery_soh"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_state_of_health",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_battery_soh"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_state_of_health",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_battery_soh"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_state_of_health",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_battery_soh"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_dc_voltage",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_dc_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_dc_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_dc_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_dc_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_dc_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_dc_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_dc_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_dc_voltage"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_dc_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_dc_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_dc_current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_dc_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_dc_current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_dc_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_dc_current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_dc_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_dc_current"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_energy_import",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_energy_import",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_energy_import"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_energy_import",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_energy_import"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_energy_import",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_energy_import"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_energy_import",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_energy_import"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_energy_export",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_energy_export",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_energy_export"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_energy_export",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_energy_export"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_energy_export",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_energy_export"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_energy_export",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_energy_export"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_average_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_average_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_avg_temp"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_average_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_avg_temp"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_average_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_avg_temp"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_average_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_avg_temp"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_max_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_max_temp"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_max_temp"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_max_temp"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_max_temp"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_max_charge_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_max_charge_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_max_charge_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_max_charge_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_max_charge_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_max_discharge_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_max_discharge_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_max_discharge_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_max_discharge_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_max_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_max_discharge_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_peak_charge_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_peak_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_max_charge_peak_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_peak_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_max_charge_peak_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_peak_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_max_charge_peak_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_peak_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_max_charge_peak_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_peak_discharge_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_peak_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_max_discharge_peak_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_peak_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_max_discharge_peak_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_peak_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_max_discharge_peak_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_peak_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_max_discharge_peak_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_last_update",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_last_update",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_last_update"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_last_update",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_last_update"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_last_update",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_last_update"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_last_update",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_last_update"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_version",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_version",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B1_version"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_version",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B2_version"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_version",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B3_version"
+              }
+            ]
+          },
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "battery_version",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_B4_version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_charge_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "storage_charge_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "storage_charge_limit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_discharge_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "storage_discharge_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "storage_discharge_limit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_command_timeout_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "storage_command_timeout_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "storage_command_timeout"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "ac_charge_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "ac_charge_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "storage_ac_charge_limit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_default_mode_write",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "storage_default_mode_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "storage_default_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "ac_charge_policy_write",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "ac_charge_policy_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "ac_charge_policy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_control_mode_write",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "storage_control_mode_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "storage_control_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_command_mode_write",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "solaredge_modbus_multi",
+            "raw_capability_id": "storage_command_mode_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "storage_command_mode"
+              }
+            ]
+          }
+        ]
       }
     ]
   },
@@ -622,12 +1720,34 @@
       "battery.soc_pct",
       "battery.capacity_kwh",
       "battery.available_kwh",
-      "battery.health"
+      "battery.health",
+      "battery.available_energy_kwh",
+      "battery.state_of_health_pct",
+      "battery.dc_voltage_v",
+      "battery.dc_current_a",
+      "battery.energy_import_kwh",
+      "battery.energy_export_kwh",
+      "battery.average_temperature_c",
+      "battery.max_temperature_c",
+      "battery.max_charge_power_kw",
+      "battery.max_discharge_power_kw",
+      "battery.peak_charge_power_kw",
+      "battery.peak_discharge_power_kw",
+      "battery.last_update",
+      "battery.version"
     ],
     "possible_editable_properties": [
       "battery.reserve_soc_pct",
       "battery.max_charge_power_kw",
-      "battery.max_discharge_power_kw"
+      "battery.max_discharge_power_kw",
+      "battery.charge_limit_kw",
+      "battery.discharge_limit_kw",
+      "battery.command_timeout_s",
+      "battery.ac_charge_limit_kw",
+      "battery.storage_default_mode",
+      "battery.ac_charge_policy",
+      "battery.storage_control_mode",
+      "battery.storage_command_mode"
     ],
     "possible_commands": [
       "battery.command.set_reserve"
