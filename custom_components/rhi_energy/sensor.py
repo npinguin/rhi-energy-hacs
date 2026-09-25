@@ -44,7 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         EnergyReleaseSensor(entry, state),
         EnergyHealthSensor(entry, manager, runtime),
         EnergyConfigurationSensor(entry, manager, provider),
-        EnergyBuildSensor(entry, manager, hass, state["store"]),
+        EnergyBuildSensor(entry, manager, runtime, hass, state["store"]),
     ]
     async_add_entities(entities)
     # Object-centric HA projection.  The add callback remains valid for the loaded
@@ -343,9 +343,10 @@ class EnergyBuildSensor(_DiagnosticSensor):
     _attr_suggested_object_id = "rhi_energy_build"
     _attr_unique_id = "rhi_energy:monitoring:build"
 
-    def __init__(self, entry, manager, hass, store):
+    def __init__(self, entry, manager, runtime, hass, store):
         super().__init__(entry)
         self._manager = manager
+        self._runtime = runtime
         self._hass = hass
         self._store = store
 

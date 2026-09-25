@@ -341,6 +341,34 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     selected_entry = selected_registry.get("energy") if isinstance(selected_registry, dict) else None
     selected_inputs = (selected_entry or {}).get("inputs") or [] if isinstance(selected_entry, dict) else []
 
+    solaredge_multi_inputs = [
+        item
+        for item in selected_inputs
+        if isinstance(item, dict)
+        and str((item.get("selection") or {}).get("integration_domain") or "") == "solaredge_modbus_multi"
+    ]
+    solaredge_multi_issues = [
+        str(issue)
+        for item in solaredge_multi_inputs
+        for issue in ((item.get("discovery_assessment") or {}).get("issues") or [])
+        if issue
+    ]
+    solaredge_multi_bindings = [
+        binding
+        for binding in (model.get("accepted_bindings") or [])
+        if isinstance(binding, dict)
+        and str(
+            binding.get("integration_domain")
+            or ((binding.get("source_identity") or {}).get("integration_domain") if isinstance(binding.get("source_identity"), dict) else "")
+        ) == "solaredge_modbus_multi"
+    ]
+    solaredge_multi_assets = [
+        asset
+        for asset in (snap.get("logical_assets") or model.get("logical_assets") or [])
+        if isinstance(asset, dict)
+        and str(asset.get("integration_domain") or "") == "solaredge_modbus_multi"
+    ]
+
     return {
         "identity": {
             "release": RELEASE,
@@ -352,6 +380,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "public_contract": LEGACY_CONTRACT_VERSION,
             "known_accepted_technical_debt": 0,
         },
+        "setup_performance": deepcopy(state.get("setup_performance") or {}),
         "supervision": (state.get("supervision").snapshot() if state.get("supervision") else None),
         "health": {
             "foundation_supervisory_contract": "RHI_DOMAIN_SUPERVISORY_STATUS_V1",
@@ -498,6 +527,14 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
                 )
                 or 0
             ),
+            "last_sync_duration_ms": (store_data.get("source_device_topology") or {}).get("last_sync_duration_ms"),
+            "sync_count": int((store_data.get("source_device_topology") or {}).get("sync_count") or 0),
+            "last_scanned_energy_device_count": int(
+                (store_data.get("source_device_topology") or {}).get("last_scanned_energy_device_count") or 0
+            ),
+            "last_entry_entity_count": int(
+                (store_data.get("source_device_topology") or {}).get("last_entry_entity_count") or 0
+            ),
             "solar_inverter_battery_corrections": _solar_battery_correction_rows(
                 snap.get("logical_assets") or model.get("logical_assets") or []
             ),
@@ -506,6 +543,29 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
                     snap.get("logical_assets") or model.get("logical_assets") or []
                 )
             ),
+        },
+        "solaredge_modbus_multi": {
+            "selected_builder_count": len(solaredge_multi_inputs),
+            "selected_builder_ids": [
+                str(item.get("builder_id") or "")
+                for item in solaredge_multi_inputs
+            ][:20],
+            "assessment_issue_count": len(solaredge_multi_issues),
+            "assessment_issues": solaredge_multi_issues[:40],
+            "accepted_binding_count": len(solaredge_multi_bindings),
+            "logical_asset_count": len(solaredge_multi_assets),
+            "logical_asset_ids": [
+                str(asset.get("asset_id") or "")
+                for asset in solaredge_multi_assets
+                if asset.get("asset_id")
+            ][:40],
+            "inverter_battery_corrections": [
+                row
+                for row in _solar_battery_correction_rows(
+                    snap.get("logical_assets") or model.get("logical_assets") or []
+                )
+                if str(row.get("integration_domain") or "") == "solaredge_modbus_multi"
+            ],
         },
         "execution": {
             "measurement_fast_path": "accepted_source_listener_to_rhi_energy_runtime",

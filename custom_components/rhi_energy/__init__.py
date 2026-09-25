@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from typing import Callable
 
 from homeassistant.config_entries import ConfigEntry
@@ -155,10 +156,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    setup_started = perf_counter()
+    setup_performance: dict[str, float] = {}
+
+    stage_started = perf_counter()
     migration = await async_prepare_legacy_entity_takeover(hass, entry)
+    setup_performance["migration_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+
     provider = _ensure_publication_provider(hass)
     store = EnergyStore(hass)
+    stage_started = perf_counter()
     await store.async_load()
+    setup_performance["store_load_ms"] = round((perf_counter() - stage_started) * 1000, 3)
     manager = EnergyBuildManager(hass)
     runtime = EnergyRuntime(hass, store)
     metering = EnergyMetering(hass, store, runtime)
@@ -181,6 +190,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "profile_catalog_provider": profile_catalog_provider,
             "visual_catalog_provider": visual_catalog_provider,
             "visual_registration_unsub": None,
+            "setup_performance": setup_performance,
             "execution_model": "prebound_canonical_v2_runtime",
             "shared_baseline_version": SHARED_BASELINE_VERSION,
         }
@@ -196,20 +206,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             visual_registration_unsub = handle if callable(handle) else None
             state["visual_registration_unsub"] = visual_registration_unsub
+        stage_started = perf_counter()
         await manager.async_start()
+        setup_performance["manager_start_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+
         runtime.activate_model(manager.domain_model)
+        stage_started = perf_counter()
         sync_canonical_device_topology(
             hass,
             entry,
             runtime.snapshot.get("logical_assets") or [],
         )
+        setup_performance["canonical_device_sync_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+
+        stage_started = perf_counter()
         await metering.async_start()
+        setup_performance["metering_start_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+
+        stage_started = perf_counter()
         await interaction.async_start()
+        setup_performance["interaction_start_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+
         projector.start()
+
+        stage_started = perf_counter()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        setup_performance["platform_setup_ms"] = round((perf_counter() - stage_started) * 1000, 3)
         # Shared Baseline 1.8.1 supervision is structural, not telemetry-driven.
         # Foundation 1.8.2 additionally makes provider lifetime generation-safe.
+        stage_started = perf_counter()
         state["supervision_unsubscribe"] = register_domain_supervision(hass, supervision)
+        setup_performance["supervision_registration_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+        setup_performance["total_setup_ms"] = round((perf_counter() - setup_started) * 1000, 3)
     except Exception:
         _LOGGER.exception("RHI Energy setup failed")
         await projector.async_stop()

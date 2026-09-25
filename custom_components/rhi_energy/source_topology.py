@@ -8,6 +8,7 @@ via_device to manufacture a Connected devices relationship.
 from __future__ import annotations
 
 from collections import defaultdict
+from time import perf_counter
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -104,6 +105,7 @@ async def async_sync_source_device_topology(
     snapshot: dict[str, Any] | None = None,
 ) -> None:
     """Persist exact provenance and remove legacy Energy-created HA hierarchy."""
+    started = perf_counter()
     registry = dr.async_get(hass)
     module = registry.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
     bindings = source_binding_index(model, snapshot)
@@ -141,20 +143,24 @@ async def async_sync_source_device_topology(
         for asset_id in binding.get("logical_asset_ids") or []
         if asset_id
     )
+    entry_entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    occupied_device_ids = {
+        entity.device_id
+        for entity in entry_entities
+        if entity.device_id
+    }
+
     orphan_proxy_device_count = 0
+    scanned_energy_device_count = 0
     for device in list(registry.devices.values()):
         if device.id == (module.id if module is not None else None):
             continue
         if set(device.config_entries) != {entry.entry_id}:
             continue
+        scanned_energy_device_count += 1
         if any(identifier in valid_energy_identifiers for identifier in device.identifiers):
             continue
-        if any(
-            entity.device_id == device.id
-            for entity in er.async_entries_for_config_entry(
-                entity_registry, entry.entry_id
-            )
-        ):
+        if device.id in occupied_device_ids:
             continue
         registry.async_remove_device(device.id)
         orphan_proxy_device_count += 1
@@ -169,7 +175,24 @@ async def async_sync_source_device_topology(
         "copied_source_identity_devices_created": 0,
         "orphan_proxy_device_count": orphan_proxy_device_count,
     }
-    if state != next_state:
+    current_structural = {
+        key: value
+        for key, value in state.items()
+        if key not in {
+            "last_sync_duration_ms",
+            "sync_count",
+            "last_scanned_energy_device_count",
+            "last_entry_entity_count",
+        }
+    }
+    if current_structural != next_state:
         state.clear()
         state.update(next_state)
         await store.async_save()
+    else:
+        state.update(next_state)
+
+    state["last_sync_duration_ms"] = round((perf_counter() - started) * 1000, 3)
+    state["sync_count"] = int(state.get("sync_count") or 0) + 1
+    state["last_scanned_energy_device_count"] = scanned_energy_device_count
+    state["last_entry_entity_count"] = len(entry_entities)
