@@ -39,6 +39,23 @@ def complete_numeric_sum(values: Iterable[Any], *, expected_count: int) -> float
         return None
     return round(sum(float(value) for value in rows if value is not None), 6)
 
+
+def aggregate_battery_soc(
+    capacity_kwh: Any,
+    available_kwh: Any,
+    unit_soc_values: Iterable[Any],
+) -> float | None:
+    """Aggregate battery SoC without guessing multi-unit weights."""
+    capacity = number(capacity_kwh)
+    available = number(available_kwh)
+    if capacity is not None and capacity > 0 and available is not None:
+        return round(available / capacity * 100, 3)
+    soc_values = [number(value) for value in unit_soc_values]
+    if len(soc_values) == 1 and soc_values[0] is not None:
+        return round(float(soc_values[0]), 3)
+    return None
+
+
 def jdump(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), sort_keys=False, default=str)
 

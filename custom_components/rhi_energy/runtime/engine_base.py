@@ -17,6 +17,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from ..adapters import get_normalizer
 from ..compat_core import (
+    aggregate_battery_soc,
     battery_state_from_power,
     complete_numeric_sum,
     derive_consumption,
@@ -404,13 +405,14 @@ class EnergyRuntime:
             pvals = [facts.get(f"{u.get('asset_id')}.power_kw") for u in units]
             cvals = [facts.get(f"{u.get('asset_id')}.capacity_kwh") for u in units]
             avals = [facts.get(f"{u.get('asset_id')}.available_kwh") for u in units]
+            socvals = [facts.get(f"{u.get('asset_id')}.soc_pct") for u in units]
             svals = [facts.get(f"{u.get('asset_id')}.status") for u in units]
             facts[f"{sid}.power_kw"] = complete_numeric_sum(pvals, expected_count=len(units))
             facts[f"{sid}.capacity_kwh"] = complete_numeric_sum(cvals, expected_count=len(units))
             facts[f"{sid}.available_kwh"] = complete_numeric_sum(avals, expected_count=len(units))
             capacity = facts[f"{sid}.capacity_kwh"]
             available = facts[f"{sid}.available_kwh"]
-            facts[f"{sid}.soc_pct"] = round(float(available) / float(capacity) * 100, 3) if isinstance(capacity, (int, float)) and capacity > 0 and isinstance(available, (int, float)) else None
+            facts[f"{sid}.soc_pct"] = aggregate_battery_soc(capacity, available, socvals)
             facts[f"{sid}.status"] = next(iter(set(svals))) if units and all(value is not None for value in svals) and len(set(svals)) == 1 else "mixed" if units and all(value is not None for value in svals) else None
 
             # Battery System is a canonical Energy object composed exclusively from
