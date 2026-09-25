@@ -1,0 +1,520 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.solar_production.huawei_solar.v1",
+  "builder_version": "1.0.0",
+  "concept": {
+    "concept_id": "solar_production",
+    "display_name": "Solar Production",
+    "description": "Represents photovoltaic production measured by the Energy domain.",
+    "selection_guidance": "Select the integrations and devices that expose authoritative photovoltaic production measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "huawei_solar"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_device",
+      "minimum_groups": 0,
+      "maximum_groups": null
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "solar_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "integration_api"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "solar_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_energy_today",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "solar_energy_today",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_daily_yield_energy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "inverter_status",
+        "technical_capabilities": {
+          "any_of": [
+            "binary_state",
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity",
+          "integration_api"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "inverter_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_device_status"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "solar_ac_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "solar_ac_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_accumulated_yield_energy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_frequency",
+        "technical_capabilities": {
+          "any_of": [
+            "frequency_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "solar_ac_frequency",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_grid_frequency"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_reactive_power",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "solar_reactive_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_reactive_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "solar_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_internal_temperature"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "active_power_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "active_power_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_power_percentage_derating"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "phase_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_phase_A_current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_phase_B_current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_phase_C_current"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "phase_voltage_ln",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_voltage_ln",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_phase_A_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_voltage_ln",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_phase_B_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_voltage_ln",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_phase_C_voltage"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "inverter_vendor_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "inverter_vendor_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_1"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "phase_voltage_ll",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_voltage_ll",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_line_voltage_A_B"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_voltage_ll",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_line_voltage_B_C"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "phase_voltage_ll",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_line_voltage_C_A"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "solar_system",
+      "solar_inverter"
+    ],
+    "possible_facts": [
+      "solar.power_kw",
+      "solar.energy_today_kwh",
+      "solar.health",
+      "solar.dc_voltage_v",
+      "solar.dc_current_a",
+      "solar.ac_power_kw",
+      "solar.ac_energy_total_kwh",
+      "solar.ac_current_a",
+      "solar.ac_frequency_hz",
+      "solar.reactive_power_var",
+      "solar.apparent_power_va",
+      "solar.power_factor_pct",
+      "solar.temperature_c",
+      "solar.last_update",
+      "solar.version",
+      "solar.grid_status",
+      "solar.vendor_status",
+      "solar.rrcr_status",
+      "solar_phase.current_a",
+      "solar_phase.voltage_ln_v",
+      "solar_phase.voltage_ll_v"
+    ],
+    "possible_editable_properties": [
+      "solar.active_power_limit_pct",
+      "solar.current_limit_a",
+      "solar.cosphi",
+      "solar.site_limit_kw",
+      "solar.external_production_max_kw",
+      "solar.limit_control_mode",
+      "solar.limit_control",
+      "solar.reactive_power_mode",
+      "solar.advanced_power_control",
+      "solar.negative_site_limit",
+      "solar.external_production_enabled",
+      "solar.power_reduce_pct"
+    ],
+    "possible_commands": [
+      "solar.command.commit_power_settings",
+      "solar.command.restore_default_power_settings",
+      "solar.command.refresh"
+    ]
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

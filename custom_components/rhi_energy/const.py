@@ -1,12 +1,12 @@
-"""Constants for RHI Energy E0.15.39 canonical HA topology lifecycle on Shared Baseline 1.8.1."""
+"""Constants for RHI Energy E0.15.40 canonical HA topology lifecycle on Shared Baseline 1.8.1."""
 DOMAIN = "rhi_energy"
 DOMAIN_ID = "energy"
-RELEASE = "E0.15.39"
-RELEASE_NAME = "RUNTIME_OBSERVABILITY_SOLAREDGE_MULTI_HOTFIX"
+RELEASE = "E0.15.40"
+RELEASE_NAME = "HUAWEI_CANONICAL_BINDINGS"
 SHARED_BASELINE_ID = "RHI_SHARED_ARCHITECTURE_BASELINE"
 SHARED_BASELINE_VERSION = "1.8.1"
 SHARED_BASELINE_CHECKSUM = "sha256:e76a3fb3539f9bc8b2b1b07976cf1372b39319b97887465669d4c452c07f7e52"
-PUBLICATION_REVISION = 13
+PUBLICATION_REVISION = 14
 PUBLICATION_CONTRACT = "domain_build_specification_v1.2.0"
 BUILD_INPUT_REGISTRY_KEY = "rhi_selected_domain_build_input_registry"
 INTEROP_PROVIDER_REGISTRY_KEY = "rhi_domain_interop_provider_registry"

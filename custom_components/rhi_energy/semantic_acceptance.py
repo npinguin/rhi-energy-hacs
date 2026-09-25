@@ -305,14 +305,13 @@ def _bind_many(
 def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "battery")
     measurement_ids = ["battery_unit_power", "battery_unit_soc", "battery_capacity"]
-    # A stationary battery unit must be anchored by physical power/capacity evidence.
-    # SOC-only companion devices (for example SolarEdge DERB telemetry) enrich an
-    # anchored unit but may never materialize an additional stationary battery.
+    # A stationary battery unit is anchored by its physical power telemetry.
+    # Capacity may legitimately be published on a sibling battery-system device
+    # in the same source config entry and must never create a second unit.
     anchor_ids = sorted(
         {
             _candidate_device_id(candidate)
-            for input_id in ("battery_unit_power", "battery_capacity")
-            for candidate in inputs.get(input_id, [])
+            for candidate in inputs.get("battery_unit_power", [])
             if _candidate_device_id(candidate)
         }
     )
@@ -339,8 +338,31 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
             role = str(spec.get("role") or "")
             input_id = str(spec.get("input_id") or "")
             rows = [candidate for candidate in inputs.get(input_id, []) if _candidate_device_id(candidate) == device_id]
-            if role == "capacity" and not rows and len(inputs.get(input_id, [])) == 1 and not _candidate_device_id(inputs[input_id][0]):
-                rows = inputs[input_id]
+            if role == "capacity" and not rows:
+                anchor_config_entries = {
+                    str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
+                    for candidate in inputs.get("battery_unit_power", [])
+                    if _candidate_device_id(candidate) == device_id
+                    and (candidate.get("source_identity") or {}).get("config_entry_id")
+                }
+                sibling_capacity = [
+                    candidate
+                    for candidate in inputs.get(input_id, [])
+                    if (
+                        not _candidate_device_id(candidate)
+                        or str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
+                        in anchor_config_entries
+                    )
+                ]
+                sibling_anchors = {
+                    _candidate_device_id(candidate)
+                    for candidate in inputs.get("battery_unit_power", [])
+                    if str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
+                    in anchor_config_entries
+                    and _candidate_device_id(candidate)
+                }
+                if len(sibling_capacity) == 1 and len(sibling_anchors) == 1:
+                    rows = sibling_capacity
             if len(rows) == 1:
                 binding_id = f"energy:{asset_id}:{role}"
                 bindings.append(_binding(asset_id, role, rows[0], previous.get(binding_id)))
