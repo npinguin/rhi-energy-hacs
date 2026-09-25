@@ -20,7 +20,8 @@ from .const import (
     SHARED_BASELINE_ID,
     SHARED_BASELINE_VERSION,
 )
-from .semantic import OBJECT_CLASS_LABELS
+from .canonical_device import canonical_device_info, source_device_ids, sync_canonical_device_topology
+from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
 from .source_topology import async_sync_source_device_topology, source_binding_index
 
 
@@ -377,13 +378,21 @@ class EnergyBuildSensor(_DiagnosticSensor):
             self.async_write_ha_state()
             self._hass.async_create_task(
                 async_sync_source_device_topology(
-                    self._hass, self._entry, self._manager.domain_model, self._store
+                    self._hass,
+                    self._entry,
+                    self._manager.domain_model,
+                    self._store,
+                    self._runtime.snapshot,
                 )
             )
 
         self.async_on_remove(self._manager.add_callback(_manager_updated))
         await async_sync_source_device_topology(
-            self._hass, self._entry, self._manager.domain_model, self._store
+            self._hass,
+            self._entry,
+            self._manager.domain_model,
+            self._store,
+            self._runtime.snapshot,
         )
 
 
@@ -530,7 +539,7 @@ class EnergyLogicalEntityManager:
         desired = self._unique_ids(rows)
         desired_devices = {
             f"logical:{str(asset.get('asset_id') or '')}"
-            for asset in rows
+            for asset in canonical_projection_assets(rows)
             if asset.get("asset_id")
         }
         # The Planning logical device is a stable additive projection over the
@@ -595,17 +604,15 @@ class EnergyLogicalEntityManager:
             ):
                 entity_registry.async_remove(entity.entity_id)
                 self._known.discard(unique_id)
-        # Logical RHI objects are product views, not physical source children.
-        # Clear the historic module parent so the Energy Module's native
-        # "Connected devices" section contains only real accepted HA sources.
+        # Canonical composition is materialised through HA's native Device Registry.
+        # This reconciles only RHI Energy canonical devices; physical source devices
+        # remain untouched and retain their source-integration topology.
         devices = dr.async_get(self._hass)
-        module = devices.async_get_device(identifiers={(DOMAIN, self._entry.entry_id)})
-        if module is not None:
-            for asset in rows:
-                asset_id = str(asset.get("asset_id") or "")
-                logical = devices.async_get_device(identifiers={(DOMAIN, f"logical:{asset_id}")})
-                if logical is not None and logical.via_device_id == module.id:
-                    devices.async_update_device(logical.id, via_device_id=None)
+        sync_canonical_device_topology(
+            self._hass,
+            self._entry,
+            rows,
+        )
         additions: list[SensorEntity] = []
         for source_device_id in sorted(binding_index):
             uid = f"rhi_energy:source_binding:{source_device_id}"
@@ -630,7 +637,7 @@ class EnergyLogicalEntityManager:
             status_uid = f"rhi_energy:logical:{asset_id}:status"
             if status_uid not in self._known:
                 self._known.add(status_uid)
-                additions.append(EnergyLogicalAssetStatusSensor(self._entry, self._manager, self._runtime, asset_id))
+                additions.append(EnergyLogicalAssetStatusSensor(self._hass, self._entry, self._manager, self._runtime, asset_id))
             for prop in asset.get("properties") or []:
                 if not _property_is_projectable(prop or {}):
                     continue
@@ -683,15 +690,7 @@ class _LogicalEnergySensor(SensorEntity):
 
     @property
     def device_info(self):
-        asset = self._asset() or {}
-        object_class = str(asset.get("object_class") or asset.get("asset_type") or "logical_object")
-        return {
-            "identifiers": {(DOMAIN, f"logical:{self._asset_id}")},
-            "name": asset.get("display_name") or self._asset_id.replace("_", " ").title(),
-            "manufacturer": "Robotix Home Intelligence",
-            "model": f"Energy logical object · {OBJECT_CLASS_LABELS.get(object_class, object_class.replace('_', ' ').title())}",
-            "sw_version": RELEASE,
-        }
+        return canonical_device_info(self._asset() or {"asset_id": self._asset_id})
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -702,8 +701,9 @@ class _LogicalEnergySensor(SensorEntity):
 class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, entry, manager, runtime, asset_id: str) -> None:
+    def __init__(self, hass, entry, manager, runtime, asset_id: str) -> None:
         super().__init__(entry, manager, runtime, asset_id)
+        self._hass = hass
         self._attr_unique_id = f"rhi_energy:logical:{asset_id}:status"
         self._attr_suggested_object_id = f"energy_{_object_id(asset_id)}_status"
 
@@ -719,10 +719,30 @@ class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
             return "REMOVED"
         return asset.get("health") or asset.get("normalization_status") or "UNKNOWN"
 
+    def _source_devices(self, asset: dict) -> list[dict]:
+        registry = dr.async_get(self._hass)
+        rows = []
+        for device_id in source_device_ids(asset):
+            device = registry.async_get(device_id)
+            rows.append({
+                "device_registry_id": device_id,
+                "name": (
+                    getattr(device, "name_by_user", None)
+                    or getattr(device, "name", None)
+                    if device is not None
+                    else None
+                ),
+                "manufacturer": getattr(device, "manufacturer", None) if device is not None else None,
+                "model": getattr(device, "model", None) if device is not None else None,
+                "available_in_device_registry": device is not None,
+            })
+        return rows
+
     @property
     def extra_state_attributes(self):
         asset = self._asset() or {}
         props = asset.get("properties") or []
+        source_devices = self._source_devices(asset)
         return {
             "logical_object_class": asset.get("object_class"),
             "asset_id": self._asset_id,
@@ -733,7 +753,16 @@ class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
             "property_count": len(props),
             "available_property_count": sum(1 for row in props if row.get("availability") == "AVAILABLE"),
             "selected_device_ids": list(asset.get("selected_device_ids") or [])[:20],
+            "source_device_ids": [row["device_registry_id"] for row in source_devices][:20],
+            "source_devices": source_devices[:20],
+            "source_device_count": len(source_devices),
             "parent_asset_id": asset.get("parent_asset_id"),
+            "canonical_via_device": canonical_parent_asset_id(asset),
+            "profile_id": asset.get("profile_id"),
+            "visual_ref": asset.get("visual_ref"),
+            "capabilities": list(asset.get("capabilities") or [])[:40],
+            "identity": dict(asset.get("identity") or {}),
+            "technical_specification": dict(asset.get("technical_specification") or {}),
         }
 
 

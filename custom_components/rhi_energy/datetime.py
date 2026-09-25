@@ -9,7 +9,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, RELEASE
+from .canonical_device import canonical_device_info
+from .const import DOMAIN
+from .logical_control import logical_asset
 
 
 def _asset(runtime, asset_id: str) -> dict:
@@ -40,14 +42,8 @@ class EnergyReadyByDateTime(DateTimeEntity):
 
     @property
     def device_info(self):
-        asset = _asset(self._runtime, self._asset_id)
-        return {
-            "identifiers": {(DOMAIN, f"logical:{self._asset_id}")},
-            "name": asset.get("display_name") or self._asset_id,
-            "manufacturer": "Robotix Home Intelligence",
-            "model": "Energy logical object · Flexible Energy Load",
-            "sw_version": RELEASE,
-        }
+        asset = logical_asset(self._runtime, self._asset_id) or _asset(self._runtime, self._asset_id)
+        return canonical_device_info(asset or {"asset_id": self._asset_id})
 
     @property
     def native_value(self):

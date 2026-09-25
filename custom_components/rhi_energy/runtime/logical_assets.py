@@ -13,7 +13,7 @@ from typing import Any
 try:
     from ..models import LogicalAsset, LogicalProperty
     from ..semantic import object_fact_key, property_definitions
-    from .asset_profiles import binding_index as build_binding_index, binding_source, enrich_asset, identity, property_control_metadata, solar_panel_asset
+    from .asset_profiles import binding_device_ids, binding_index as build_binding_index, binding_source, enrich_asset, identity, property_control_metadata, solar_panel_asset
     from .optimizer_topology import optimizer_descriptors
     from .resolution import compatibility_availability, resolve_property
 except ImportError:  # direct runpy tests
@@ -24,6 +24,7 @@ except ImportError:  # direct runpy tests
     _asset_profiles = _runpy.run_path(str(_root / "runtime" / "asset_profiles.py"))
     build_binding_index = _asset_profiles["binding_index"]
     binding_source = _asset_profiles["binding_source"]
+    binding_device_ids = _asset_profiles["binding_device_ids"]
     property_control_metadata = _asset_profiles["property_control_metadata"]
     enrich_asset = _asset_profiles["enrich_asset"]
     identity = _asset_profiles["identity"]
@@ -162,6 +163,11 @@ def _build_domain_assets(
             builder_id=builder, integration_domain=integration,
             normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
             selection_mode=_selection(build_inputs, builder).get("device_filter_mode"),
+            selected_device_ids=[
+                str(unit.get("device_registry_id"))
+                for unit in provider.get("units") or []
+                if unit.get("device_registry_id")
+            ],
             properties=_properties("battery_system", aid, system_roles, binding_index, aggregate_roles=aggregate_roles),
         ))
         for unit in provider.get("units") or []:
@@ -206,12 +212,14 @@ def _build_domain_assets(
             integration = str(provider.get("integration_domain") or "")
             if not aid:
                 continue
+            provider_roles = provider.get("bindings") or {}
             out.append(_asset(
                 aid, concept, f"{label} · {integration or aid}",
                 builder_id=builder, integration_domain=integration,
                 normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
                 selection_mode=_selection(build_inputs, builder).get("device_filter_mode"),
-                properties=_properties(concept, aid, provider.get("bindings") or {}, binding_index),
+                selected_device_ids=binding_device_ids(provider_roles, binding_index),
+                properties=_properties(concept, aid, provider_roles, binding_index),
             ))
             if concept == "grid_connection":
                 for index, phase in enumerate(provider.get("phases") or [], start=1):
@@ -243,6 +251,11 @@ def _build_domain_assets(
             builder_id=builder, integration_domain=integration,
             normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
             selection_mode=_selection(build_inputs, builder).get("device_filter_mode"),
+            selected_device_ids=[
+                str(inverter.get("device_registry_id"))
+                for inverter in provider.get("inverters") or []
+                if inverter.get("device_registry_id")
+            ],
             properties=_properties("solar_production", sid, {}, binding_index, aggregate_roles=aggregate_roles),
         ))
         for inverter in provider.get("inverters") or []:
@@ -331,7 +344,6 @@ def _build_domain_assets(
                 ))
     return out
 
-
 def build_logical_assets(build_inputs: dict[str, dict[str, Any]], model: dict[str, Any]) -> list[LogicalAsset]:
     out = _build_domain_assets(build_inputs, model)
     dedup: dict[str, LogicalAsset] = {}
@@ -341,12 +353,12 @@ def build_logical_assets(build_inputs: dict[str, dict[str, Any]], model: dict[st
             dedup[asset_id] = asset
     return [dedup[key] for key in sorted(dedup)]
 
-
 def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalAsset]:
     home_spec = property_definitions("home_consumption")[0]
     rows: list[LogicalAsset] = [_asset(
         "home_consumption", "home_consumption", "Home Consumption",
         normalization_status="READY", runtime_truth=True, lifecycle_scope="runtime_derived", source_domain="energy",
+        parent_asset_id="energy_site",
         properties=[{
             "property_key": str(home_spec["property_key"]), "display_name": str(home_spec["name"]),
             "unit": home_spec.get("unit"), "kind": str(home_spec.get("kind") or "power"),
@@ -383,12 +395,12 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
             str(item.get("display_name") or source_id),
             integration_domain=str(item.get("source_domain") or "mobility"), normalization_status="READY",
             runtime_truth=True, lifecycle_scope="producer_runtime", source_domain=str(item.get("source_domain") or "mobility"),
+            parent_asset_id="flexible_loads",
             selected_device_ids=[source_device_id] if source_device_id else [],
             device_registry_id=source_device_id,
             properties=props,
         )
-        # Explicit producer/domain conclusions are copied into the canonical
-        # Energy object. The UX must not reconstruct these from labels or power.
+        # Producer/domain conclusions stay explicit; UX never reconstructs them.
         asset["participation_state"] = item.get("participation_state")
         asset["operating_state"] = item.get("operating_state")
         asset["availability_state"] = item.get("availability_state")

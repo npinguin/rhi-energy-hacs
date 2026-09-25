@@ -1,8 +1,8 @@
-"""Constants for RHI Energy E0.15.36 canonical domain model governance on Shared Baseline 1.8.1."""
+"""Constants for RHI Energy E0.15.37 canonical HA topology lifecycle on Shared Baseline 1.8.1."""
 DOMAIN = "rhi_energy"
 DOMAIN_ID = "energy"
-RELEASE = "E0.15.36"
-RELEASE_NAME = "CANONICAL_DOMAIN_MODEL_GOVERNANCE"
+RELEASE = "E0.15.37"
+RELEASE_NAME = "CANONICAL_HA_TOPOLOGY_LIFECYCLE"
 SHARED_BASELINE_ID = "RHI_SHARED_ARCHITECTURE_BASELINE"
 SHARED_BASELINE_VERSION = "1.8.1"
 SHARED_BASELINE_CHECKSUM = "sha256:e76a3fb3539f9bc8b2b1b07976cf1372b39319b97887465669d4c452c07f7e52"
@@ -12,7 +12,7 @@ BUILD_INPUT_REGISTRY_KEY = "rhi_selected_domain_build_input_registry"
 INTEROP_PROVIDER_REGISTRY_KEY = "rhi_domain_interop_provider_registry"
 PROFILE_CATALOG_PROVIDER_ID = "energy.profile_catalog.v2"
 SELECTED_BUILD_INPUTS_CHANGED_EVENT = "rhi_selected_domain_build_inputs_changed"
-PLATFORMS = ["sensor", "button", "number", "datetime"]
+PLATFORMS = ["sensor", "button", "number", "select", "switch", "datetime"]
 STORE_VERSION = 2
 STORE_KEY = "rhi_energy_v2_state"
 MOBILITY_ENERGY_V2_ENTITY = "sensor.rhi_mobility_energy_v2"

@@ -91,6 +91,8 @@ CANONICAL_OBJECT_REGISTRY: Final[dict[str, dict[str, Any]]] = {
 }
 
 OBJECT_CLASS_LABELS: Final[dict[str, str]] = {
+    "energy_site": "Energy Site",
+    "flexible_loads": "Flexible Loads",
     "battery_system": "Home Battery System",
     "battery": "Home Battery",
     "grid_connection": "Grid Connection",

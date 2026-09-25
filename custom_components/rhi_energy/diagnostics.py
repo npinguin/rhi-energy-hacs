@@ -4,7 +4,10 @@ from __future__ import annotations
 from copy import deepcopy
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+from .canonical_device import canonical_device_identifier, source_device_ids
+from .runtime.canonical_structure import canonical_projection_assets
 
 from .const import (
     DOMAIN,
@@ -158,6 +161,74 @@ def _logical_asset_row(asset):
         "property_count": len(asset.get("properties") or []),
         "available_property_count": asset.get("available_property_count"),
         "properties": properties,
+    }
+
+
+
+def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict:
+    """Bounded proof that canonical and physical source topology stay separated."""
+    registry = dr.async_get(hass)
+    assets = canonical_projection_assets([
+        row for row in (logical_assets or []) if isinstance(row, dict)
+    ])
+    canonical_by_asset = {}
+    for asset in assets:
+        asset_id = str(asset.get("asset_id") or "")
+        if not asset_id:
+            continue
+        canonical_by_asset[asset_id] = registry.async_get_device(
+            identifiers={canonical_device_identifier(asset_id)}
+        )
+
+    rows = []
+    mismatch_count = 0
+    canonical_device_ids = {
+        device.id for device in canonical_by_asset.values() if device is not None
+    }
+    source_reparented_to_canonical = []
+    seen_sources = set()
+
+    for asset in assets:
+        asset_id = str(asset.get("asset_id") or "")
+        device = canonical_by_asset.get(asset_id)
+        parent_asset_id = str(asset.get("parent_asset_id") or "")
+        parent = canonical_by_asset.get(parent_asset_id) if parent_asset_id else None
+        expected_parent_id = parent.id if parent is not None else None
+        actual_parent_id = device.via_device_id if device is not None else None
+        matches = device is not None and actual_parent_id == expected_parent_id
+        if not matches:
+            mismatch_count += 1
+
+        # Keep the downloadable payload bounded, but never bound the proof scan itself.
+        # Counters below must cover the complete canonical/source topology.
+        if len(rows) < 80:
+            rows.append({
+                "asset_id": asset_id,
+                "object_class": asset.get("object_class"),
+                "device_registry_id": device.id if device is not None else None,
+                "parent_asset_id": parent_asset_id or None,
+                "expected_via_device_id": expected_parent_id,
+                "actual_via_device_id": actual_parent_id,
+                "topology_matches": matches,
+                "source_device_ids": source_device_ids(asset)[:20],
+            })
+
+        for source_id in source_device_ids(asset):
+            if source_id in seen_sources:
+                continue
+            seen_sources.add(source_id)
+            source = registry.async_get(source_id)
+            if source is not None and source.via_device_id in canonical_device_ids:
+                source_reparented_to_canonical.append(source_id)
+
+    return {
+        "canonical_device_count": sum(device is not None for device in canonical_by_asset.values()),
+        "expected_canonical_asset_count": len(canonical_by_asset),
+        "canonical_parent_mismatch_count": mismatch_count,
+        "source_device_count": len(seen_sources),
+        "source_reparented_to_canonical_count": len(source_reparented_to_canonical),
+        "source_reparented_to_canonical_ids": source_reparented_to_canonical[:20],
+        "canonical_devices": rows,
     }
 
 
@@ -337,6 +408,10 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "producer_adapter_boundary": True,
             "legacy_compatibility_surface_preserved": True,
         },
+        "canonical_device_topology": _canonical_topology_diagnostics(
+            hass,
+            snap.get("logical_assets") or model.get("logical_assets") or [],
+        ),
         "source_device_topology": {
             "policy": "exact_source_device_provenance_with_entity_registry_diagnostic",
             "semantic_truth_source": False,

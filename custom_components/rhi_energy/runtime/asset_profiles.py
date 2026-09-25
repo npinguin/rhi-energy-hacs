@@ -27,6 +27,20 @@ def binding_index(model: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
+def binding_device_ids(
+    role_map: dict[str, Any],
+    binding_index: dict[str, dict[str, Any]],
+) -> list[str]:
+    ids: list[str] = []
+    for value in role_map.values():
+        for binding_id in (value if isinstance(value, list) else [value] if value else []):
+            source = (binding_index.get(str(binding_id)) or {}).get("source_identity") or {}
+            device_id = str(source.get("device_registry_id") or "")
+            if device_id and device_id not in ids:
+                ids.append(device_id)
+    return ids
+
+
 def binding_source(binding: dict[str, Any] | None) -> dict[str, Any]:
     if not binding:
         return {}

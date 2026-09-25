@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .builders.layered_manager import LayeredEnergyBuildManager as EnergyBuildManager
+from .canonical_device import sync_canonical_device_topology
 from .const import (
     DOMAIN,
     DOMAIN_ID,
@@ -197,6 +198,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             state["visual_registration_unsub"] = visual_registration_unsub
         await manager.async_start()
         runtime.activate_model(manager.domain_model)
+        sync_canonical_device_topology(
+            hass,
+            entry,
+            runtime.snapshot.get("logical_assets") or [],
+        )
         await metering.async_start()
         await interaction.async_start()
         projector.start()
@@ -248,7 +254,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         supervision_unsubscribe()
     elif isinstance(supervision, EnergyDomainSupervision):
         unregister_domain_supervision(hass, supervision)
-    for key in ("button_projection", "number_projection", "datetime_projection", "entity_projection", "public_projector", "interaction", "metering", "runtime", "build_manager"):
+    for key in (
+        "button_projection",
+        "number_projection",
+        "logical_number_projection",
+        "select_projection",
+        "switch_projection",
+        "datetime_projection",
+        "entity_projection",
+        "public_projector",
+        "interaction",
+        "metering",
+        "runtime",
+        "build_manager",
+    ):
         obj = state.get(key)
         if obj is not None and hasattr(obj, "async_stop"):
             await obj.async_stop()

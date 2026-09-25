@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import DOMAIN
+from .runtime.canonical_structure import STRUCTURAL_CANONICAL_ASSETS
 
 
 def _model_binding_rows(model: dict[str, Any]) -> list[dict[str, str]]:
@@ -124,6 +125,16 @@ async def async_sync_source_device_topology(
     # experiments. Never delete a source device that belongs to another integration.
     entity_registry = er.async_get(hass)
     valid_energy_identifiers = {(DOMAIN, entry.entry_id), (DOMAIN, "logical:planning")}
+    valid_energy_identifiers.update(
+        (DOMAIN, f"logical:{asset['asset_id']}")
+        for asset in STRUCTURAL_CANONICAL_ASSETS
+        if asset.get("asset_id")
+    )
+    valid_energy_identifiers.update(
+        (DOMAIN, f"logical:{asset['asset_id']}")
+        for asset in (snapshot or {}).get("logical_assets") or []
+        if isinstance(asset, dict) and asset.get("asset_id")
+    )
     valid_energy_identifiers.update(
         (DOMAIN, f"logical:{asset_id}")
         for binding in bindings.values()
