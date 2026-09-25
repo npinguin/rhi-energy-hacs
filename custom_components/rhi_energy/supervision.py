@@ -165,25 +165,18 @@ class EnergyDomainSupervision:
                 canonical_public_v2 = projector.get_parity_source() or {}
             elif hasattr(projector, "get_v2"):
                 canonical_public_v2 = projector.get_v2() or {}
-        degraded_public_entities = sorted(
-            entity_id
-            for entity_id in product_states
-            if not _public_projection_functional(
-                entity_id,
-                projection_payloads.get(entity_id.removeprefix("sensor.")) or {},
-            )
-        )
         canonical_parity_issues = (
             projection_consistency_issues(projection_payloads, canonical_public_v2)
             if projection_payloads and canonical_public_v2
             else {}
         )
-        degraded_public_entities = sorted(
-            set(degraded_public_entities) | set(canonical_parity_issues)
-        )
+        # Functional availability is an installation/runtime concern, not V1/V2 parity.
+        # Compatibility blocks only when the frozen surface is missing or when V1
+        # contradicts canonical V2 truth for an equivalent fact.
+        degraded_public_entities = sorted(canonical_parity_issues)
         compatibility_functional_status = (
             compatibility_presence_status if not product_states
-            else "DEGRADED" if degraded_public_entities
+            else "DEGRADED" if canonical_parity_issues
             else "OK"
         )
         mobility_available = bool(runtime_snapshot.get("mobility_publication_available"))

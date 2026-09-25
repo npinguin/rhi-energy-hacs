@@ -11,7 +11,6 @@ from .runtime.canonical_structure import canonical_projection_assets
 
 from .const import (
     DOMAIN,
-    FOUNDATION_MIN_RELEASE,
     LEGACY_BACKEND_RELEASE,
     LEGACY_CONTRACT_VERSION,
     LEGACY_DIAGNOSTIC_ENTITIES,
@@ -375,7 +374,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "release_name": RELEASE_NAME,
             "shared_baseline_version": SHARED_BASELINE_VERSION,
             "shared_baseline_checksum": SHARED_BASELINE_CHECKSUM,
-            "foundation_min_release": FOUNDATION_MIN_RELEASE,
             "compatibility_backend_release": LEGACY_BACKEND_RELEASE,
             "public_contract": LEGACY_CONTRACT_VERSION,
             "known_accepted_technical_debt": 0,
@@ -393,7 +391,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "last_success": getattr(manager, "last_success", None),
             "contract_alignment": {
                 "shared_baseline": SHARED_BASELINE_VERSION,
-                "foundation_min_release": FOUNDATION_MIN_RELEASE,
                 "selected_input_contracts": sorted({
                     str(item.get("contract_version"))
                     for item in selected_inputs

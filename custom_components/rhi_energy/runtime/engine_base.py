@@ -445,9 +445,14 @@ class EnergyRuntime:
             facts["battery.soc_pct"] = facts[f"{sid}.soc_pct"]
             facts["battery.status"] = facts[f"{sid}.status"]
             facts["battery_system.source_id"] = sid
-            if units and any(value is None for value in pvals):
+            # Child completeness is only required when aggregate system truth
+            # cannot be resolved from an authoritative system-level measurement.
+            if units and facts[f"{sid}.power_kw"] is None:
                 issues.append(f"battery_system:{sid}:power_aggregate_incomplete")
-            if units and any(value is None for value in cvals + avals):
+            if units and (
+                facts[f"{sid}.capacity_kwh"] is None
+                or facts[f"{sid}.available_kwh"] is None
+            ):
                 issues.append(f"battery_system:{sid}:energy_aggregate_incomplete")
 
         # Solar systems aggregate inverter facts only when every participating inverter is known.

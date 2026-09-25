@@ -1,12 +1,12 @@
-"""Constants for RHI Energy E0.15.42 canonical HA topology lifecycle on Shared Baseline 1.8.1."""
+"""Constants for RHI Energy E0.15.43 stabilization on Shared Baseline 1.8.1."""
 DOMAIN = "rhi_energy"
 DOMAIN_ID = "energy"
-RELEASE = "E0.15.42"
-RELEASE_NAME = "RUNTIME_TOPOLOGY_CLOSURE"
+RELEASE = "E0.15.43"
+RELEASE_NAME = "STABILIZATION_AND_YOULESS_CLOSURE"
 SHARED_BASELINE_ID = "RHI_SHARED_ARCHITECTURE_BASELINE"
 SHARED_BASELINE_VERSION = "1.8.1"
 SHARED_BASELINE_CHECKSUM = "sha256:e76a3fb3539f9bc8b2b1b07976cf1372b39319b97887465669d4c452c07f7e52"
-PUBLICATION_REVISION = 16
+PUBLICATION_REVISION = 17
 PUBLICATION_CONTRACT = "domain_build_specification_v1.2.0"
 BUILD_INPUT_REGISTRY_KEY = "rhi_selected_domain_build_input_registry"
 INTEROP_PROVIDER_REGISTRY_KEY = "rhi_domain_interop_provider_registry"
@@ -17,7 +17,6 @@ STORE_VERSION = 2
 STORE_KEY = "rhi_energy_v2_state"
 MOBILITY_ENERGY_V2_ENTITY = "sensor.rhi_mobility_energy_v2"
 MOBILITY_COMMAND_V2_ENTITY = "sensor.rhi_mobility_command_v2"
-MOBILITY_MIN_RELEASE = "M0.9.45"
 LEGACY_CONTRACT_VERSION = "R1.89.44_CONTRACT"
 LEGACY_BACKEND_RELEASE = "R1.89.45"
 LEGACY_PUBLIC_ENTITIES = (
@@ -60,9 +59,6 @@ LEGACY_DIAGNOSTIC_ENTITIES = (
     "sensor.energy_home_intelligence_contract_standard_health",
 )
 HEALTH_STATES=("OK","DEGRADED","STALE","INVALID","UNKNOWN")
-# F1.8.2 is a backward-compatible Foundation implementation patch on immutable
-# Shared Baseline 1.8.1. Keep the minimum at F1.8.1 so Energy remains rollback-safe.
-FOUNDATION_MIN_RELEASE="F1.8.1"
 FOUNDATION_HANDOFF_REQUIRED_FIELDS=("source_identity","technical_capability","evidence")
 COMMAND_TIMEOUT_SECONDS=120
 COMMAND_IDEMPOTENCY_WINDOW_SECONDS=120

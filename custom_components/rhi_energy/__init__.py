@@ -14,7 +14,6 @@ from .canonical_device import sync_canonical_device_topology
 from .const import (
     DOMAIN,
     DOMAIN_ID,
-    FOUNDATION_MIN_RELEASE,
     INTEROP_PROVIDER_REGISTRY_KEY,
     PLATFORMS,
     PROFILE_CATALOG_PROVIDER_ID,
@@ -41,38 +40,21 @@ _LOGGER = logging.getLogger(__name__)
 _PUBLICATION_STATE_KEY = "__domain_build_specification_publication__"
 
 
-def _release_version(value: str) -> tuple[int, int, int]:
-    try:
-        parts = str(value).removeprefix("F").split(".")
-        major, minor, patch = parts
-        return int(major), int(minor), int(patch)
-    except (TypeError, ValueError):
-        return (-1, -1, -1)
-
-
 def _shared_registry_api():
+    """Load Foundation registry by capability, never by package release identity."""
     try:
-        from custom_components.rhi_foundation.const import (
-            RELEASE as foundation_release,
-            SHARED_BASELINE_VERSION as foundation_baseline,
-        )
         from custom_components.rhi_foundation.shared_registry import (
             register_domain_build_specification_provider,
             unregister_domain_build_specification_provider,
         )
     except Exception as exc:  # Foundation owns the shared registry implementation.
-        raise ConfigEntryNotReady(f"foundation_shared_registry_api_unavailable:{type(exc).__name__}") from exc
-    if (
-        foundation_baseline != SHARED_BASELINE_VERSION
-        or _release_version(foundation_release) < _release_version(FOUNDATION_MIN_RELEASE)
-    ):
         raise ConfigEntryNotReady(
-            "foundation_contract_incompatible:"
-            f"required_release={FOUNDATION_MIN_RELEASE}:"
-            f"required_baseline={SHARED_BASELINE_VERSION}:"
-            f"loaded_release={foundation_release}:"
-            f"loaded_baseline={foundation_baseline}"
-        )
+            f"foundation_shared_registry_api_unavailable:{type(exc).__name__}"
+        ) from exc
+    if not callable(register_domain_build_specification_provider) or not callable(
+        unregister_domain_build_specification_provider
+    ):
+        raise ConfigEntryNotReady("foundation_shared_registry_capability_unavailable")
     return register_domain_build_specification_provider, unregister_domain_build_specification_provider
 
 
@@ -210,7 +192,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await manager.async_start()
         setup_performance["manager_start_ms"] = round((perf_counter() - stage_started) * 1000, 3)
 
-        runtime.activate_model(manager.domain_model)
         stage_started = perf_counter()
         sync_canonical_device_topology(
             hass,

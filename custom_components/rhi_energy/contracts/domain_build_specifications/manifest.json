@@ -3,7 +3,7 @@
   "contract_version": "1.2.0",
   "publisher": "rhi_energy",
   "domain_id": "energy",
-  "specification_count": 17,
+  "specification_count": 19,
   "builders": [
     {
       "builder_id": "energy.grid_connection.homewizard.v1",
@@ -140,6 +140,22 @@
       "integration_domains": [
         "huawei_solar"
       ]
+    },
+    {
+      "builder_id": "energy.grid_connection.youless.v1",
+      "builder_version": "1.0.0",
+      "concept_id": "grid_connection",
+      "integration_domains": [
+        "youless"
+      ]
+    },
+    {
+      "builder_id": "energy.gas_meter.youless.v1",
+      "builder_version": "1.0.0",
+      "concept_id": "gas_meter",
+      "integration_domains": [
+        "youless"
+      ]
     }
   ],
   "legacy_migration": {
@@ -158,5 +174,5 @@
   },
   "publication_contract": "domain_build_specification_v1.2.0",
   "shared_baseline_version": "1.8.1",
-  "publication_revision": 16
+  "publication_revision": 17
 }
