@@ -216,14 +216,14 @@ class EnergyDomainSupervision:
         if compatibility_presence_status != "OK":
             issues.append(_issue(
                 "energy:compatibility:v1_contract_presence", "COMPATIBILITY",
-                "V1_FEATURE_PARITY_INCOMPLETE", blocking=True,
-                severity="CRITICAL", scope=["R1.89.44_CONTRACT"],
+                "V1_FEATURE_PARITY_INCOMPLETE", blocking=False,
+                severity="WARNING", scope=["R1.89.44_CONTRACT"],
             ))
         elif compatibility_functional_status != "OK":
             issues.append(_issue(
                 "energy:compatibility:v1_feature_parity", "COMPATIBILITY",
-                "V1_FEATURE_PARITY_FUNCTIONALLY_INCOMPLETE", blocking=True,
-                severity="ERROR", scope=degraded_public_entities[:12] or ["R1.89.44_CONTRACT"],
+                "V1_FEATURE_PARITY_FUNCTIONALLY_INCOMPLETE", blocking=False,
+                severity="WARNING", scope=degraded_public_entities[:12] or ["R1.89.44_CONTRACT"],
             ))
         if mobility_expected and not mobility_available:
             issues.append(_issue(
@@ -232,16 +232,16 @@ class EnergyDomainSupervision:
                 severity="WARNING", scope=["sensor.mobility_energy_asset_publication"],
             ))
 
-        statuses = [
+        # V1 is a temporary downstream compatibility projection. Its presence or
+        # parity may be diagnosed, but it can never govern canonical V2 readiness.
+        canonical_statuses = [
             configuration_status,
             contract_status,
             build_status,
             runtime_status,
-            compatibility_presence_status,
-            compatibility_functional_status,
         ]
-        overall = max(statuses, key=lambda value: _PRIORITY[value])
-        if all(value == "OK" for value in statuses):
+        overall = max(canonical_statuses, key=lambda value: _PRIORITY[value])
+        if all(value == "OK" for value in canonical_statuses):
             overall = "READY"
 
         observed_at = datetime.now(timezone.utc).isoformat()

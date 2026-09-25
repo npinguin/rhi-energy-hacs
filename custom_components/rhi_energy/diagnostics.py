@@ -313,6 +313,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     store_data = (getattr(store, "data", {}) or {}) if store else {}
     metering = store_data.get("metering", {})
     command_state = store_data.get("command_state", {})
+    property_operation_state = store_data.get("property_operation_state", {})
     activity = store_data.get("activity", [])
     evidence = store_data.get("pilot_evidence", {})
     periods = metering.get("periods") or {}
@@ -399,6 +400,34 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             },
         },
         "event_flow": (runtime.event_flow.snapshot() if runtime and hasattr(runtime, "event_flow") else {}),
+        "public_projection": (
+            state.get("public_projector").projection_diagnostics()
+            if state.get("public_projector")
+            and hasattr(state.get("public_projector"), "projection_diagnostics")
+            else {}
+        ),
+        "canonical_coverage": deepcopy(
+            ((state.get("public_projector").get_v2() if state.get("public_projector") else {}) or {}).get("coverage") or {}
+        ),
+        "property_operations": {
+            "count": len(property_operation_state),
+            "pending_count": sum(
+                1 for row in property_operation_state.values()
+                if isinstance(row, dict) and row.get("status") == "PENDING"
+            ),
+            "rows": [
+                {
+                    "property_id": key,
+                    "operation_id": row.get("operation_id"),
+                    "status": row.get("status"),
+                    "reason": row.get("reason"),
+                    "requested_at": row.get("requested_at"),
+                    "completed_at": row.get("completed_at"),
+                }
+                for key, row in list(property_operation_state.items())[-40:]
+                if isinstance(row, dict)
+            ],
+        },
         "public_surface": {
             "expected_entity_count": len(compatibility_entities),
             "product_entity_count": len(LEGACY_PUBLIC_ENTITIES),

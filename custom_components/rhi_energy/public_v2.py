@@ -11,6 +11,7 @@ try:
     from .visual_catalog import resolve_visual_ref
     from .runtime.canonical_semantics import pricing_properties, strategy_properties
     from .runtime.value_accounting import interval_actuals
+    from .runtime.coverage import canonical_coverage
 except ImportError:  # direct runpy tests
     from pathlib import Path as _Path
     import runpy as _runpy
@@ -27,6 +28,8 @@ except ImportError:  # direct runpy tests
     strategy_properties = _canonical["strategy_properties"]
     _value = _runpy.run_path(str(_root / "runtime" / "value_accounting.py"))
     interval_actuals = _value["interval_actuals"]
+    _coverage = _runpy.run_path(str(_root / "runtime" / "coverage.py"))
+    canonical_coverage = _coverage["canonical_coverage"]
 
 PUBLIC_CONTRACT_V2 = "2.0.0"
 
@@ -62,8 +65,12 @@ def _publication(asset: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _decorate_objects(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _decorate_objects(
+    objects: list[dict[str, Any]],
+    property_operations: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     decorated: list[dict[str, Any]] = []
+    operation_rows = property_operations or {}
     for raw in objects:
         if not isinstance(raw, dict):
             continue
@@ -99,7 +106,13 @@ def _decorate_objects(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "value_parameter": "value",
                     "readback_property": property_key,
                 }
-                prop["operation_state"] = "IDLE"
+                operation = deepcopy(
+                    operation_rows.get(
+                        f"logical:{asset.get('asset_id')}:{property_key}"
+                    ) or {}
+                )
+                prop["operation_state"] = operation.get("status") or "IDLE"
+                prop["operation"] = operation or None
             if prop.get("control_capability") is not True:
                 continue
             control = {
@@ -195,6 +208,21 @@ def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return [rows[key] for key in sorted(rows)]
 
 
+def _apply_configuration_operation_state(
+    rows: list[dict[str, Any]],
+    property_operations: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    out = deepcopy(rows)
+    for row in out:
+        property_id = str(row.get("property_id") or row.get("key") or "")
+        if not property_id or row.get("editable") is not True:
+            continue
+        operation = deepcopy(property_operations.get(property_id) or {})
+        row["operation_state"] = operation.get("status") or "IDLE"
+        row["operation"] = operation or None
+    return out
+
+
 def build_public_contract_v2(
     snapshot: dict[str, Any],
     store_data: dict[str, Any],
@@ -213,10 +241,20 @@ def build_public_contract_v2(
     source["battery_reserve_write_supported"] = bool(
         (concepts.get("battery_system") or {}).get("reserve_binding")
     )
-    objects = _decorate_objects(deepcopy(source.get("logical_assets") or []))
+    property_operations = deepcopy(store_data.get("property_operation_state") or {})
+    objects = _decorate_objects(
+        deepcopy(source.get("logical_assets") or []),
+        property_operations,
+    )
     settings = deepcopy(store_data.get("settings") or {})
-    pricing_rows = pricing_properties(source.get("facts") or {}, settings)
-    strategy_rows = strategy_properties(settings)
+    pricing_rows = _apply_configuration_operation_state(
+        pricing_properties(source.get("facts") or {}, settings),
+        property_operations,
+    )
+    strategy_rows = _apply_configuration_operation_state(
+        strategy_properties(settings),
+        property_operations,
+    )
     canonical_configuration = {
         "pricing": {
             "properties": pricing_rows,
@@ -225,10 +263,32 @@ def build_public_contract_v2(
         "strategy": {
             "configured_properties": strategy_rows,
             "effective_properties": deepcopy(strategy_rows),
-            "effective_state": "AVAILABLE",
-            "effective_reason": "configured_policy_is_effective_without_runtime_override",
+            "effective_state": (
+                "OVERRIDDEN"
+                if any(bool(value) for value in (settings.get("holds") or {}).values())
+                else "AVAILABLE"
+                if ((source.get("plan") or {}).get("health") in {"OK", "READY"})
+                else "NOT_EVALUATED"
+            ),
+            "effective_reason": (
+                "runtime_flexible_load_holds_override_configured_strategy"
+                if any(bool(value) for value in (settings.get("holds") or {}).values())
+                else "configured_strategy_evaluated_by_current_plan"
+                if ((source.get("plan") or {}).get("health") in {"OK", "READY"})
+                else "planning_evidence_not_ready"
+            ),
+            "runtime_overrides": [
+                {
+                    "override_type": "flexible_load_hold",
+                    "target_asset_id": str(asset_id),
+                    "active": True,
+                }
+                for asset_id, active in sorted((settings.get("holds") or {}).items())
+                if active
+            ],
         },
     }
+    coverage = canonical_coverage(objects, canonical_configuration)
     activity = [deepcopy(row) for row in (store_data.get("activity") or []) if isinstance(row, dict)][-100:]
     metering_periods = deepcopy(((store_data.get("metering") or {}).get("periods") or {}))
     value_accounting = {
@@ -246,6 +306,7 @@ def build_public_contract_v2(
     )
     return {
         "kind": "rhi_energy_public_contract",
+        "contract_id": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
         "contract_version": PUBLIC_CONTRACT_V2,
         "domain_id": "energy",
         "release": RELEASE,
@@ -266,6 +327,7 @@ def build_public_contract_v2(
         "profiles": _profile_catalog(),
         "relationships": _relationships(source),
         "configuration": canonical_configuration,
+        "coverage": coverage,
         "planning": deepcopy(source.get("plan") or {}),
         "intelligence": deepcopy(source.get("intelligence") or {}),
         "overview": deepcopy(source.get("overview") or {}),
@@ -286,6 +348,7 @@ def build_public_contract_v2(
             "unresolved_property_count": unresolved,
             "relationship_count": len(_relationships(source)),
             "configuration_property_count": len(pricing_rows) + len(strategy_rows),
+            "coverage_complete": coverage.get("complete"),
             "command_count": len(command_rows),
             "activity_count": len(activity),
             "value_accounting_period_count": len(value_accounting),

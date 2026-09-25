@@ -303,10 +303,55 @@ class EnergyInteractionEngine:
             readback_value=actual,
             target_asset_id=asset.get("asset_id"),
             source_platform=platform,
+            source_entity_id=entity_id,
         )
         return result
 
+    async def _admit_property_write(self, property_id: str, value: Any) -> dict[str, Any]:
+        now = datetime.now(ZoneInfo(self.hass.config.time_zone))
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {"property_id": property_id, "value": value},
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode()
+        ).hexdigest()[:20]
+        row = {
+            "operation_id": f"energy:property:{fingerprint}:{int(now.timestamp() * 1000)}",
+            "fingerprint": fingerprint,
+            "property_id": property_id,
+            "requested_value": deepcopy(value),
+            "requested_at": now.isoformat(),
+            "deadline_at": (now + timedelta(seconds=COMMAND_TIMEOUT_SECONDS)).isoformat(),
+            "status": PENDING,
+            "reason": "admitted_pending_write",
+            "readback_value": None,
+        }
+        self.store.data.setdefault("property_operation_state", {})[property_id] = row
+        await self.store.async_save()
+        return row
+
+    def _finalize_property_write(self, operation: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+        operation.update(
+            status=result.get("status") or "REJECTED",
+            reason=result.get("reason") or "unknown",
+            readback_value=deepcopy(result.get("readback_value")),
+            target_asset_id=result.get("target_asset_id"),
+            source_platform=result.get("source_platform"),
+            source_entity_id=result.get("source_entity_id"),
+        )
+        if operation["status"] in _TERMINAL:
+            operation["completed_at"] = datetime.now(
+                ZoneInfo(self.hass.config.time_zone)
+            ).isoformat()
+        result["operation_id"] = operation.get("operation_id")
+        result["requested_at"] = operation.get("requested_at")
+        result["completed_at"] = operation.get("completed_at")
+        return result
+
     async def write_property(self, property_id: str, value: Any) -> dict[str, Any]:
+        operation = await self._admit_property_write(property_id, value)
         settings = self.store.data.setdefault("settings", {})
         pricing = settings.setdefault("pricing", {})
         strategy = settings.setdefault("strategy", {})
@@ -325,7 +370,14 @@ class EnergyInteractionEngine:
             "pricing.export_fee_eur_kwh": "export_fee_eur_kwh",
         }
         if property_id.startswith("logical:"):
-            result = await self._write_logical_property(property_id, value)
+            try:
+                result = await self._write_logical_property(property_id, value)
+            except Exception as exc:
+                _LOGGER.exception("Energy property write failed property=%s", property_id)
+                result.update(
+                    status="REJECTED",
+                    reason=f"property_write_exception:{type(exc).__name__}",
+                )
         elif property_id in pricing_map:
             numeric = number(value)
             if numeric is None:
@@ -433,11 +485,16 @@ class EnergyInteractionEngine:
                         else "physical_write_dispatched_awaiting_readback"
                     ),
                     readback_value=actual,
+                    source_entity_id=entity_id,
+                    source_platform="number",
                 )
+        result = self._finalize_property_write(operation, result)
+        self.store.data.setdefault("property_operation_state", {})[property_id] = operation
         self.store.add_activity(
             {
                 "activity_type": "property_write",
                 "property_id": property_id,
+                "operation_id": result.get("operation_id"),
                 "status": result["status"],
                 "reason": result["reason"],
             }
@@ -637,6 +694,70 @@ class EnergyInteractionEngine:
                         completed_at=now.isoformat(),
                     )
                     changed = True
+        for property_id, operation in (self.store.data.get("property_operation_state") or {}).items():
+            if operation.get("status") != PENDING:
+                continue
+            deadline = operation.get("deadline_at")
+            try:
+                expired = bool(deadline and now >= datetime.fromisoformat(str(deadline)))
+            except (TypeError, ValueError):
+                expired = False
+            requested = operation.get("requested_value")
+            actual = None
+            if str(property_id).startswith("logical:"):
+                asset, prop, _binding = self._logical_control(str(property_id))
+                if asset and prop:
+                    current = next(
+                        (
+                            row for row in (self.runtime.snapshot.get("logical_assets") or [])
+                            if str(row.get("asset_id") or "") == str(asset.get("asset_id") or "")
+                        ),
+                        None,
+                    )
+                    current_prop = next(
+                        (
+                            row for row in (current or {}).get("properties") or []
+                            if str(row.get("property_key") or "") == str(prop.get("property_key") or "")
+                        ),
+                        None,
+                    )
+                    actual = (current_prop or {}).get("value")
+            source_entity_id = operation.get("source_entity_id")
+            if actual is None and str(property_id).endswith(".requested_power_kw"):
+                asset_id = str(property_id)[: -len(".requested_power_kw")]
+                asset = self._find_asset(asset_id)
+                actual = (asset or {}).get("requested_power_kw")
+            if actual is None and source_entity_id:
+                state = self.hass.states.get(str(source_entity_id))
+                actual = number(state.state) if state is not None else None
+            expected_number = number(requested)
+            actual_number = number(actual)
+            confirmed = (
+                actual_number is not None
+                and expected_number is not None
+                and abs(actual_number - expected_number)
+                    <= max(0.001, abs(expected_number) * 0.001)
+            ) or (
+                actual is not None
+                and expected_number is None
+                and str(actual) == str(requested)
+            )
+            if confirmed:
+                operation.update(
+                    status="CONFIRMED",
+                    reason="authoritative_property_readback_confirmed",
+                    readback_value=actual,
+                    completed_at=now.isoformat(),
+                )
+                changed = True
+            elif expired:
+                operation.update(
+                    status="TIMED_OUT",
+                    reason="authoritative_property_readback_timeout",
+                    completed_at=now.isoformat(),
+                )
+                changed = True
+
         if changed:
             self.hass.async_create_task(self.store.async_save())
             self._notify()
@@ -781,10 +902,13 @@ class EnergyInteractionEngine:
                     "authoritative_readback_ref": "energy:object:metering",
                 }
             )
+        execute_command_id = "energy.command.execute_plan"
+        execute_key = command_state_key(execute_command_id, "energy")
+        execute_last = states.get(execute_key, {})
         rows.append(
             {
                 "command_instance_id": "energy.command.execute_plan.energy",
-                "command_id": "energy.command.execute_plan",
+                "command_id": execute_command_id,
                 "owner": "energy",
                 "target_asset_id": "energy",
                 "role": "execute_plan",
@@ -799,13 +923,22 @@ class EnergyInteractionEngine:
                     "service": "rhi_energy.invoke_command",
                     "data": {"command_id": "energy.command.execute_plan", "target_asset_id": "energy", "parameters": {}},
                 },
-                "readback": {"state": "idle", "feedback_confirmed": True},
-                "operation_id": None,
-                "status": "IDLE",
-                "requested_at": None,
-                "completed_at": None,
-                "execution_evidence": {"dispatch_state": "IDLE", "producer_domain": "energy", "result_code": None, "feedback_confirmed": True},
-                "execution_status": "IDLE",
+                "readback": {
+                    "state": str(execute_last.get("status") or "IDLE").lower(),
+                    "result_code": execute_last.get("reason"),
+                    "feedback_confirmed": execute_last.get("status") == "CONFIRMED",
+                },
+                "operation_id": execute_last.get("operation_id"),
+                "status": execute_last.get("status") or "IDLE",
+                "requested_at": execute_last.get("requested_at"),
+                "completed_at": execute_last.get("completed_at"),
+                "execution_evidence": {
+                    "dispatch_state": execute_last.get("dispatch_state"),
+                    "producer_domain": "energy",
+                    "result_code": execute_last.get("reason"),
+                    "feedback_confirmed": execute_last.get("status") == "CONFIRMED",
+                },
+                "execution_status": execute_last.get("status") or "IDLE",
                 "authoritative_readback_ref": "energy:contract:planning",
             }
         )

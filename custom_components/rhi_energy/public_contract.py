@@ -1332,9 +1332,18 @@ class PublicContractProjector:
         self._cache: dict[str,dict[str,Any]]={}; self._v2: dict[str,Any]={}; self._callbacks: dict[str,list[Callable[[],None]]]={}; self._removers=[]
 
     def start(self) -> None:
-        for owner in (self.runtime,self.store,self.metering,self.interaction,self.manager):
-            if hasattr(owner,"add_callback"):
-                self._removers.append(owner.add_callback(self.recompute))
+        for owner in (self.runtime, self.store, self.metering, self.interaction, self.manager):
+            if hasattr(owner, "add_callback"):
+                self._removers.append(owner.add_callback(self.request_recompute))
+        self.recompute()
+
+    def request_recompute(self) -> None:
+        """Request a projection refresh.
+
+        The concrete V2 projector may coalesce multiple upstream notifications into
+        one projection transaction. The base class deliberately owns no product
+        projection algorithm.
+        """
         self.recompute()
 
     def add_callback(self,object_id: str, cb: Callable[[],None]) -> Callable[[],None]:
@@ -1354,25 +1363,7 @@ class PublicContractProjector:
         return self.add_callback("__public_v2__", cb)
 
     def recompute(self) -> None:
-        # Add structural evidence that belongs to runtime/model without putting
-        # Foundation into the measurement fast path.
-        snapshot=deepcopy(self.runtime.snapshot)
-        model=self.manager.domain_model or {}
-        bsys=(model.get("concepts") or {}).get("battery_system") or {}
-        reserve_id=bsys.get("reserve_binding")
-        snapshot["battery_reserve_write_supported"]=bool(reserve_id)
-        snapshot["settings"]=deepcopy(self.store.data.get("settings") or {})
-        contract_v2=build_public_contract_v2(snapshot,self.store.data,self.interaction.command_rows(),model)
-        public_v2=published_v2(contract_v2)
-        v2_changed=public_v2 != self._v2
-        self._v2=public_v2
-        new=project_all(contract_v2,self.store.data,self.interaction.command_rows(),self.manager)
-        for oid,payload in new.items():
-            if payload != self._cache.get(oid):
-                self._cache[oid]=payload
-                for cb in tuple(self._callbacks.get(oid,[])): cb()
-        if v2_changed:
-            for cb in tuple(self._callbacks.get("__public_v2__", [])): cb()
+        raise NotImplementedError("concrete public projector owns projection algorithm")
 
     async def async_stop(self) -> None:
         for remove in self._removers:

@@ -21,6 +21,7 @@ class EnergyStore:
             "settings": default_settings(),
             "metering": {"periods": {}, "last_update": None, "last_powers": {}, "last_flexible_powers": {}, "last_financial_rates": {}, "baseload_profile": {}, "baseload_last_sample_bucket": None},
             "command_state": {},
+            "property_operation_state": {},
             "pilot_evidence": {},
             "activity": [],
         }
