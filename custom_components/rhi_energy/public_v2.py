@@ -65,6 +65,34 @@ def _publication(asset: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_PUBLIC_OPERATION_STATES = {"IDLE", "PENDING", "CONFIRMED", "REJECTED", "TIMED_OUT"}
+
+
+def _public_operation(operation: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the single public lifecycle shape for writes and commands."""
+    row = deepcopy(operation or {})
+    raw_status = str(row.get("status") or row.get("execution_status") or "IDLE").upper()
+    aliases = {
+        "SUCCESS": "CONFIRMED",
+        "COMPLETED": "CONFIRMED",
+        "FAILED": "REJECTED",
+        "ERROR": "REJECTED",
+        "TIMEOUT": "TIMED_OUT",
+    }
+    status = aliases.get(raw_status, raw_status)
+    if status not in _PUBLIC_OPERATION_STATES:
+        status = "IDLE"
+    return {
+        "operation_id": row.get("operation_id"),
+        "status": status,
+        "reason": row.get("reason") or row.get("error"),
+        "requested_at": row.get("requested_at"),
+        "completed_at": row.get("completed_at"),
+        "requested_value": deepcopy(row.get("requested_value")),
+        "readback_value": deepcopy(row.get("readback_value")),
+    }
+
+
 def _decorate_objects(
     objects: list[dict[str, Any]],
     property_operations: dict[str, dict[str, Any]] | None = None,
@@ -111,8 +139,9 @@ def _decorate_objects(
                         f"logical:{asset.get('asset_id')}:{property_key}"
                     ) or {}
                 )
-                prop["operation_state"] = operation.get("status") or "IDLE"
-                prop["operation"] = operation or None
+                public_operation = _public_operation(operation)
+                prop["operation_state"] = public_operation["status"]
+                prop["operation"] = public_operation
             if prop.get("control_capability") is not True:
                 continue
             control = {
@@ -198,7 +227,11 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
             "export_power_kw": grid["export_power_kw"],
             "flow_direction": grid["flow_direction"],
         },
-        unavailable_reason="grid_core_truth_incomplete",
+        unavailable_reason=(
+            "grid_direction_unresolved"
+            if grid["flow_direction"] is None
+            else "grid_core_truth_incomplete"
+        ),
     ))
 
     consumption = {"power_kw": facts.get("site_consumption.power_kw")}
@@ -225,6 +258,7 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
     }
     flexible_required = {
         "power_kw": flexible["power_kw"],
+        "attributed_power_kw": flexible["attributed_power_kw"],
         "producer_available": True if producer_available else None,
     }
     flexible.update(_core_status(
@@ -320,8 +354,9 @@ def _apply_configuration_operation_state(
         if not property_id or row.get("editable") is not True:
             continue
         operation = deepcopy(property_operations.get(property_id) or {})
-        row["operation_state"] = operation.get("status") or "IDLE"
-        row["operation"] = operation or None
+        public_operation = _public_operation(operation)
+        row["operation_state"] = public_operation["status"]
+        row["operation"] = public_operation
     return out
 
 
@@ -331,17 +366,14 @@ def _decorate_commands(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not isinstance(raw, dict):
             continue
         row = deepcopy(raw)
-        status = str(row.get("status") or row.get("execution_status") or "IDLE").upper()
-        row["operation_state"] = status
-        row["operation"] = {
-            "operation_id": row.get("operation_id"),
-            "status": status,
-            "reason": row.get("reason"),
-            "requested_at": row.get("requested_at"),
-            "completed_at": row.get("completed_at"),
-            "requested_value": deepcopy(row.get("parameters") or {}),
-            "readback_value": deepcopy(row.get("readback") or {}),
+        lifecycle_source = {
+            **row,
+            "requested_value": deepcopy(row.get("requested_value") if "requested_value" in row else (row.get("parameters") or {})),
+            "readback_value": deepcopy(row.get("readback_value") if "readback_value" in row else (row.get("readback") or {})),
         }
+        public_operation = _public_operation(lifecycle_source)
+        row["operation_state"] = public_operation["status"]
+        row["operation"] = public_operation
         out.append(row)
     return out
 
