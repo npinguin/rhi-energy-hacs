@@ -407,13 +407,34 @@ class EnergyRuntime:
             avals = [facts.get(f"{u.get('asset_id')}.available_kwh") for u in units]
             socvals = [facts.get(f"{u.get('asset_id')}.soc_pct") for u in units]
             svals = [facts.get(f"{u.get('asset_id')}.status") for u in units]
-            facts[f"{sid}.power_kw"] = complete_numeric_sum(pvals, expected_count=len(units))
-            facts[f"{sid}.capacity_kwh"] = complete_numeric_sum(cvals, expected_count=len(units))
-            facts[f"{sid}.available_kwh"] = complete_numeric_sum(avals, expected_count=len(units))
+            direct_power = facts.get(f"{sid}.power_kw")
+            direct_capacity = facts.get(f"{sid}.capacity_kwh")
+            direct_soc = facts.get(f"{sid}.soc_pct")
+            direct_status = facts.get(f"{sid}.status")
+            child_power = complete_numeric_sum(pvals, expected_count=len(units))
+            child_capacity = complete_numeric_sum(cvals, expected_count=len(units))
+            child_available = complete_numeric_sum(avals, expected_count=len(units))
+            facts[f"{sid}.power_kw"] = direct_power if direct_power is not None else child_power
+            facts[f"{sid}.capacity_kwh"] = direct_capacity if direct_capacity is not None else child_capacity
             capacity = facts[f"{sid}.capacity_kwh"]
-            available = facts[f"{sid}.available_kwh"]
-            facts[f"{sid}.soc_pct"] = aggregate_battery_soc(capacity, available, socvals)
-            facts[f"{sid}.status"] = next(iter(set(svals))) if units and all(value is not None for value in svals) and len(set(svals)) == 1 else "mixed" if units and all(value is not None for value in svals) else None
+            aggregate_soc = aggregate_battery_soc(child_capacity, child_available, socvals)
+            facts[f"{sid}.soc_pct"] = direct_soc if direct_soc is not None else aggregate_soc
+            facts[f"{sid}.available_kwh"] = (
+                child_available
+                if child_available is not None
+                else round(float(capacity) * float(facts[f"{sid}.soc_pct"]) / 100.0, 6)
+                if isinstance(capacity, (int, float)) and isinstance(facts[f"{sid}.soc_pct"], (int, float))
+                else None
+            )
+            facts[f"{sid}.status"] = (
+                direct_status
+                if direct_status is not None
+                else next(iter(set(svals)))
+                if units and all(value is not None for value in svals) and len(set(svals)) == 1
+                else "mixed"
+                if units and all(value is not None for value in svals)
+                else None
+            )
 
             # Battery System is a canonical Energy object composed exclusively from
             # normalized Battery objects.  Never re-read or reinterpret integration

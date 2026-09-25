@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.battery_system.huawei_solar.v1",
-  "builder_version": "1.0.0",
+  "builder_version": "1.1.0",
   "concept": {
     "concept_id": "battery_system",
     "display_name": "Home Battery System",
@@ -36,7 +36,7 @@
           "integration_api"
         ],
         "required": true,
-        "cardinality": "exactly_one_per_group",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "huawei_solar",
@@ -47,6 +47,23 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_charge_discharge_power"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_unit_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_charge_discharge_power"
               }
             ]
           }
@@ -64,7 +81,7 @@
           "integration_api"
         ],
         "required": true,
-        "cardinality": "exactly_one_per_group",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "huawei_solar",
@@ -75,6 +92,23 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_state_of_capacity"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_unit_soc",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_of_capacity"
               }
             ]
           }
@@ -123,7 +157,7 @@
           "integration_api"
         ],
         "required": false,
-        "cardinality": "zero_or_one_per_group",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "huawei_solar",
@@ -134,6 +168,23 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_running_status"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_working_status"
               }
             ]
           }
@@ -177,7 +228,7 @@
           "entity"
         ],
         "required": false,
-        "cardinality": "zero_or_one_per_group",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "huawei_solar",
@@ -188,6 +239,23 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_bus_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_dc_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_voltage"
               }
             ]
           }
@@ -204,7 +272,7 @@
           "entity"
         ],
         "required": false,
-        "cardinality": "zero_or_one_per_group",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "huawei_solar",
@@ -215,6 +283,23 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_bus_current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_dc_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_current"
               }
             ]
           }
@@ -231,7 +316,7 @@
           "entity"
         ],
         "required": false,
-        "cardinality": "zero_or_one_per_group",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "huawei_solar",
@@ -242,6 +327,23 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_total_charge"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_energy_import",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_total_charge"
               }
             ]
           }
@@ -258,7 +360,7 @@
           "entity"
         ],
         "required": false,
-        "cardinality": "zero_or_one_per_group",
+        "cardinality": "zero_or_more",
         "integration_matches": [
           {
             "integration_domain": "huawei_solar",
@@ -269,6 +371,23 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_total_discharge"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_energy_export",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_total_discharge"
               }
             ]
           }
@@ -296,6 +415,38 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_battery_temperature"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_max_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_max_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_maximum_temperature"
               }
             ]
           }
@@ -350,6 +501,38 @@
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_storage_unit_1_rated_discharge_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_version",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_version",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "contains",
+                "value": "_storage_unit_1_battery_pack_"
+              },
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_firmware_version"
               }
             ]
           }

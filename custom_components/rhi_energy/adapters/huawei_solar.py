@@ -8,10 +8,23 @@ device names, or Foundation-private state.
 from __future__ import annotations
 
 from typing import Any
+import re
 
 
 def _unique_id(candidate: dict[str, Any]) -> str:
     return str((candidate.get("source_identity") or {}).get("unique_id") or "")
+
+
+_PACK_RE = re.compile(r"_storage_unit_(\d+)_battery_pack_(\d+)_")
+
+
+def battery_unit_key(candidate: dict[str, Any]) -> str | None:
+    """Return stable Huawei battery-pack identity from source unique-id semantics."""
+    unique_id = _unique_id(candidate)
+    match = _PACK_RE.search(unique_id)
+    if match:
+        return f"storage_unit_{match.group(1)}:pack_{match.group(2)}"
+    return None
 
 
 def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:

@@ -18,6 +18,7 @@ Normalizer = Callable[[str, Any, dict[str, Any]], Any]
 CandidateFilter = Callable[[str, dict[str, Any]], bool]
 MarketRoleResolver = Callable[[dict[str, Any]], str | None]
 TopologyKeyResolver = Callable[[dict[str, Any]], str | None]
+BatteryUnitKeyResolver = Callable[[dict[str, Any]], str | None]
 _MODULE_CACHE: dict[str, Any | None] = {}
 
 
@@ -70,3 +71,9 @@ def get_topology_key_resolver(integration_domain: str | None) -> TopologyKeyReso
     """Return adapter-owned stable topology-key extraction, never display-name inference."""
     resolver = getattr(_module(integration_domain), "topology_key", None)
     return resolver if callable(resolver) else lambda _row: None
+
+
+def get_battery_unit_key_resolver(integration_domain: str | None) -> BatteryUnitKeyResolver:
+    """Return a stable physical battery-unit key from Foundation-published evidence."""
+    resolver = getattr(_module(integration_domain), "battery_unit_key", None)
+    return resolver if callable(resolver) else lambda _candidate: None

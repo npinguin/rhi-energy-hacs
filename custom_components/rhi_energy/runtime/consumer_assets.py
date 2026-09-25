@@ -174,7 +174,9 @@ def physical_connection_power_total(
         # connection is not drawing charging power. This is not "unknown = 0":
         # unknown/running/charging connections without power still fail closed.
         operating_state = str(row.get("operating_state") or "").strip().lower()
-        if operating_state == "idle":
+        if operating_state in {"idle", "stopped"}:
+            # Producer-owned canonical non-flow states are authoritative zero-flow
+            # evidence. This is distinct from coercing unknown telemetry to zero.
             values.append(0.0)
             continue
         return None

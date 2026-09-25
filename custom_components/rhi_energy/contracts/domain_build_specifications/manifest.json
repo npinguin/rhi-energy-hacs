@@ -135,7 +135,7 @@
     },
     {
       "builder_id": "energy.battery_system.huawei_solar.v1",
-      "builder_version": "1.0.0",
+      "builder_version": "1.1.0",
       "concept_id": "battery_system",
       "integration_domains": [
         "huawei_solar"
@@ -158,5 +158,5 @@
   },
   "publication_contract": "domain_build_specification_v1.2.0",
   "shared_baseline_version": "1.8.1",
-  "publication_revision": 15
+  "publication_revision": 16
 }

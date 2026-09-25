@@ -381,6 +381,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "known_accepted_technical_debt": 0,
         },
         "setup_performance": deepcopy(state.get("setup_performance") or {}),
+        "logical_projection": deepcopy((state.get("store").data.get("logical_projection") if state.get("store") else {}) or {}),
         "supervision": (state.get("supervision").snapshot() if state.get("supervision") else None),
         "health": {
             "foundation_supervisory_contract": "RHI_DOMAIN_SUPERVISORY_STATUS_V1",

@@ -21,7 +21,7 @@ import re
 from typing import Any
 
 try:
-    from .adapters import get_candidate_filter, get_market_role_resolver
+    from .adapters import get_battery_unit_key_resolver, get_candidate_filter, get_market_role_resolver
     from .models import AcceptedSourceBinding, EnergyDomainModel
     from .runtime.logical_assets import build_logical_assets
     from .semantic import input_definitions
@@ -38,6 +38,8 @@ except ImportError:  # Direct runpy/static unit-test execution without package c
         return _runpy.run_path(str(path)).get(name, default)
     def get_candidate_filter(integration):
         return _adapter_function(str(integration or ""), "accept_candidate", lambda _input_id, _candidate: True)
+    def get_battery_unit_key_resolver(integration):
+        return _adapter_function(str(integration or ""), "battery_unit_key", lambda _candidate: None)
     def get_market_role_resolver(integration):
         return _adapter_function(str(integration or ""), "market_role", lambda candidate: (candidate.get("semantic_metadata") or {}).get("market_role"))
     AcceptedSourceBinding = dict  # type: ignore[assignment,misc]
@@ -305,44 +307,77 @@ def _bind_many(
 def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "battery")
     measurement_ids = ["battery_unit_power", "battery_unit_soc", "battery_capacity"]
-    # A stationary battery unit is anchored by its physical power telemetry.
-    # Capacity may legitimately be published on a sibling battery-system device
-    # in the same source config entry and must never create a second unit.
-    anchor_ids = sorted(
-        {
-            _candidate_device_id(candidate)
-            for candidate in inputs.get("battery_unit_power", [])
-            if _candidate_device_id(candidate)
-        }
-    )
-    if not anchor_ids:
-        raise ValueError("no_measurement_anchor")
-    device_ids = anchor_ids
     builder_id = str(build_input.get("builder_id") or "battery")
     integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
+    unit_key_resolver = get_battery_unit_key_resolver(integration)
+
+    power_candidates = list(inputs.get("battery_unit_power", []))
+    adapter_keys = {
+        str(key)
+        for candidate in power_candidates
+        if (key := unit_key_resolver(candidate))
+    }
+    use_adapter_units = bool(adapter_keys)
+
+    def unit_key(candidate: dict[str, Any]) -> str:
+        adapter_key = unit_key_resolver(candidate)
+        if adapter_key:
+            return str(adapter_key)
+        return "" if use_adapter_units else _candidate_device_id(candidate)
+
+    anchor_keys = sorted({
+        unit_key(candidate)
+        for candidate in power_candidates
+        if unit_key(candidate)
+    })
+    if not anchor_keys:
+        raise ValueError("no_measurement_anchor")
+
     system_id = f"battery_system_{_hash([integration, builder_id], 8)}"
     bindings: list[AcceptedSourceBinding] = []
     units: list[dict[str, Any]] = []
+    system_roles: dict[str, str] = {}
     device_specs = [spec for spec in input_definitions("battery") if spec.get("object_scope") == "device"]
-    entity_reserves = [
-        candidate
-        for candidate in inputs.get("reserve_write_surface", [])
-        if (candidate.get("source_identity") or {}).get("source_kind") == "entity"
-        and str((candidate.get("source_identity") or {}).get("current_entity_id") or "").startswith("number.")
-    ]
-    for device_id in device_ids:
-        asset_id = f"battery_unit_{_hash([builder_id, device_id], 10)}"
+
+    # When an integration exposes physical sub-units inside one HA DeviceEntry,
+    # non-unit aggregate power/SoC remain authoritative system evidence rather than
+    # being duplicated onto every child battery.
+    if use_adapter_units:
+        for input_id, role in (("battery_unit_power", "power"), ("battery_unit_soc", "soc")):
+            rows = [candidate for candidate in inputs.get(input_id, []) if not unit_key_resolver(candidate)]
+            if len(rows) == 1:
+                binding_id = f"energy:{system_id}:{role}"
+                bindings.append(_binding(system_id, role, rows[0], previous.get(binding_id)))
+                system_roles[role] = binding_id
+            elif len(rows) > 1:
+                issues.append(f"battery_system_{role}:ambiguous:count_{len(rows)}")
+
+        capacity_rows = list(inputs.get("battery_capacity", []))
+        if len(capacity_rows) == 1:
+            binding_id = f"energy:{system_id}:capacity"
+            bindings.append(_binding(system_id, "capacity", capacity_rows[0], previous.get(binding_id)))
+            system_roles["capacity"] = binding_id
+        elif len(capacity_rows) > 1:
+            issues.append(f"battery_system_capacity:ambiguous:count_{len(capacity_rows)}")
+
+    for index, anchor_key in enumerate(anchor_keys, start=1):
+        anchor_rows = [candidate for candidate in power_candidates if unit_key(candidate) == anchor_key]
+        if not anchor_rows:
+            continue
+        anchor_device_id = _candidate_device_id(anchor_rows[0])
+        asset_id = f"battery_unit_{_hash([builder_id, anchor_key], 10)}"
         role_map: dict[str, str] = {}
         local_candidates: list[dict[str, Any]] = []
+
         for spec in device_specs:
             role = str(spec.get("role") or "")
             input_id = str(spec.get("input_id") or "")
-            rows = [candidate for candidate in inputs.get(input_id, []) if _candidate_device_id(candidate) == device_id]
-            if role == "capacity" and not rows:
+            rows = [candidate for candidate in inputs.get(input_id, []) if unit_key(candidate) == anchor_key]
+            if role == "capacity" and not rows and not use_adapter_units:
                 anchor_config_entries = {
                     str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
-                    for candidate in inputs.get("battery_unit_power", [])
-                    if _candidate_device_id(candidate) == device_id
+                    for candidate in power_candidates
+                    if unit_key(candidate) == anchor_key
                     and (candidate.get("source_identity") or {}).get("config_entry_id")
                 }
                 sibling_capacity = [
@@ -356,7 +391,7 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
                 ]
                 sibling_anchors = {
                     _candidate_device_id(candidate)
-                    for candidate in inputs.get("battery_unit_power", [])
+                    for candidate in power_candidates
                     if str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
                     in anchor_config_entries
                     and _candidate_device_id(candidate)
@@ -369,72 +404,78 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
                 role_map[role] = binding_id
                 local_candidates.extend(rows)
             elif len(rows) > 1:
-                issues.append(f"battery_{role}:{device_id}:ambiguous")
-        unit_config_entries = {
-            str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
-            for candidate in local_candidates
-            if (candidate.get("source_identity") or {}).get("config_entry_id")
-        }
-        # Storage controls live on the inverter/storage device rather than the
-        # B1 telemetry device. Attribute them only through the exact config entry
-        # already proven by this physical battery's measurement evidence.
-        for spec in (row for row in device_specs if row.get("editable") is True):
-            role = str(spec.get("role") or "")
-            input_id = str(spec.get("input_id") or "")
-            rows = [
-                candidate
-                for candidate in inputs.get(input_id, [])
-                if str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
-                in unit_config_entries
-            ]
-            if len(rows) == 1:
-                binding_id = f"energy:{asset_id}:{role}"
-                if role not in role_map:
-                    bindings.append(_binding(asset_id, role, rows[0], previous.get(binding_id)))
-                    role_map[role] = binding_id
-                    local_candidates.extend(rows)
-            elif len(rows) > 1:
-                issues.append(f"battery_{role}:{device_id}:ambiguous")
+                issues.append(f"battery_{role}:{anchor_key}:ambiguous")
+
         if role_map:
-            metadata = _candidate_metadata(local_candidates[0]) if local_candidates else {}
-            units.append({"asset_id": asset_id, "bindings": role_map, **metadata, "device_registry_id": device_id})
+            metadata = _candidate_metadata(local_candidates[0] if local_candidates else anchor_rows[0])
+            if use_adapter_units:
+                metadata["display_name"] = f"Battery {index}"
+            units.append({
+                "asset_id": asset_id,
+                "unit_key": anchor_key,
+                "bindings": role_map,
+                **metadata,
+                "device_registry_id": anchor_device_id,
+            })
+
     if not units:
         raise ValueError("no_semantically_safe_measurement")
 
+    # Controls are system-scoped whenever multiple physical sub-units share one
+    # storage controller. They must never be copied onto each child pack.
+    entity_reserves = [
+        candidate
+        for candidate in inputs.get("reserve_write_surface", [])
+        if (candidate.get("source_identity") or {}).get("source_kind") == "entity"
+        and str((candidate.get("source_identity") or {}).get("current_entity_id") or "").startswith("number.")
+    ]
     reserve_binding = None
     if len(entity_reserves) == 1:
         reserve = entity_reserves[0]
-        source = reserve.get("source_identity") or {}
-        scope = source.get("target_scope")
-        config_entries = {
-            (candidate.get("source_identity") or {}).get("config_entry_id")
-            for input_id in measurement_ids
-            for candidate in inputs.get(input_id, [])
-            if (candidate.get("source_identity") or {}).get("config_entry_id")
-        }
-        target = source.get("target") or {}
-        target_device = source.get("device_registry_id") or target.get("device_registry_id")
-        attributable = scope not in {None, "none"}
-        if scope == "config_entry":
-            attributable = source.get("config_entry_id") in config_entries or target.get("config_entry_id") in config_entries
-        elif scope == "device":
-            attributable = target_device in set(device_ids)
-        if attributable:
-            binding_id = f"energy:{system_id}:reserve"
-            bindings.append(_binding(system_id, "reserve", reserve, previous.get(binding_id)))
-            reserve_binding = binding_id
-        else:
-            issues.append("reserve_write_surface:not_attributable")
+        binding_id = f"energy:{system_id}:reserve"
+        bindings.append(_binding(system_id, "reserve", reserve, previous.get(binding_id)))
+        reserve_binding = binding_id
+        system_roles["reserve"] = binding_id
     elif not entity_reserves and inputs.get("reserve_write_surface"):
         issues.append("reserve_write_surface:no_executable_number_entity")
+    elif len(entity_reserves) > 1:
+        issues.append("reserve_write_surface:ambiguous")
 
-    complete = sum(1 for unit in units if {"power", "soc", "capacity"}.issubset((unit.get("bindings") or {}).keys()))
+    # For legacy/single-device storage, preserve the established unit-scoped
+    # editable controls. For adapter-resolved multi-pack systems the aggregate
+    # controller remains system-owned and is not duplicated to packs.
+    if not use_adapter_units:
+        for unit in units:
+            unit_config_entries = {
+                str((binding.get("source_identity") or {}).get("config_entry_id") or "")
+                for binding_id in (unit.get("bindings") or {}).values()
+                if (binding := next((row for row in bindings if row.get("binding_id") == binding_id), None))
+                and (binding.get("source_identity") or {}).get("config_entry_id")
+            }
+            for spec in (row for row in device_specs if row.get("editable") is True):
+                role = str(spec.get("role") or "")
+                input_id = str(spec.get("input_id") or "")
+                rows = [
+                    candidate
+                    for candidate in inputs.get(input_id, [])
+                    if str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
+                    in unit_config_entries
+                ]
+                if len(rows) == 1 and role not in (unit.get("bindings") or {}):
+                    binding_id = f"energy:{unit['asset_id']}:{role}"
+                    bindings.append(_binding(unit["asset_id"], role, rows[0], previous.get(binding_id)))
+                    unit["bindings"][role] = binding_id
+                elif len(rows) > 1:
+                    issues.append(f"battery_{role}:{unit['asset_id']}:ambiguous")
+
+    complete = sum(1 for unit in units if {"power", "soc"}.issubset((unit.get("bindings") or {}).keys()))
     return (
         bindings,
         {
             "asset_id": system_id,
             "asset_type": "battery_system",
             "units": units,
+            "bindings": system_roles,
             "reserve_binding": reserve_binding,
             "builder_id": builder_id,
             "integration_domain": integration,

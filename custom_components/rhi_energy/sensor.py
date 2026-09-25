@@ -1,6 +1,9 @@
 """RHI Energy V2 sensors: public Energy contract plus Shared Baseline 1.8.1 observability."""
 from __future__ import annotations
 
+import asyncio
+from time import perf_counter
+
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
@@ -51,7 +54,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     # entity platform, so newly compiled logical objects appear without a restart.
     logical_projection = EnergyLogicalEntityManager(hass, entry, manager, runtime, state["store"], async_add_entities)
     state["entity_projection"] = logical_projection
-    logical_projection.start()
+    # Projection is intentionally deferred: canonical runtime and diagnostics must
+    # become available before a large SolarEdge optimizer/panel graph is materialised.
+    logical_projection.start_deferred()
 
 
 class _EnergySensor(SensorEntity):
@@ -512,6 +517,10 @@ class EnergyLogicalEntityManager:
         self._known: set[str] = set()
         self._remove_manager = None
         self._remove_runtime = None
+        self._sync_task = None
+        self._sync_requested = False
+        self._stopping = False
+        self._last_projection_signature = None
 
     def _inventory(self) -> list[dict]:
         runtime_rows = self._runtime.snapshot.get("logical_assets") or []
@@ -579,20 +588,71 @@ class EnergyLogicalEntityManager:
                 continue
             devices.async_remove_device(device.id)
 
-    def start(self) -> None:
+    def start_deferred(self) -> None:
+        """Start projection after platform setup and coalesce topology callbacks."""
         if self._remove_manager is None:
-            self._remove_manager = self._manager.add_callback(self._sync)
+            self._remove_manager = self._manager.add_callback(self._request_sync)
         if self._remove_runtime is None:
-            self._remove_runtime = self._runtime.add_topology_callback(self._sync)
-        self._sync()
+            self._remove_runtime = self._runtime.add_topology_callback(self._request_sync)
+        self._request_sync()
 
-    def _sync(self) -> None:
+    def _request_sync(self) -> None:
+        if self._stopping:
+            return
+        self._sync_requested = True
+        if self._sync_task is None or self._sync_task.done():
+            self._sync_task = self._hass.async_create_task(self._async_sync_loop())
+
+    async def _async_sync_loop(self) -> None:
+        while self._sync_requested and not self._stopping:
+            self._sync_requested = False
+            # Yield once so HA can complete platform setup / diagnostics registration.
+            await asyncio.sleep(0)
+            await self._sync_once()
+
+    async def _sync_once(self) -> None:
+        started = perf_counter()
         rows = self._inventory()
-        self._cleanup_registry(rows)
         binding_index = source_binding_index(
             self._manager.domain_model,
             self._runtime.snapshot,
         )
+        devices = dr.async_get(self._hass)
+        projection_signature = (
+            tuple(sorted(
+                (
+                    str(asset.get("asset_id") or ""),
+                    str(asset.get("object_class") or ""),
+                    str(asset.get("parent_asset_id") or ""),
+                    tuple(sorted(
+                        str((prop or {}).get("property_key") or "")
+                        for prop in (asset.get("properties") or [])
+                        if isinstance(prop, dict) and (prop or {}).get("property_key")
+                    )),
+                )
+                for asset in rows
+                if isinstance(asset, dict) and asset.get("asset_id")
+            )),
+            tuple(sorted(
+                (
+                    str(device_id),
+                    tuple(binding.get("logical_asset_ids") or []),
+                    devices.async_get(str(device_id)) is not None,
+                )
+                for device_id, binding in binding_index.items()
+            )),
+        )
+        projection_state = self._store.data.setdefault("logical_projection", {})
+        if projection_signature == self._last_projection_signature:
+            projection_state["skipped_unchanged_count"] = int(
+                projection_state.get("skipped_unchanged_count") or 0
+            ) + 1
+            projection_state["last_sync_duration_ms"] = round((perf_counter() - started) * 1000, 3)
+            projection_state["last_logical_node_count"] = len(rows)
+            projection_state["last_entity_addition_count"] = 0
+            return
+        self._last_projection_signature = projection_signature
+        self._cleanup_registry(rows)
         entity_registry = er.async_get(self._hass)
         desired_binding_uids = {
             f"rhi_energy:source_binding:{device_id}"
@@ -613,7 +673,6 @@ class EnergyLogicalEntityManager:
         # Canonical composition is materialised through HA's native Device Registry.
         # This reconciles only RHI Energy canonical devices; physical source devices
         # remain untouched and retain their source-integration topology.
-        devices = dr.async_get(self._hass)
         sync_canonical_device_topology(
             self._hass,
             self._entry,
@@ -655,7 +714,19 @@ class EnergyLogicalEntityManager:
                     self._known.add(uid)
                     additions.append(EnergyLogicalPropertySensor(self._entry, self._manager, self._runtime, asset_id, property_key))
         if additions:
-            self._async_add_entities(additions)
+            # Large optimizer/panel installations can create hundreds of entities.
+            # Add them in bounded batches so the HA event loop stays responsive.
+            batch_size = 24
+            for offset in range(0, len(additions), batch_size):
+                self._async_add_entities(additions[offset:offset + batch_size])
+                await asyncio.sleep(0)
+        projection_state["sync_count"] = int(projection_state.get("sync_count") or 0) + 1
+        projection_state["last_sync_duration_ms"] = round((perf_counter() - started) * 1000, 3)
+        projection_state["last_logical_node_count"] = len(rows)
+        projection_state["last_entity_addition_count"] = len(additions)
+        projection_state["batch_size"] = 24
+        projection_state["deferred"] = True
+        projection_state["non_reentrant"] = True
         self._hass.async_create_task(
             async_sync_source_device_topology(
                 self._hass,
@@ -667,12 +738,17 @@ class EnergyLogicalEntityManager:
         )
 
     async def async_stop(self) -> None:
+        self._stopping = True
+        task = self._sync_task
+        if task is not None and not task.done():
+            task.cancel()
         if callable(self._remove_manager):
             self._remove_manager()
         if callable(self._remove_runtime):
             self._remove_runtime()
         self._remove_manager = None
         self._remove_runtime = None
+        self._sync_task = None
 
 
 class _LogicalEnergySensor(SensorEntity):

@@ -6,7 +6,6 @@ Assistant-facing logical properties and applies runtime values.  It deliberately
 not re-run semantic discovery or integration matching.
 """
 from __future__ import annotations
-
 from copy import deepcopy
 from typing import Any
 
@@ -151,7 +150,9 @@ def _build_domain_assets(
         integration = str(provider.get("integration_domain") or "")
         if not aid:
             continue
-        system_roles = {"reserve": provider.get("reserve_binding")}
+        system_roles = dict(provider.get("bindings") or {})
+        if provider.get("reserve_binding"):
+            system_roles["reserve"] = provider.get("reserve_binding")
         aggregate_roles = {
             role
             for unit in provider.get("units") or []
