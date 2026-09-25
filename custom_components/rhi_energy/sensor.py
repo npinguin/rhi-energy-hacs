@@ -14,7 +14,6 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import (
     DOMAIN,
-    FOUNDATION_MIN_RELEASE,
     LEGACY_DIAGNOSTIC_ENTITIES,
     LEGACY_PUBLIC_ENTITIES,
     RELEASE,
@@ -263,7 +262,7 @@ class EnergyReleaseSensor(_DiagnosticSensor):
             "shared_baseline_id": SHARED_BASELINE_ID,
             "shared_baseline_version": SHARED_BASELINE_VERSION,
             "shared_baseline_checksum": SHARED_BASELINE_CHECKSUM,
-            "foundation_target": FOUNDATION_MIN_RELEASE,
+            "foundation_compatibility": "capability_based",
             "release_decision": "PILOT_CANDIDATE" if not target_complete else "PILOT_READY",
             "reason": "target_home_assistant_runtime_proof_pending" if not target_complete else "target_home_assistant_lifecycle_evidence_complete",
             "known_accepted_technical_debt": 0,
