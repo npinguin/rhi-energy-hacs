@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import asyncio
+
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, RELEASE
@@ -15,11 +17,10 @@ def canonical_device_identifier(asset_id: str) -> tuple[str, str]:
 
 
 def canonical_device_info(asset: dict[str, Any]) -> dict[str, Any]:
-    """Return one canonical HA DeviceInfo shape.
+    """Return one canonical HA DeviceInfo shape without semantic HA parentage.
 
-    Canonical composition is the only relationship projected with via_device.
-    Physical source devices remain owned by their source integrations and are
-    referenced only as provenance.
+    Energy canonical composition remains in the canonical graph/relationship contract.
+    HA via_device is reserved for explicitly governed physical/gateway topology.
     """
     asset_id = str(asset.get("asset_id") or "")
     object_class = str(asset.get("object_class") or asset.get("asset_type") or "logical_object")
@@ -30,14 +31,11 @@ def canonical_device_info(asset: dict[str, Any]) -> dict[str, Any]:
         "model": f"Energy canonical object · {OBJECT_CLASS_LABELS.get(object_class, object_class.replace('_', ' ').title())}",
         "sw_version": RELEASE,
     }
-    parent = canonical_parent_asset_id(asset)
-    if parent:
-        info["via_device"] = canonical_device_identifier(parent)
     return info
 
 
-def sync_canonical_device_topology(hass, entry, assets: list[dict[str, Any]]) -> None:
-    """Materialise and reconcile the explicitly governed HA device projection parent-first.
+async def sync_canonical_device_topology(hass, entry, assets: list[dict[str, Any]]) -> dict[str, int]:
+    """Materialise and reconcile the governed HA device projection in bounded batches.
 
     Two passes deliberately separate identity creation from relationship assignment so
     child order in the runtime snapshot cannot make Connected devices nondeterministic.
@@ -50,28 +48,52 @@ def sync_canonical_device_topology(hass, entry, assets: list[dict[str, Any]]) ->
         if row.get("ha_materialization") is True
     ]
 
-    for asset in rows:
-        asset_id = str(asset["asset_id"])
-        info = canonical_device_info(asset)
-        created[asset_id] = registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers=info["identifiers"],
-            name=info["name"],
-            manufacturer=info["manufacturer"],
-            model=info["model"],
-            sw_version=info["sw_version"],
-        )
+    batch_size = 24
+    created_count = 0
+    parent_update_count = 0
+    for offset in range(0, len(rows), batch_size):
+        for asset in rows[offset:offset + batch_size]:
+            asset_id = str(asset["asset_id"])
+            info = canonical_device_info(asset)
+            created[asset_id] = registry.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                identifiers=info["identifiers"],
+                name=info["name"],
+                manufacturer=info["manufacturer"],
+                model=info["model"],
+                sw_version=info["sw_version"],
+            )
+            created_count += 1
+        # High-cardinality optimizer/panel sites must never monopolise the HA loop.
+        await asyncio.sleep(0)
 
-    for asset in rows:
-        asset_id = str(asset["asset_id"])
-        device = created.get(asset_id)
-        if device is None:
-            continue
-        parent_asset_id = str(asset.get("parent_asset_id") or "")
-        parent = created.get(parent_asset_id) if parent_asset_id else None
-        wanted_parent_id = parent.id if parent is not None else None
-        if device.via_device_id != wanted_parent_id:
-            registry.async_update_device(device.id, via_device_id=wanted_parent_id)
+    for offset in range(0, len(rows), batch_size):
+        for asset in rows[offset:offset + batch_size]:
+            asset_id = str(asset["asset_id"])
+            device = created.get(asset_id)
+            if device is None:
+                continue
+            topology_kind = str(asset.get("topology_kind") or "")
+            # Canonical semantic composition is not an HA Device Registry via-device
+            # relationship. Only an explicitly governed physical/gateway projection
+            # may set via_device_id.
+            parent_asset_id = str(asset.get("parent_asset_id") or "")
+            parent = created.get(parent_asset_id) if parent_asset_id else None
+            wanted_parent_id = (
+                parent.id
+                if topology_kind == "via_device" and parent is not None
+                else None
+            )
+            if device.via_device_id != wanted_parent_id:
+                registry.async_update_device(device.id, via_device_id=wanted_parent_id)
+                parent_update_count += 1
+        await asyncio.sleep(0)
+    return {
+        "logical_device_count": len(rows),
+        "device_reconcile_count": created_count,
+        "parent_update_count": parent_update_count,
+        "batch_size": batch_size,
+    }
 
 
 def source_device_ids(asset: dict[str, Any]) -> list[str]:

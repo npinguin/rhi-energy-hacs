@@ -672,7 +672,7 @@ class EnergyLogicalEntityManager:
         # Canonical composition is materialised through HA's native Device Registry.
         # This reconciles only RHI Energy canonical devices; physical source devices
         # remain untouched and retain their source-integration topology.
-        sync_canonical_device_topology(
+        topology_stats = await sync_canonical_device_topology(
             self._hass,
             self._entry,
             rows,
@@ -720,6 +720,7 @@ class EnergyLogicalEntityManager:
                 self._async_add_entities(additions[offset:offset + batch_size])
                 await asyncio.sleep(0)
         projection_state["sync_count"] = int(projection_state.get("sync_count") or 0) + 1
+        projection_state["canonical_device_reconcile"] = topology_stats
         projection_state["last_sync_duration_ms"] = round((perf_counter() - started) * 1000, 3)
         projection_state["last_logical_node_count"] = len(rows)
         projection_state["last_entity_addition_count"] = len(additions)

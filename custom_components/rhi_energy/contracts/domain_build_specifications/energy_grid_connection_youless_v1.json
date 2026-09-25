@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.grid_connection.youless.v1",
-  "builder_version": "1.0.0",
+  "builder_version": "1.1.0",
   "concept": {
     "concept_id": "grid_connection",
     "display_name": "Grid Connection",
@@ -80,10 +80,11 @@
         ]
       },
       {
-        "input_id": "grid_phase_power",
+        "input_id": "grid_export_energy",
         "technical_capabilities": {
           "any_of": [
-            "power_measurement"
+            "energy_counter",
+            "energy_capacity"
           ]
         },
         "allowed_source_kinds": [
@@ -94,37 +95,25 @@
         "integration_matches": [
           {
             "integration_domain": "youless",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_export_energy_low",
             "source_kind": "entity",
             "all_of": [
               {
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
-                "value": "_phase_1_power"
+                "value": "_delivery_low"
               }
             ]
           },
           {
             "integration_domain": "youless",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_export_energy_high",
             "source_kind": "entity",
             "all_of": [
               {
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
-                "value": "_phase_2_power"
-              }
-            ]
-          },
-          {
-            "integration_domain": "youless",
-            "raw_capability_id": "grid_phase_power",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "ends_with",
-                "value": "_phase_3_power"
+                "value": "_delivery_high"
               }
             ]
           }

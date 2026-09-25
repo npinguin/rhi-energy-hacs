@@ -75,13 +75,26 @@ def _safe_candidates(build_input: dict[str, Any], input_id: str) -> tuple[list[d
     """Return independently cardinality-safe candidates for one normalized input."""
     accepted: dict[str, dict[str, Any]] = {}
     issues: list[str] = []
+    selection = build_input.get("selection") or {}
+    selected_device_ids = {
+        str(value) for value in selection.get("selected_device_ids") or [] if value
+    }
+    restrict_devices = (
+        selection.get("device_filter_mode") == "specific_devices"
+        and bool(selected_device_ids)
+    )
     for group in _groups(build_input, input_id):
         raw_candidates = [item for item in (group.get("candidates") or []) if isinstance(item, dict)]
-        candidates = [
-            item
-            for item in raw_candidates
-            if get_candidate_filter((item.get("source_identity") or {}).get("integration_domain"))(input_id, item)
-        ]
+        candidates = []
+        for item in raw_candidates:
+            source = item.get("source_identity") or {}
+            evidence = item.get("evidence") or {}
+            device_id = str(source.get("device_registry_id") or evidence.get("device_registry_id") or "")
+            if restrict_devices and device_id and device_id not in selected_device_ids:
+                continue
+            if not get_candidate_filter(source.get("integration_domain"))(input_id, item):
+                continue
+            candidates.append(item)
         cardinality = str(group.get("cardinality") or "zero_or_one")
         required = group.get("required") is True
         if cardinality in {"exactly_one", "zero_or_one"}:
@@ -495,19 +508,28 @@ def _accept_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
     for spec in input_definitions("grid_connection"):
         role = str(spec.get("role") or "")
         input_id = str(spec.get("input_id") or "")
-        binding_id = _single_role(bindings, previous, asset_id, role, inputs.get(input_id, []), issues)
-        if binding_id:
-            roles[role] = binding_id
-    phase_rows, local = _safe_for(build_input, "grid_phase_power")
-    issues.extend(local)
+        rows = inputs.get(input_id, [])
+        if spec.get("many"):
+            binding_ids = _bind_many(bindings, previous, asset_id, role, rows)
+            if binding_ids:
+                roles[role] = binding_ids
+        else:
+            binding_id = _single_role(bindings, previous, asset_id, role, rows, issues)
+            if binding_id:
+                roles[role] = binding_id
     phases = []
-    for candidate in phase_rows:
-        phase_id = f"grid_phase_{_hash([asset_id, candidate.get('candidate_id')], 10)}"
-        binding_id = f"energy:{phase_id}:power"
-        bindings.append(_binding(phase_id, "power", candidate, previous.get(binding_id)))
-        phases.append({"asset_id": phase_id, "binding": binding_id, **_candidate_metadata(candidate)})
-    if phases:
-        roles["phases"] = [phase["binding"] for phase in phases]
+    # Youless exposes authoritative site power and cumulative registers but no
+    # operational per-phase power capability in the supported source profile.
+    if integration != "youless":
+        phase_rows, local = _safe_for(build_input, "grid_phase_power")
+        issues.extend(local)
+        for candidate in phase_rows:
+            phase_id = f"grid_phase_{_hash([asset_id, candidate.get('candidate_id')], 10)}"
+            binding_id = f"energy:{phase_id}:power"
+            bindings.append(_binding(phase_id, "power", candidate, previous.get(binding_id)))
+            phases.append({"asset_id": phase_id, "binding": binding_id, **_candidate_metadata(candidate)})
+        if phases:
+            roles["phases"] = [phase["binding"] for phase in phases]
     if not roles:
         raise ValueError("no_semantically_safe_input")
     return bindings, {"asset_id": asset_id, "asset_type": "grid_connection", "bindings": roles, "phases": phases, "builder_id": builder_id, "integration_domain": integration, "normalization_status": "READY" if "net_power" in roles and not issues else "DEGRADED"}, issues

@@ -33,6 +33,17 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
     if not unique_id:
         return True
 
+    # Huawei registers all possible battery-pack slots. A registered but unavailable
+    # pack slot is capability potential, not evidence that a physical pack exists.
+    # Only an available pack power measurement may anchor a physical child Battery.
+    if (
+        input_id.startswith("battery_")
+        and "_battery_pack_" in unique_id
+        and str((candidate.get("quality") or {}).get("availability") or "").lower()
+        != "available"
+    ):
+        return False
+
     # Huawei exposes inverter and power-meter measurements in one integration.
     # The stable source identity distinguishes the meter family. The HA entity
     # or device display name is deliberately not consulted.

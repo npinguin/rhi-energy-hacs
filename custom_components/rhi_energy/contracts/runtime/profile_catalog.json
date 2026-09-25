@@ -1,7 +1,7 @@
 {
   "kind": "RHI_ENERGY_PROFILE_CATALOG",
   "contract_version": "1.0.0",
-  "release": "E0.15.44",
+  "release": "E0.15.45",
   "authority": "rhi_energy",
   "rules": {
     "canonical_v2_authority": true,

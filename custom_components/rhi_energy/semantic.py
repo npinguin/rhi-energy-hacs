@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.1.0"
+DOMAIN_MODEL_VERSION: Final[str] = "1.1.1"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -196,8 +196,8 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
         {"input_id":"grid_net_power","role":"net_power","property_key":"grid.net_power_kw","fact_key":"grid.net_power_kw","name":"Net power","unit":"kW","kind":"power","required":True,"platform":"sensor","object_scope":"provider","many":False},
         {"input_id":"grid_net_power","role":"net_power","property_key":"grid_import.power_kw","fact_key":"grid_import.power_kw","name":"Import power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"provider","many":False},
         {"input_id":"grid_net_power","role":"net_power","property_key":"grid_export.power_kw","fact_key":"grid_export.power_kw","name":"Export power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"provider","many":False},
-        {"input_id":"grid_import_energy","role":"import_energy","property_key":"grid_import.energy_total_kwh","fact_key":"grid_import.energy_total_kwh","name":"Import energy","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"provider","many":False},
-        {"input_id":"grid_export_energy","role":"export_energy","property_key":"grid_export.energy_total_kwh","fact_key":"grid_export.energy_total_kwh","name":"Export energy","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"provider","many":False},
+        {"input_id":"grid_import_energy","role":"import_energy","property_key":"grid_import.energy_total_kwh","fact_key":"grid_import.energy_total_kwh","name":"Import energy","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"provider","many":True},
+        {"input_id":"grid_export_energy","role":"export_energy","property_key":"grid_export.energy_total_kwh","fact_key":"grid_export.energy_total_kwh","name":"Export energy","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"provider","many":True},
     ),
     "grid_phase": (
         {"input_id":"grid_phase_power","role":"power","property_key":"grid_phase.power_kw","fact_key":None,"name":"Power","unit":"kW","kind":"power","required":False,"platform":"sensor","object_scope":"child","many":True},
