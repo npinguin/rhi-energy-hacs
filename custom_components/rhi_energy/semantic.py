@@ -11,6 +11,9 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
+DOMAIN_MODEL_VERSION: Final[str] = "1.0.0"
+
+
 class SemanticDefinition(TypedDict, total=False):
     input_id: str | None
     role: str | None
@@ -71,7 +74,7 @@ FRAMEWORK_TERMS: Final[tuple[str, ...]] = (
 
 # Canonical object registry.  Integration/source names are deliberately absent:
 # sources bind to these objects, while domain objects compose only from canonical
-# objects.  A Battery System therefore contains Battery objects, never SolarEdge,
+# objects.  A Home Battery System therefore contains Home Battery objects, never SolarEdge,
 # BYD, entity IDs or integration devices.
 CANONICAL_OBJECT_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "battery": {"owner": "energy", "member_of": ("battery_system",)},
@@ -89,7 +92,7 @@ CANONICAL_OBJECT_REGISTRY: Final[dict[str, dict[str, Any]]] = {
 
 OBJECT_CLASS_LABELS: Final[dict[str, str]] = {
     "battery_system": "Home Battery System",
-    "battery": "Battery",
+    "battery": "Home Battery",
     "grid_connection": "Grid Connection",
     "grid_phase": "Grid Phase",
     "solar_production": "Solar Production",
@@ -99,11 +102,48 @@ OBJECT_CLASS_LABELS: Final[dict[str, str]] = {
     "price_source": "Energy Price Source",
     "gas_meter": "Gas Meter",
     "solar_optimizer_site": "Solar Optimizer Site",
-    "solar_zone": "Solar Zone",
+    "solar_zone": "Solar Zone / String",
     "solar_optimizer": "Solar Optimizer",
     "solar_panel": "Solar Panel",
     "home_consumption": "Home Consumption",
-    "flexible_load": "Flexible Energy Load",
+    "flexible_load": "Flexible Energy Asset",
+}
+
+# Canonical Energy domain model. This is documentation/governance metadata over the
+# runtime semantic registry, not a second source of property truth. property_definition
+# points at PROPERTY_DEFINITIONS below. energy_site and flexible_loads are
+# composition/grouping nodes and are intentionally not source-backed physical objects.
+CANONICAL_DOMAIN_MODEL: Final[dict[str, Any]] = {
+    "domain_id": "energy",
+    "version": DOMAIN_MODEL_VERSION,
+    "root": {"object_id": "energy_site", "label": "Energy Site", "kind": "domain_root"},
+    "groups": {
+        "flexible_loads": {
+            "label": "Flexible Loads",
+            "parent": "energy_site",
+            "kind": "logical_group",
+            "members": ("flexible_load",),
+            "meaning": "Planable/controllable energy assets; capability determines whether an asset consumes, produces or stores energy.",
+        },
+    },
+    "objects": {
+        "grid_connection": {"label": "Grid Connection", "parent": "energy_site", "property_definition": "grid_connection"},
+        "grid_phase": {"label": "Grid Phase", "parent": "grid_connection", "property_definition": "grid_phase"},
+        "solar_production": {"label": "Solar Production", "parent": "energy_site", "property_definition": "solar_production", "projection": "aggregate"},
+        "solar_inverter": {"label": "Solar Inverter", "parent": "solar_production", "property_definition": "solar_production", "projection": "source_backed"},
+        "solar_inverter_phase": {"label": "Solar Inverter Phase", "parent": "solar_inverter", "property_definition": "solar_inverter_phase"},
+        "battery_system": {"label": "Home Battery System", "parent": "energy_site", "property_definition": "battery_system", "meaning": "Fixed stationary storage belonging to the home/site installation."},
+        "battery": {"label": "Home Battery", "parent": "battery_system", "property_definition": "battery"},
+        "solar_optimizer_site": {"label": "Solar Optimizer Site", "parent": "energy_site", "property_definition": "solar_optimizer_site"},
+        "solar_zone": {"label": "Solar Zone / String", "parent": "solar_optimizer_site", "property_definition": "solar_zone"},
+        "solar_optimizer": {"label": "Solar Optimizer", "parent": "solar_zone", "fallback_parent": "solar_optimizer_site", "property_definition": "solar_optimizer", "meaning": "Uses zone parent only when exact source topology proves the relationship; otherwise remains directly under the optimizer site."},
+        "solar_panel": {"label": "Solar Panel", "parent": "solar_optimizer", "property_definition": "solar_panel"},
+        "home_consumption": {"label": "Home Consumption", "parent": "energy_site", "property_definition": "home_consumption", "derived": True},
+        "flexible_load": {"label": "Flexible Energy Asset", "parent": "flexible_loads", "property_definition": "flexible_load", "source_domain": "mobility", "cross_domain": True},
+        "gas_meter": {"label": "Gas Meter", "parent": "energy_site", "property_definition": "gas_meter", "supporting": True},
+        "solar_forecast": {"label": "Solar Forecast", "property_definition": "solar_forecast", "supporting": True},
+        "price_source": {"label": "Energy Price Source", "property_definition": "price_source", "supporting": True},
+    },
 }
 
 # object_scope:
