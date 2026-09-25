@@ -121,6 +121,19 @@ def _decorate_objects(
             context.get("profile_visual_ref"),
         )
         asset["property_publication"] = _publication(asset)
+        provenance_rows: list[dict[str, Any]] = []
+        for property_row in asset.get("properties") or []:
+            resolution = property_row.get("resolution") or {}
+            for evidence in resolution.get("provenance") or []:
+                if isinstance(evidence, dict) and evidence not in provenance_rows:
+                    provenance_rows.append(deepcopy(evidence))
+        asset["provenance"] = provenance_rows
+        asset["source_refs"] = sorted({
+            str(value)
+            for row in provenance_rows
+            for value in (row.get("binding_id"), row.get("current_entity_id"))
+            if value
+        })
         controls = []
         for prop in asset.get("properties") or []:
             property_key = str(prop.get("property_key") or "")
@@ -186,6 +199,99 @@ def _core_status(required: dict[str, Any], *, unavailable_reason: str) -> dict[s
     }
 
 
+def _semantic_field(value: Any, *, unit: str | None = None, reason: str) -> dict[str, Any]:
+    """Publish one canonical scalar without coercing missing evidence to zero."""
+    available = value is not None
+    return {
+        "value": deepcopy(value),
+        "unit": unit,
+        "status": "AVAILABLE" if available else "UNAVAILABLE",
+        "quality": "CANONICAL" if available else "UNKNOWN",
+        "reason": None if available else reason,
+    }
+
+
+def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
+    """Expose stable D0/D1 planning outcomes from the canonical planner only."""
+    horizons: dict[str, Any] = {}
+    for horizon_id in ("D0", "D1"):
+        raw = deepcopy(((plan.get("planning_horizons") or {}).get(horizon_id) or {}))
+        demand = raw.get("demand") or {}
+        quality = raw.get("quality") or {}
+        home = demand.get("home_kwh")
+        flexible_required = demand.get("flexible_known_need_kwh")
+        flexible_planned = demand.get("flexible_scheduled_kwh")
+        flexible_still = demand.get("flexible_deferred_kwh")
+        required = (
+            round(float(home) + float(flexible_required), 4)
+            if home is not None and flexible_required is not None
+            else None
+        )
+        planned = (
+            round(float(home) + float(flexible_planned), 4)
+            if home is not None and flexible_planned is not None
+            else None
+        )
+        still = flexible_still if required is not None and planned is not None else None
+        canonical_available = quality.get("availability") == "AVAILABLE"
+        usable = all(value is not None for value in (
+            required, planned, still, flexible_required, flexible_planned, flexible_still
+        ))
+        status = "AVAILABLE" if canonical_available and usable else "UNAVAILABLE"
+        reason = None if status == "AVAILABLE" else (
+            "planning_outcome_incomplete"
+            if raw
+            else "planning_horizon_missing"
+        )
+        horizons[horizon_id] = {
+            "required_kwh": required,
+            "planned_kwh": planned,
+            "executed_kwh": None,
+            "still_to_plan_kwh": still,
+            "flexible_required_kwh": flexible_required,
+            "flexible_planned_kwh": flexible_planned,
+            "flexible_executed_kwh": None,
+            "flexible_still_to_plan_kwh": flexible_still,
+            "status": status,
+            "reason": reason,
+            "execution_status": "NOT_MEASURED",
+            "execution_reason": "advisory_plan_has_no_authoritative_execution_meter",
+            "quality": deepcopy(quality),
+            "source_refs": deepcopy(raw.get("source_refs") or []),
+        }
+    return {
+        "plan_id": plan.get("plan_id"),
+        "generated_at": plan.get("generated_at"),
+        "health": plan.get("health") or "UNKNOWN",
+        "reason": plan.get("reason"),
+        "horizons": horizons,
+    }
+
+
+def _value_accounting_outcome(selected_period: str, selected_value: dict[str, Any]) -> dict[str, Any]:
+    value = selected_value.get("net_financial_result_eur")
+    if value is not None:
+        return {
+            "value": value,
+            "unit": "EUR",
+            "status": "AVAILABLE",
+            "reason": None,
+            "period_id": selected_period,
+        }
+    reason = "selected_period_value_evidence_incomplete"
+    if not selected_value:
+        reason = "selected_period_not_materialized"
+    elif selected_value.get("actual_complete") is False:
+        reason = "selected_period_actuals_incomplete"
+    return {
+        "value": None,
+        "unit": "EUR",
+        "status": "UNAVAILABLE",
+        "reason": reason,
+        "period_id": selected_period,
+    }
+
+
 def _build_core(source: dict[str, Any]) -> dict[str, Any]:
     """Project stable current-home Energy truth without re-deriving semantics.
 
@@ -202,17 +308,46 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
         "power_kw": facts.get("battery.power_kw"),
         "soc_pct": facts.get("battery.soc_pct"),
         "state": facts.get("battery.state"),
+        "capacity_kwh": facts.get("battery.capacity_kwh"),
+        "available_kwh": facts.get("battery.available_kwh"),
+        "reserve_target_pct": facts.get("battery.reserve_target_pct"),
     }
     battery.update(_core_status(
         {"power_kw": battery["power_kw"], "soc_pct": battery["soc_pct"], "state": battery["state"]},
         unavailable_reason="battery_core_truth_incomplete",
     ))
+    battery["fields"] = {
+        "power_kw": _semantic_field(battery["power_kw"], unit="kW", reason="battery_power_unavailable"),
+        "soc_pct": _semantic_field(battery["soc_pct"], unit="%", reason="battery_soc_unavailable"),
+        "state": _semantic_field(battery["state"], reason="battery_state_unavailable"),
+        "capacity_kwh": _semantic_field(battery["capacity_kwh"], unit="kWh", reason="battery_capacity_unavailable"),
+        "available_kwh": _semantic_field(battery["available_kwh"], unit="kWh", reason="battery_available_energy_unavailable"),
+        "reserve_target_pct": _semantic_field(battery["reserve_target_pct"], unit="%", reason="battery_reserve_unavailable"),
+    }
+    battery["contributors"] = [
+        {
+            "asset_id": row.get("asset_id"),
+            "display_name": row.get("display_name"),
+            "integration_domain": row.get("integration_domain"),
+            "power_kw": row.get("power_kw"),
+            "soc_pct": row.get("soc_pct"),
+            "capacity_kwh": row.get("capacity_kwh"),
+            "available_kwh": row.get("available_kwh"),
+            "state": row.get("status"),
+            "health": row.get("health"),
+        }
+        for row in source.get("battery_units") or []
+        if isinstance(row, dict)
+    ]
 
     solar = {"power_kw": facts.get("solar.power_kw")}
     solar.update(_core_status(
         {"power_kw": solar["power_kw"]},
         unavailable_reason="solar_core_truth_incomplete",
     ))
+    solar["fields"] = {
+        "power_kw": _semantic_field(solar["power_kw"], unit="kW", reason="solar_power_unavailable"),
+    }
 
     grid = {
         "net_power_kw": facts.get("grid.net_power_kw"),
@@ -233,18 +368,30 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
             else "grid_core_truth_incomplete"
         ),
     ))
+    grid["fields"] = {
+        "net_power_kw": _semantic_field(grid["net_power_kw"], unit="kW", reason="grid_net_power_unavailable"),
+        "import_power_kw": _semantic_field(grid["import_power_kw"], unit="kW", reason="grid_import_power_unavailable"),
+        "export_power_kw": _semantic_field(grid["export_power_kw"], unit="kW", reason="grid_export_power_unavailable"),
+        "flow_direction": _semantic_field(grid["flow_direction"], reason="grid_direction_unresolved"),
+    }
 
     consumption = {"power_kw": facts.get("site_consumption.power_kw")}
     consumption.update(_core_status(
         {"power_kw": consumption["power_kw"]},
         unavailable_reason="site_consumption_core_truth_incomplete",
     ))
+    consumption["fields"] = {
+        "power_kw": _semantic_field(consumption["power_kw"], unit="kW", reason="site_consumption_unavailable"),
+    }
 
     home = {"power_kw": facts.get("home_consumption.power_kw")}
     home.update(_core_status(
         {"power_kw": home["power_kw"]},
         unavailable_reason="home_consumption_core_truth_incomplete",
     ))
+    home["fields"] = {
+        "power_kw": _semantic_field(home["power_kw"], unit="kW", reason="home_consumption_unavailable"),
+    }
 
     producer_available = bool(
         (source.get("producer_publication_availability") or {}).get("mobility")
@@ -269,6 +416,10 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
             else "flexible_load_core_truth_incomplete"
         ),
     ))
+    flexible["fields"] = {
+        "power_kw": _semantic_field(flexible["power_kw"], unit="kW", reason="flexible_load_power_unavailable"),
+        "attributed_power_kw": _semantic_field(flexible["attributed_power_kw"], unit="kW", reason="flexible_load_attribution_unavailable"),
+    }
 
     return {
         "contract_id": "RHI_ENERGY_CORE_V1",
@@ -443,6 +594,17 @@ def build_public_contract_v2(
             ],
         },
     }
+    canonical_configuration["strategy"]["configured"] = {
+        "properties": deepcopy(strategy_rows),
+        "status": "AVAILABLE" if strategy_rows else "UNAVAILABLE",
+        "reason": None if strategy_rows else "configured_strategy_not_published",
+    }
+    canonical_configuration["strategy"]["effective"] = {
+        "properties": deepcopy(canonical_configuration["strategy"]["effective_properties"]),
+        "status": canonical_configuration["strategy"]["effective_state"],
+        "reason": canonical_configuration["strategy"]["effective_reason"],
+        "runtime_overrides": deepcopy(canonical_configuration["strategy"]["runtime_overrides"]),
+    }
     coverage = canonical_coverage(objects, canonical_configuration)
     commands = _decorate_commands(command_rows)
     activity = [deepcopy(row) for row in (store_data.get("activity") or []) if isinstance(row, dict)][-100:]
@@ -485,7 +647,7 @@ def build_public_contract_v2(
         "relationships": _relationships(source),
         "configuration": canonical_configuration,
         "coverage": coverage,
-        "planning": deepcopy(source.get("plan") or {}),
+        "planning": _planning_projection(source.get("plan") or {}),
         "intelligence": deepcopy(source.get("intelligence") or {}),
         "overview": deepcopy(source.get("overview") or {}),
         "commands": commands,
@@ -495,6 +657,7 @@ def build_public_contract_v2(
             "selected": selected_value,
             "periods": value_accounting,
             "net_financial_result_eur": selected_value.get("net_financial_result_eur"),
+            "net_financial_result": _value_accounting_outcome(selected_period, selected_value),
         },
         "summary": {
             "object_count": len(objects),
