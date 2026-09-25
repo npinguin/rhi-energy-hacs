@@ -174,7 +174,7 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
     canonical_by_asset = {}
     for asset in assets:
         asset_id = str(asset.get("asset_id") or "")
-        if not asset_id:
+        if not asset_id or asset.get("ha_materialization") is not True:
             continue
         canonical_by_asset[asset_id] = registry.async_get_device(
             identifiers={canonical_device_identifier(asset_id)}
@@ -182,6 +182,26 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
 
     rows = []
     mismatch_count = 0
+    roots = [asset for asset in assets if not asset.get("parent_asset_id")]
+    orphan_ids = [
+        str(asset.get("asset_id"))
+        for asset in assets
+        if asset.get("parent_asset_id")
+        and str(asset.get("parent_asset_id")) not in canonical_by_asset
+    ]
+    optimizer_rows = [asset for asset in assets if asset.get("object_class") == "solar_optimizer"]
+    optimizer_zone_parented = [
+        asset for asset in optimizer_rows
+        if (canonical_by_asset and next(
+            (
+                parent
+                for parent in assets
+                if str(parent.get("asset_id") or "") == str(asset.get("parent_asset_id") or "")
+                and parent.get("object_class") == "solar_zone"
+            ),
+            None,
+        ))
+    ]
     canonical_device_ids = {
         device.id for device in canonical_by_asset.values() if device is not None
     }
@@ -190,12 +210,17 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
 
     for asset in assets:
         asset_id = str(asset.get("asset_id") or "")
+        materialized = asset.get("ha_materialization") is True
         device = canonical_by_asset.get(asset_id)
         parent_asset_id = str(asset.get("parent_asset_id") or "")
         parent = canonical_by_asset.get(parent_asset_id) if parent_asset_id else None
-        expected_parent_id = parent.id if parent is not None else None
+        expected_parent_id = parent.id if materialized and parent is not None else None
         actual_parent_id = device.via_device_id if device is not None else None
-        matches = device is not None and actual_parent_id == expected_parent_id
+        matches = (
+            device is not None and actual_parent_id == expected_parent_id
+            if materialized
+            else device is None
+        )
         if not matches:
             mismatch_count += 1
 
@@ -210,6 +235,14 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
                 "expected_via_device_id": expected_parent_id,
                 "actual_via_device_id": actual_parent_id,
                 "topology_matches": matches,
+                "children": list(asset.get("children") or [])[:40],
+                "canonical_path": list(asset.get("canonical_path") or []),
+                "canonical_depth": asset.get("canonical_depth"),
+                "canonical_root": asset.get("canonical_root"),
+                "topology_evidence": asset.get("topology_evidence"),
+                "topology_key": asset.get("topology_key"),
+                "ha_materialization": asset.get("ha_materialization"),
+                "topology_kind": asset.get("topology_kind"),
                 "source_device_ids": source_device_ids(asset)[:20],
             })
 
@@ -222,9 +255,22 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
                 source_reparented_to_canonical.append(source_id)
 
     return {
+        "canonical_graph_node_count": len(assets),
+        "ha_materialized_expected_count": len(canonical_by_asset),
+        "ha_materialized_device_count": sum(device is not None for device in canonical_by_asset.values()),
         "canonical_device_count": sum(device is not None for device in canonical_by_asset.values()),
         "expected_canonical_asset_count": len(canonical_by_asset),
         "canonical_parent_mismatch_count": mismatch_count,
+        "canonical_root_count": len(roots),
+        "canonical_root_ids": [str(asset.get("asset_id")) for asset in roots],
+        "canonical_orphan_count": len(orphan_ids),
+        "canonical_orphan_ids": orphan_ids[:20],
+        "optimizer_count": len(optimizer_rows),
+        "optimizer_zone_parented_count": len(optimizer_zone_parented),
+        "optimizer_zone_coverage_pct": (
+            round(len(optimizer_zone_parented) / len(optimizer_rows) * 100, 1)
+            if optimizer_rows else 100.0
+        ),
         "source_device_count": len(seen_sources),
         "source_reparented_to_canonical_count": len(source_reparented_to_canonical),
         "source_reparented_to_canonical_ids": source_reparented_to_canonical[:20],

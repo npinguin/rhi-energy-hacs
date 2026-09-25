@@ -17,6 +17,7 @@ _SAFE_DOMAIN = re.compile(r"^[a-z0-9_]+$")
 Normalizer = Callable[[str, Any, dict[str, Any]], Any]
 CandidateFilter = Callable[[str, dict[str, Any]], bool]
 MarketRoleResolver = Callable[[dict[str, Any]], str | None]
+TopologyKeyResolver = Callable[[dict[str, Any]], str | None]
 _MODULE_CACHE: dict[str, Any | None] = {}
 
 
@@ -63,3 +64,9 @@ def get_market_role_resolver(integration_domain: str | None) -> MarketRoleResolv
         if (candidate.get("semantic_metadata") or {}).get("market_role") in {"import", "export"}
         else None
     )
+
+
+def get_topology_key_resolver(integration_domain: str | None) -> TopologyKeyResolver:
+    """Return adapter-owned stable topology-key extraction, never display-name inference."""
+    resolver = getattr(_module(integration_domain), "topology_key", None)
+    return resolver if callable(resolver) else lambda _row: None

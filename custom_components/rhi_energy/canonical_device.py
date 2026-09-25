@@ -37,7 +37,7 @@ def canonical_device_info(asset: dict[str, Any]) -> dict[str, Any]:
 
 
 def sync_canonical_device_topology(hass, entry, assets: list[dict[str, Any]]) -> None:
-    """Materialise and reconcile canonical Device Registry topology parent-first.
+    """Materialise and reconcile the explicitly governed HA device projection parent-first.
 
     Two passes deliberately separate identity creation from relationship assignment so
     child order in the runtime snapshot cannot make Connected devices nondeterministic.
@@ -45,7 +45,10 @@ def sync_canonical_device_topology(hass, entry, assets: list[dict[str, Any]]) ->
     """
     registry = dr.async_get(hass)
     created: dict[str, Any] = {}
-    rows = canonical_projection_assets(assets)
+    rows = [
+        row for row in canonical_projection_assets(assets)
+        if row.get("ha_materialization") is True
+    ]
 
     for asset in rows:
         asset_id = str(asset["asset_id"])

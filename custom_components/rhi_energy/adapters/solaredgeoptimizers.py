@@ -7,6 +7,7 @@ display names are never semantic evidence.
 from __future__ import annotations
 
 from typing import Any
+import re
 
 
 def _token(candidate: dict[str, Any]) -> str:
@@ -54,3 +55,22 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
 
 def normalize(_role: str, value: Any, _context: dict[str, Any]) -> Any:
     return value
+
+
+_TOPOLOGY_SUFFIX = re.compile(
+    r"(?:^|[._])(?:power|voltage_average|current_average|child_count|max_active_power|peak_power|installation_date|last_polled|inverter_count|obtained_from)_([0-9]+(?:_[0-9]+)*)$"
+)
+
+
+def topology_key(row: dict[str, Any]) -> str | None:
+    """Extract the integration's stable numeric topology path from source identity.
+
+    SolarEdge Optimizers publishes site/zone/leaf identity in entity/unique-id suffixes
+    (for example power_1_2_21 and voltage_average_1_2). This is integration-owned
+    structural evidence; display names are deliberately ignored.
+    """
+    for value in (row.get("source_unique_id"), row.get("source_entity_id"), row.get("unique_id"), row.get("current_entity_id")):
+        match = _TOPOLOGY_SUFFIX.search(str(value or "").lower())
+        if match:
+            return match.group(1)
+    return None

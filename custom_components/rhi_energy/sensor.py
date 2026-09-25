@@ -516,7 +516,12 @@ class EnergyLogicalEntityManager:
         runtime_rows = self._runtime.snapshot.get("logical_assets") or []
         model_rows = (self._manager.domain_model or {}).get("logical_assets") or []
         rows = runtime_rows if runtime_rows else model_rows
-        return [row for row in rows if isinstance(row, dict) and row.get("asset_id")]
+        authoritative = [row for row in rows if isinstance(row, dict) and row.get("asset_id")]
+        # Structural root/group nodes are real HA navigation surfaces but never runtime truth.
+        return [
+            row for row in canonical_projection_assets(authoritative)
+            if row.get("ha_materialization") is True
+        ]
 
     @staticmethod
     def _unique_ids(rows: list[dict]) -> set[str]:
@@ -680,10 +685,15 @@ class _LogicalEnergySensor(SensorEntity):
         self._asset_id = asset_id
 
     def _asset(self):
-        asset = _logical_asset(self._runtime.snapshot, self._asset_id)
-        if asset is not None:
-            return asset
-        for row in (self._manager.domain_model or {}).get("logical_assets") or []:
+        runtime_rows = [
+            row for row in self._runtime.snapshot.get("logical_assets") or []
+            if isinstance(row, dict) and row.get("asset_id")
+        ]
+        model_rows = [
+            row for row in (self._manager.domain_model or {}).get("logical_assets") or []
+            if isinstance(row, dict) and row.get("asset_id")
+        ]
+        for row in canonical_projection_assets(runtime_rows if runtime_rows else model_rows):
             if str(row.get("asset_id") or "") == self._asset_id:
                 return row
         return None
@@ -717,6 +727,8 @@ class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
         asset = self._asset()
         if not asset:
             return "REMOVED"
+        if asset.get("runtime_truth") is False:
+            return "STRUCTURAL"
         return asset.get("health") or asset.get("normalization_status") or "UNKNOWN"
 
     def _source_devices(self, asset: dict) -> list[dict]:
@@ -757,6 +769,13 @@ class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
             "source_devices": source_devices[:20],
             "source_device_count": len(source_devices),
             "parent_asset_id": asset.get("parent_asset_id"),
+            "children": list(asset.get("children") or []),
+            "canonical_path": list(asset.get("canonical_path") or []),
+            "canonical_depth": asset.get("canonical_depth"),
+            "canonical_root": asset.get("canonical_root"),
+            "projection_role": asset.get("projection_role"),
+            "ha_materialization": asset.get("ha_materialization"),
+            "topology_kind": asset.get("topology_kind"),
             "canonical_via_device": canonical_parent_asset_id(asset),
             "profile_id": asset.get("profile_id"),
             "visual_ref": asset.get("visual_ref"),

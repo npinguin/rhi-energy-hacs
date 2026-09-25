@@ -238,6 +238,8 @@ def _candidate_metadata(candidate: dict[str, Any]) -> dict[str, Any]:
         "via_device_registry_id": evidence.get("via_device_registry_id"),
         "device_registry_id": source.get("device_registry_id") or evidence.get("device_registry_id"),
         "config_entry_id": source.get("config_entry_id"),
+        "source_entity_id": source.get("current_entity_id"),
+        "source_unique_id": source.get("unique_id"),
     }
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.0.0"
+DOMAIN_MODEL_VERSION: Final[str] = "1.1.0"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -143,8 +143,8 @@ CANONICAL_DOMAIN_MODEL: Final[dict[str, Any]] = {
         "home_consumption": {"label": "Home Consumption", "parent": "energy_site", "property_definition": "home_consumption", "derived": True},
         "flexible_load": {"label": "Flexible Energy Asset", "parent": "flexible_loads", "property_definition": "flexible_load", "source_domain": "mobility", "cross_domain": True},
         "gas_meter": {"label": "Gas Meter", "parent": "energy_site", "property_definition": "gas_meter", "supporting": True},
-        "solar_forecast": {"label": "Solar Forecast", "property_definition": "solar_forecast", "supporting": True},
-        "price_source": {"label": "Energy Price Source", "property_definition": "price_source", "supporting": True},
+        "solar_forecast": {"label": "Solar Forecast", "parent": "energy_site", "property_definition": "solar_forecast", "supporting": True},
+        "price_source": {"label": "Energy Price Source", "parent": "energy_site", "property_definition": "price_source", "supporting": True},
     },
 }
 

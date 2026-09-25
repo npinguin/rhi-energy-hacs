@@ -3,6 +3,21 @@ from __future__ import annotations
 
 from typing import Any
 
+try:
+    from ..adapters import get_topology_key_resolver
+except ImportError:  # direct runpy tests without package context
+    from pathlib import Path as _Path
+    import runpy as _runpy
+
+    _root = _Path(__file__).resolve().parents[1]
+
+    def get_topology_key_resolver(integration_domain):
+        domain = str(integration_domain or "").strip().lower()
+        path = _root / "adapters" / f"{domain}.py"
+        if not domain or not path.is_file():
+            return lambda _row: None
+        return _runpy.run_path(str(path)).get("topology_key", lambda _row: None)
+
 
 def optimizer_descriptors(provider: dict[str, Any]) -> list[dict[str, Any]]:
     """Return evidence-backed site/zone/optimizer descriptors.
@@ -17,6 +32,12 @@ def optimizer_descriptors(provider: dict[str, Any]) -> list[dict[str, Any]]:
     optimizers = [row for row in provider.get("optimizers") or [] if isinstance(row, dict)]
 
     site_parent = str(sites[0].get("asset_id") or "") if len(sites) == 1 else None
+    topology_key = get_topology_key_resolver(provider.get("integration_domain"))
+    zone_keys = {
+        str(key): str(row.get("asset_id"))
+        for row in zones
+        if row.get("asset_id") and (key := topology_key(row))
+    }
     device_to_asset = {
         str(row.get("device_registry_id")): str(row.get("asset_id"))
         for row in (*sites, *zones, *optimizers)
@@ -44,6 +65,16 @@ def optimizer_descriptors(provider: dict[str, Any]) -> list[dict[str, Any]]:
         if object_class == "solar_optimizer":
             if exact_parent_class in {"solar_zone", "solar_optimizer_site"}:
                 return exact_parent
+            child_key = topology_key(row)
+            if child_key:
+                matches = [
+                    (zone_key, zone_asset_id)
+                    for zone_key, zone_asset_id in zone_keys.items()
+                    if child_key.startswith(f"{zone_key}_")
+                ]
+                if matches:
+                    # Longest prefix is the most specific stable integration path.
+                    return max(matches, key=lambda item: len(item[0]))[1]
             return site_parent
         return None
 
@@ -64,10 +95,15 @@ def optimizer_descriptors(provider: dict[str, Any]) -> list[dict[str, Any]]:
                 "topology_evidence": (
                     "exact_source_via_device"
                     if str(raw.get("via_device_registry_id") or "") in device_to_asset
+                    else "integration_stable_path"
+                    if object_class == "solar_optimizer"
+                    and topology_key(raw)
+                    and any(topology_key(raw).startswith(f"{zone_key}_") for zone_key in zone_keys)
                     else "single_site_fallback"
                     if object_class != "solar_optimizer_site" and site_parent
                     else "none"
                 ),
+                "topology_key": topology_key(raw),
                 "panel_binding": (
                     (raw.get("bindings") or {}).get("panel_identity")
                     if object_class == "solar_optimizer"
