@@ -145,6 +145,108 @@ def _profile_catalog() -> list[dict[str, Any]]:
     return EnergyProfileCatalogProvider().snapshot()["profiles"]
 
 
+def _core_status(required: dict[str, Any], *, unavailable_reason: str) -> dict[str, Any]:
+    """Return fail-closed product status for one core Energy block."""
+    missing = [key for key, value in required.items() if value is None]
+    if not missing:
+        return {"status": "AVAILABLE", "reason": None, "missing_fields": []}
+    return {
+        "status": "UNAVAILABLE",
+        "reason": unavailable_reason,
+        "missing_fields": missing,
+    }
+
+
+def _build_core(source: dict[str, Any]) -> dict[str, Any]:
+    """Project stable current-home Energy truth without re-deriving semantics.
+
+    Every value comes from canonical runtime facts or canonical flexible assets.
+    Optional object-detail health never controls these product-level statuses.
+    """
+    facts = source.get("facts") or {}
+    flexible_assets = [
+        deepcopy(row)
+        for row in source.get("flexible_assets") or []
+        if isinstance(row, dict)
+    ]
+    battery = {
+        "power_kw": facts.get("battery.power_kw"),
+        "soc_pct": facts.get("battery.soc_pct"),
+        "state": facts.get("battery.state"),
+    }
+    battery.update(_core_status(
+        {"power_kw": battery["power_kw"], "soc_pct": battery["soc_pct"], "state": battery["state"]},
+        unavailable_reason="battery_core_truth_incomplete",
+    ))
+
+    solar = {"power_kw": facts.get("solar.power_kw")}
+    solar.update(_core_status(
+        {"power_kw": solar["power_kw"]},
+        unavailable_reason="solar_core_truth_incomplete",
+    ))
+
+    grid = {
+        "net_power_kw": facts.get("grid.net_power_kw"),
+        "import_power_kw": facts.get("grid_import.power_kw"),
+        "export_power_kw": facts.get("grid_export.power_kw"),
+        "flow_direction": facts.get("grid.flow_direction"),
+    }
+    grid.update(_core_status(
+        {
+            "net_power_kw": grid["net_power_kw"],
+            "import_power_kw": grid["import_power_kw"],
+            "export_power_kw": grid["export_power_kw"],
+            "flow_direction": grid["flow_direction"],
+        },
+        unavailable_reason="grid_core_truth_incomplete",
+    ))
+
+    consumption = {"power_kw": facts.get("site_consumption.power_kw")}
+    consumption.update(_core_status(
+        {"power_kw": consumption["power_kw"]},
+        unavailable_reason="site_consumption_core_truth_incomplete",
+    ))
+
+    home = {"power_kw": facts.get("home_consumption.power_kw")}
+    home.update(_core_status(
+        {"power_kw": home["power_kw"]},
+        unavailable_reason="home_consumption_core_truth_incomplete",
+    ))
+
+    producer_available = bool(
+        (source.get("producer_publication_availability") or {}).get("mobility")
+    )
+    flexible = {
+        "power_kw": facts.get("flexible_loads.power_kw"),
+        "attributed_power_kw": facts.get("flexible_loads.attributed_power_kw"),
+        "asset_count": len(flexible_assets),
+        "assets": flexible_assets,
+        "producer_available": producer_available,
+    }
+    flexible_required = {
+        "power_kw": flexible["power_kw"],
+        "producer_available": True if producer_available else None,
+    }
+    flexible.update(_core_status(
+        flexible_required,
+        unavailable_reason=(
+            "mobility_flexible_load_publication_unavailable"
+            if not producer_available
+            else "flexible_load_core_truth_incomplete"
+        ),
+    ))
+
+    return {
+        "contract_id": "RHI_ENERGY_CORE_V1",
+        "battery": battery,
+        "solar": solar,
+        "grid": grid,
+        "consumption": consumption,
+        "home": home,
+        "flexible": flexible,
+    }
+
+
 def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
     for asset in snapshot.get("logical_assets") or []:
@@ -223,6 +325,27 @@ def _apply_configuration_operation_state(
     return out
 
 
+def _decorate_commands(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        row = deepcopy(raw)
+        status = str(row.get("status") or row.get("execution_status") or "IDLE").upper()
+        row["operation_state"] = status
+        row["operation"] = {
+            "operation_id": row.get("operation_id"),
+            "status": status,
+            "reason": row.get("reason"),
+            "requested_at": row.get("requested_at"),
+            "completed_at": row.get("completed_at"),
+            "requested_value": deepcopy(row.get("parameters") or {}),
+            "readback_value": deepcopy(row.get("readback") or {}),
+        }
+        out.append(row)
+    return out
+
+
 def build_public_contract_v2(
     snapshot: dict[str, Any],
     store_data: dict[str, Any],
@@ -289,6 +412,7 @@ def build_public_contract_v2(
         },
     }
     coverage = canonical_coverage(objects, canonical_configuration)
+    commands = _decorate_commands(command_rows)
     activity = [deepcopy(row) for row in (store_data.get("activity") or []) if isinstance(row, dict)][-100:]
     metering_periods = deepcopy(((store_data.get("metering") or {}).get("periods") or {}))
     value_accounting = {
@@ -323,6 +447,7 @@ def build_public_contract_v2(
             "dependency_diagnostics": deepcopy(model.get("dependency_diagnostics") or {}),
         },
         "health": source.get("health") or "UNKNOWN",
+        "core": _build_core(source),
         "objects": objects,
         "profiles": _profile_catalog(),
         "relationships": _relationships(source),
@@ -331,7 +456,7 @@ def build_public_contract_v2(
         "planning": deepcopy(source.get("plan") or {}),
         "intelligence": deepcopy(source.get("intelligence") or {}),
         "overview": deepcopy(source.get("overview") or {}),
-        "commands": deepcopy(command_rows),
+        "commands": commands,
         "activity": activity,
         "value_accounting": {
             "selected_period_id": selected_period,
@@ -349,7 +474,7 @@ def build_public_contract_v2(
             "relationship_count": len(_relationships(source)),
             "configuration_property_count": len(pricing_rows) + len(strategy_rows),
             "coverage_complete": coverage.get("complete"),
-            "command_count": len(command_rows),
+            "command_count": len(commands),
             "activity_count": len(activity),
             "value_accounting_period_count": len(value_accounting),
             "system_object_count": len(source.get("system_assets") or model.get("system_assets") or []),
