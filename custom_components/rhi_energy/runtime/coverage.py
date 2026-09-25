@@ -15,6 +15,9 @@ def _producer_kind(row: dict[str, Any], *, configuration: bool = False) -> str |
     if row.get("write_supported") is True:
         return "CONTROL_READBACK"
     resolution = row.get("resolution") or {}
+    explicit = resolution.get("producer_kind")
+    if explicit:
+        return str(explicit)
     provenance = resolution.get("provenance") or []
     if row.get("derived") is True:
         return "DERIVED"
@@ -43,7 +46,7 @@ def canonical_coverage(
         if not property_id:
             return
         resolution = row.get("resolution") or {}
-        status = str(resolution.get("status") or row.get("availability") or "UNKNOWN")
+        status = str(resolution.get("resolution_kind") or resolution.get("status") or row.get("availability") or "UNKNOWN")
         reason = resolution.get("reason_code") or row.get("reason_code")
         producer_kind = _producer_kind(row, configuration=configuration_property)
         editable = row.get("editable") is True or row.get("write_supported") is True

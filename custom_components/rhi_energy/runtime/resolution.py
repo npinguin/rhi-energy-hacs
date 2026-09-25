@@ -10,9 +10,13 @@ from copy import deepcopy
 from typing import Any
 
 try:
-    from ..models import PropertyResolution
+    from ..models import PropertyProducerKind, PropertyResolution, PropertyResolutionKind
 except ImportError:  # direct runpy tests
     PropertyResolution = dict  # type: ignore[assignment,misc]
+    class PropertyProducerKind:
+        SOURCE="SOURCE"; DERIVED="DERIVED"; CONTROL_READBACK="CONTROL_READBACK"
+    class PropertyResolutionKind:
+        AVAILABLE="AVAILABLE"; UNSUPPORTED_BY_SOURCE="UNSUPPORTED_BY_SOURCE"; UNAVAILABLE_TEMPORARY="UNAVAILABLE_TEMPORARY"
 
 
 def _binding_ids(prop: dict[str, Any]) -> list[str]:
@@ -46,6 +50,15 @@ def resolve_property(prop: dict[str, Any], value: Any, *, value_revision: int = 
     binding_ids = _binding_ids(prop)
     provenance = _provenance(prop, binding_ids)
     acceptance_status = str(prop.get("status") or "")
+    producer_kind = (
+        PropertyProducerKind.CONTROL_READBACK
+        if prop.get("write_supported") is True
+        else PropertyProducerKind.DERIVED
+        if prop.get("derived") is True
+        else PropertyProducerKind.SOURCE
+        if binding_ids
+        else None
+    )
 
     if acceptance_status in {"MISSING", "UNSUPPORTED"}:
         return {
@@ -55,6 +68,8 @@ def resolve_property(prop: dict[str, Any], value: Any, *, value_revision: int = 
             "binding_ids": binding_ids,
             "provenance": provenance,
             "value_revision": value_revision,
+            "producer_kind": None if producer_kind is None else str(producer_kind),
+            "resolution_kind": str(PropertyResolutionKind.UNSUPPORTED_BY_SOURCE),
         }
     if value is None:
         return {
@@ -64,6 +79,8 @@ def resolve_property(prop: dict[str, Any], value: Any, *, value_revision: int = 
             "binding_ids": binding_ids,
             "provenance": provenance,
             "value_revision": value_revision,
+            "producer_kind": None if producer_kind is None else str(producer_kind),
+            "resolution_kind": str(PropertyResolutionKind.UNAVAILABLE_TEMPORARY),
         }
     return {
         "status": "RESOLVED",
@@ -72,6 +89,8 @@ def resolve_property(prop: dict[str, Any], value: Any, *, value_revision: int = 
         "binding_ids": binding_ids,
         "provenance": provenance,
         "value_revision": value_revision,
+        "producer_kind": None if producer_kind is None else str(producer_kind),
+        "resolution_kind": str(PropertyResolutionKind.AVAILABLE),
     }
 
 

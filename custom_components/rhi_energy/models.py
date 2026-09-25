@@ -6,11 +6,35 @@ plain mappings at their boundaries.
 """
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, Literal, NotRequired, TypedDict
 
 
 ResolutionStatus = Literal["RESOLVED", "UNAVAILABLE", "UNRESOLVED", "INVALID"]
 ResolutionQuality = Literal["AUTHORITATIVE", "DERIVED", "FALLBACK", "NOT_ASSESSED"]
+
+
+class PropertyProducerKind(StrEnum):
+    """Shared RHI property-producer grammar; Energy vocabulary remains domain-owned."""
+
+    SOURCE = "SOURCE"
+    PROFILE = "PROFILE"
+    CONFIGURATION = "CONFIGURATION"
+    RELATIONSHIP = "RELATIONSHIP"
+    CONTROL_READBACK = "CONTROL_READBACK"
+    DERIVED = "DERIVED"
+    ALIAS = "ALIAS"
+
+
+class PropertyResolutionKind(StrEnum):
+    """Energy resolution grammar compatible with the cross-domain RHI model."""
+
+    AVAILABLE = "AVAILABLE"
+    UNSUPPORTED_BY_SOURCE = "UNSUPPORTED_BY_SOURCE"
+    CONFIGURATION_REQUIRED = "CONFIGURATION_REQUIRED"
+    UNAVAILABLE_TEMPORARY = "UNAVAILABLE_TEMPORARY"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    RESOLUTION_ERROR = "RESOLUTION_ERROR"
 
 
 class PropertyResolution(TypedDict):
@@ -22,6 +46,8 @@ class PropertyResolution(TypedDict):
     binding_ids: list[str]
     provenance: list[dict[str, Any]]
     value_revision: int
+    producer_kind: NotRequired[str | None]
+    resolution_kind: NotRequired[str]
 
 
 class SourceIdentity(TypedDict, total=False):

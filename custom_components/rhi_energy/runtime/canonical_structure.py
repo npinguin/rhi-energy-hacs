@@ -12,24 +12,24 @@ from typing import Any
 HA_MATERIALIZATION_POLICY: dict[str, dict[str, Any]] = {
     # HA projection is intentionally separate from canonical semantic composition.
     # topology_kind describes the primitive actually used by this release.
-    "energy_site": {"ha_materialization": True, "topology_kind": "root"},
-    "flexible_loads": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "grid_connection": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "grid_phase": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "solar_production": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "solar_inverter": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "solar_inverter_phase": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "battery_system": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "battery": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "solar_optimizer_site": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "solar_zone": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "solar_optimizer": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "solar_panel": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "home_consumption": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "flexible_load": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "gas_meter": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "solar_forecast": {"ha_materialization": True, "topology_kind": "semantic_only"},
-    "price_source": {"ha_materialization": True, "topology_kind": "semantic_only"},
+    "energy_site": {"ha_materialization": True, "topology_kind": "root", "materialization_reason": "domain_navigation_root"},
+    "flexible_loads": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_logical_group"},
+    "grid_connection": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_site_boundary"},
+    "grid_phase": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "diagnostic_phase_surface"},
+    "solar_production": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_generation_subsystem"},
+    "solar_inverter": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "physical_generation_device_projection"},
+    "solar_inverter_phase": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "diagnostic_phase_surface"},
+    "battery_system": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_storage_subsystem"},
+    "battery": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "physical_storage_unit_projection"},
+    "solar_optimizer_site": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_optimizer_subsystem"},
+    "solar_zone": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "diagnostic_topology_surface"},
+    "solar_optimizer": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "physical_optimizer_projection"},
+    "solar_panel": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "physical_panel_projection"},
+    "home_consumption": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_derived_energy_surface"},
+    "flexible_load": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_cross_domain_energy_asset"},
+    "gas_meter": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_metering_surface"},
+    "solar_forecast": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_forecast_surface"},
+    "price_source": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_price_surface"},
 }
 
 
@@ -41,7 +41,7 @@ def ha_projection_metadata(asset: dict[str, Any]) -> dict[str, Any]:
         return dict(policy)
     # Unknown future semantic objects fail closed: they remain in canonical truth
     # but are presentation-only until an HA projection policy is deliberately added.
-    return {"ha_materialization": False, "topology_kind": "presentation_only"}
+    return {"ha_materialization": False, "topology_kind": "presentation_only", "materialization_reason": "no_explicit_ha_policy"}
 
 
 TOP_LEVEL_CANONICAL_CLASSES = {

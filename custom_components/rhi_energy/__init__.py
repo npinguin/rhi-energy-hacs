@@ -193,7 +193,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         setup_performance["manager_start_ms"] = round((perf_counter() - stage_started) * 1000, 3)
 
         stage_started = perf_counter()
-        sync_canonical_device_topology(
+        await sync_canonical_device_topology(
             hass,
             entry,
             runtime.snapshot.get("logical_assets") or [],
