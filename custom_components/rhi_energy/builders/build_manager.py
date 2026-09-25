@@ -187,10 +187,10 @@ def _builder_assessment(entry: dict[str, Any], *, structural_valid: bool = True)
 
 
 def _materialize_semantic_acceptance_input(entry: dict[str, Any]) -> dict[str, Any]:
-    """Create Energy-local semantic-acceptance view solely from SelectedDomainBuildInput 1.2.0.
+    """Create Energy-local semantic-acceptance view from SelectedDomainBuildInput.
 
-    Each selected Foundation candidate is augmented with the exact domain-owned raw
-    match that selected it. No HA registry scan and no Foundation-private state is read.
+    Physical topology is derived from stable provider source semantics, never from
+    transient Foundation availability, HA names or runtime source values.
     """
     result = deepcopy(entry)
     evidence = _candidate_evidence_index(entry)
@@ -344,7 +344,8 @@ class EnergyBuildManager:
                 preflight_issues.append(f"{builder_id}:selected_build_input_raw_match_evidence_invalid")
                 continue
             if item.get("builder_id"):
-                payload[builder_id] = _materialize_semantic_acceptance_input(item)
+                materialized = _materialize_semantic_acceptance_input(item)
+                payload[builder_id] = materialized
 
         # Configuration is valid once the authoritative registry entry and supported
         # contracts are present. Per-builder discovery/semantic problems belong to build.

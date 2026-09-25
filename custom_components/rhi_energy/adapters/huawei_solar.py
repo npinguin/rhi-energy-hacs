@@ -1,9 +1,12 @@
 """Huawei Solar Energy source-role refinements.
 
-Foundation discovers technical candidates mechanically. This adapter only resolves
-stable Huawei source-identity families so grid-meter telemetry cannot materialize
-as photovoltaic inverter truth. It never inspects HA entity IDs, friendly names,
-device names, or Foundation-private state.
+Foundation discovers technical candidates mechanically.  Energy maps Huawei's
+stable source-identity families into canonical storage semantics.
+
+A Huawei storage_unit_N is one canonical Battery.  battery_pack_M registers are
+subordinate module telemetry of that storage unit and never create Battery assets.
+No HA entity id, friendly name, device name, serial number or configured unit count
+is used as topology truth.
 """
 from __future__ import annotations
 
@@ -15,38 +18,32 @@ def _unique_id(candidate: dict[str, Any]) -> str:
     return str((candidate.get("source_identity") or {}).get("unique_id") or "")
 
 
+_STORAGE_UNIT_RE = re.compile(r"_storage_unit_(\d+)_")
 _PACK_RE = re.compile(r"_storage_unit_(\d+)_battery_pack_(\d+)_")
 
 
 def battery_unit_key(candidate: dict[str, Any]) -> str | None:
-    """Return stable Huawei battery-pack identity from source unique-id semantics."""
+    """Return stable Huawei storage-unit identity, excluding subordinate packs."""
     unique_id = _unique_id(candidate)
-    match = _PACK_RE.search(unique_id)
+    if not unique_id or _PACK_RE.search(unique_id):
+        return None
+    match = _STORAGE_UNIT_RE.search(unique_id)
     if match:
-        return f"storage_unit_{match.group(1)}:pack_{match.group(2)}"
+        return f"storage_unit_{match.group(1)}"
     return None
 
 
 def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
-    """Refine Huawei source-role families using Foundation-published stable identity."""
+    """Refine Huawei source-role families from stable provider identity."""
     unique_id = _unique_id(candidate)
     if not unique_id:
         return True
 
-    # Huawei registers all possible battery-pack slots. A registered but unavailable
-    # pack slot is capability potential, not evidence that a physical pack exists.
-    # Only an available pack power measurement may anchor a physical child Battery.
-    if (
-        input_id.startswith("battery_")
-        and "_battery_pack_" in unique_id
-        and str((candidate.get("quality") or {}).get("availability") or "").lower()
-        != "available"
-    ):
+    # Pack registers describe modules inside one storage unit. They are valid
+    # diagnostic/source evidence but must not compete for canonical Battery roles.
+    if input_id.startswith("battery_") and _PACK_RE.search(unique_id):
         return False
 
-    # Huawei exposes inverter and power-meter measurements in one integration.
-    # The stable source identity distinguishes the meter family. The HA entity
-    # or device display name is deliberately not consulted.
     meter_family = "_power_meter_" in unique_id or "_active_grid_" in unique_id
     grid_accumulator = "_grid_accumulated_" in unique_id or "_grid_exported_" in unique_id
 

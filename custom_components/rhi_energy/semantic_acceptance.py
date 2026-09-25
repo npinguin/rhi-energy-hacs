@@ -366,12 +366,13 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
                 issues.append(f"battery_system_{role}:ambiguous:count_{len(rows)}")
 
         capacity_rows = list(inputs.get("battery_capacity", []))
-        if len(capacity_rows) == 1:
-            binding_id = f"energy:{system_id}:capacity"
-            bindings.append(_binding(system_id, "capacity", capacity_rows[0], previous.get(binding_id)))
-            system_roles["capacity"] = binding_id
-        elif len(capacity_rows) > 1:
-            issues.append(f"battery_system_capacity:ambiguous:count_{len(capacity_rows)}")
+        if len(anchor_keys) > 1:
+            if len(capacity_rows) == 1:
+                binding_id = f"energy:{system_id}:capacity"
+                bindings.append(_binding(system_id, "capacity", capacity_rows[0], previous.get(binding_id)))
+                system_roles["capacity"] = binding_id
+            elif len(capacity_rows) > 1:
+                issues.append(f"battery_system_capacity:ambiguous:count_{len(capacity_rows)}")
 
     for index, anchor_key in enumerate(anchor_keys, start=1):
         anchor_rows = [candidate for candidate in power_candidates if unit_key(candidate) == anchor_key]
@@ -386,31 +387,28 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
             role = str(spec.get("role") or "")
             input_id = str(spec.get("input_id") or "")
             rows = [candidate for candidate in inputs.get(input_id, []) if unit_key(candidate) == anchor_key]
-            if role == "capacity" and not rows and not use_adapter_units:
+            if not rows:
                 anchor_config_entries = {
                     str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
                     for candidate in power_candidates
                     if unit_key(candidate) == anchor_key
                     and (candidate.get("source_identity") or {}).get("config_entry_id")
                 }
-                sibling_capacity = [
+                sibling_rows = [
                     candidate
                     for candidate in inputs.get(input_id, [])
-                    if (
-                        not _candidate_device_id(candidate)
+                    if not unit_key_resolver(candidate)
+                    and (
+                        not (candidate.get("source_identity") or {}).get("config_entry_id")
                         or str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
                         in anchor_config_entries
                     )
                 ]
-                sibling_anchors = {
-                    _candidate_device_id(candidate)
-                    for candidate in power_candidates
-                    if str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
-                    in anchor_config_entries
-                    and _candidate_device_id(candidate)
-                }
-                if len(sibling_capacity) == 1 and len(sibling_anchors) == 1:
-                    rows = sibling_capacity
+                # Generic single-storage-unit enrichment: controller/system capabilities
+                # that cannot identify a specific unit may enrich exactly one unit, never
+                # be duplicated across several units.
+                if len(anchor_keys) == 1 and len(sibling_rows) == 1:
+                    rows = sibling_rows
             if len(rows) == 1:
                 binding_id = f"energy:{asset_id}:{role}"
                 bindings.append(_binding(asset_id, role, rows[0], previous.get(binding_id)))
@@ -434,30 +432,37 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
     if not units:
         raise ValueError("no_semantically_safe_measurement")
 
-    # Controls are system-scoped whenever multiple physical sub-units share one
-    # storage controller. They must never be copied onto each child pack.
+    # Controls are system-scoped for multiple storage units. With exactly one
+    # canonical storage unit, an unambiguous controller capability belongs to that
+    # unit and must not create a second logical Battery.
     entity_reserves = [
         candidate
         for candidate in inputs.get("reserve_write_surface", [])
         if (candidate.get("source_identity") or {}).get("source_kind") == "entity"
-        and str((candidate.get("source_identity") or {}).get("current_entity_id") or "").startswith("number.")
+        and str((candidate.get("technical_capability") or {}).get("capability_class") or "")
+        == "number_write_surface"
     ]
     reserve_binding = None
     if len(entity_reserves) == 1:
         reserve = entity_reserves[0]
-        binding_id = f"energy:{system_id}:reserve"
-        bindings.append(_binding(system_id, "reserve", reserve, previous.get(binding_id)))
+        if len(units) == 1:
+            owner_id = str(units[0]["asset_id"])
+            binding_id = f"energy:{owner_id}:reserve"
+            bindings.append(_binding(owner_id, "reserve", reserve, previous.get(binding_id)))
+            units[0]["bindings"]["reserve"] = binding_id
+        else:
+            binding_id = f"energy:{system_id}:reserve"
+            bindings.append(_binding(system_id, "reserve", reserve, previous.get(binding_id)))
+            system_roles["reserve"] = binding_id
         reserve_binding = binding_id
-        system_roles["reserve"] = binding_id
     elif not entity_reserves and inputs.get("reserve_write_surface"):
         issues.append("reserve_write_surface:no_executable_number_entity")
     elif len(entity_reserves) > 1:
         issues.append("reserve_write_surface:ambiguous")
 
-    # For legacy/single-device storage, preserve the established unit-scoped
-    # editable controls. For adapter-resolved multi-pack systems the aggregate
-    # controller remains system-owned and is not duplicated to packs.
-    if not use_adapter_units:
+    # Editable controller capabilities can enrich one unambiguous canonical Battery.
+    # With multiple storage units they remain system-owned to avoid duplication.
+    if not use_adapter_units or len(units) == 1:
         for unit in units:
             unit_config_entries = {
                 str((binding.get("source_identity") or {}).get("config_entry_id") or "")

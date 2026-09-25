@@ -12,10 +12,7 @@ import re
 
 def _token(candidate: dict[str, Any]) -> str:
     source = candidate.get("source_identity") or {}
-    return " ".join(
-        str(source.get(key) or "").lower()
-        for key in ("unique_id", "current_entity_id")
-    )
+    return str(source.get("unique_id") or "").lower()
 
 
 def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
@@ -65,11 +62,11 @@ _TOPOLOGY_SUFFIX = re.compile(
 def topology_key(row: dict[str, Any]) -> str | None:
     """Extract the integration's stable numeric topology path from source identity.
 
-    SolarEdge Optimizers publishes site/zone/leaf identity in entity/unique-id suffixes
-    (for example power_1_2_21 and voltage_average_1_2). This is integration-owned
-    structural evidence; display names are deliberately ignored.
+    SolarEdge Optimizers publishes site/zone/leaf identity in provider-owned unique-id
+    suffixes (for example power_1_2_21 and voltage_average_1_2). User-renamable
+    entity ids and display names are never semantic evidence.
     """
-    for value in (row.get("source_unique_id"), row.get("source_entity_id"), row.get("unique_id"), row.get("current_entity_id")):
+    for value in (row.get("source_unique_id"), row.get("unique_id")):
         match = _TOPOLOGY_SUFFIX.search(str(value or "").lower())
         if match:
             return match.group(1)
