@@ -13,23 +13,23 @@ HA_MATERIALIZATION_POLICY: dict[str, dict[str, Any]] = {
     # HA projection is intentionally separate from canonical semantic composition.
     # topology_kind describes the primitive actually used by this release.
     "energy_site": {"ha_materialization": True, "topology_kind": "root", "materialization_reason": "domain_navigation_root"},
-    "flexible_loads": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_logical_group"},
-    "grid_connection": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_site_boundary"},
-    "grid_phase": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "diagnostic_phase_surface"},
-    "solar_production": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_generation_subsystem"},
-    "solar_inverter": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "physical_generation_device_projection"},
-    "solar_inverter_phase": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "diagnostic_phase_surface"},
-    "battery_system": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_storage_subsystem"},
-    "battery": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "physical_storage_unit_projection"},
-    "solar_optimizer_site": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_optimizer_subsystem"},
-    "solar_zone": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "diagnostic_topology_surface"},
-    "solar_optimizer": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "physical_optimizer_projection"},
-    "solar_panel": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "physical_panel_projection"},
-    "home_consumption": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_derived_energy_surface"},
-    "flexible_load": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_cross_domain_energy_asset"},
-    "gas_meter": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_metering_surface"},
-    "solar_forecast": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_forecast_surface"},
-    "price_source": {"ha_materialization": True, "topology_kind": "semantic_only", "materialization_reason": "user_recognizable_price_surface"},
+    "flexible_loads": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_logical_group"},
+    "grid_connection": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_site_boundary"},
+    "grid_phase": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_phase_surface"},
+    "solar_production": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_generation_subsystem"},
+    "solar_inverter": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_generation_device_projection"},
+    "solar_inverter_phase": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_phase_surface"},
+    "battery_system": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_storage_subsystem"},
+    "battery": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_storage_unit_projection"},
+    "solar_optimizer_site": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_optimizer_subsystem"},
+    "solar_zone": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_topology_surface"},
+    "solar_optimizer": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_optimizer_projection"},
+    "solar_panel": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_panel_projection"},
+    "home_consumption": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_derived_energy_surface"},
+    "flexible_load": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_cross_domain_energy_asset"},
+    "gas_meter": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_metering_surface"},
+    "solar_forecast": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_forecast_surface"},
+    "price_source": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_price_surface"},
 }
 
 
@@ -114,7 +114,8 @@ def canonical_projection_assets(assets: list[dict[str, Any]]) -> list[dict[str, 
         if asset_id:
             dedup[asset_id] = row
 
-    # The canonical graph, not HA via-device, is topology authority.
+    # The canonical graph is topology authority. HA DeviceInfo mirrors this graph
+    # declaratively for navigation; source-device topology remains untouched.
     children: dict[str, list[str]] = {asset_id: [] for asset_id in dedup}
     for asset_id, row in dedup.items():
         parent = str(row.get("parent_asset_id") or "")
@@ -140,4 +141,12 @@ def canonical_projection_assets(assets: list[dict[str, Any]]) -> list[dict[str, 
         row["canonical_depth"] = max(0, len(path) - 1)
         row["canonical_root"] = path[0] if path else asset_id
         projected.append(row)
-    return projected
+    # Parent-first order lets HA resolve via_device identifiers during first
+    # materialisation without a second registry reconciliation pass.
+    return sorted(
+        projected,
+        key=lambda row: (
+            int(row.get("canonical_depth") or 0),
+            str(row.get("asset_id") or ""),
+        ),
+    )

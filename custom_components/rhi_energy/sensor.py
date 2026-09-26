@@ -285,7 +285,9 @@ class _RuntimeSensor(_EnergySensor):
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
+        self.async_on_remove(
+            self._runtime.add_asset_callback(self._asset_id, self.async_write_ha_state)
+        )
 
 
 _METRICS = {
@@ -628,7 +630,7 @@ class EnergyLogicalEntityManager:
         desired = self._unique_ids(rows)
         desired_devices = {
             f"logical:{str(asset.get('asset_id') or '')}"
-            for asset in canonical_projection_assets(rows)
+            for asset in rows
             if asset.get("asset_id")
         }
         # The Planning logical device is a stable additive projection over the
@@ -664,6 +666,11 @@ class EnergyLogicalEntityManager:
 
     def start_deferred(self) -> None:
         """Start projection after platform setup and coalesce topology callbacks."""
+        projection_state = self._store.data.setdefault("logical_projection", {})
+        projection_state.pop("canonical_device_reconcile", None)
+        projection_state["sync_count"] = 0
+        projection_state["skipped_unchanged_count"] = 0
+        projection_state["session_started"] = True
         # Generic build-manager notifications also cover health/diagnostic changes.
         # Entity projection is lifecycle-owned and therefore follows only the
         # runtime's structural topology callback.
@@ -825,15 +832,16 @@ class _LogicalEnergySensor(SensorEntity):
         self._asset_id = asset_id
 
     def _asset(self):
-        runtime_rows = [
-            row for row in self._runtime.snapshot.get("logical_assets") or []
-            if isinstance(row, dict) and row.get("asset_id")
-        ]
-        model_rows = [
-            row for row in (self._manager.domain_model or {}).get("logical_assets") or []
-            if isinstance(row, dict) and row.get("asset_id")
-        ]
-        for row in canonical_projection_assets(runtime_rows if runtime_rows else model_rows):
+        # Runtime/model rows already contain governed parent_asset_id. Do not rebuild
+        # the complete canonical graph from every HA entity getter.
+        for row in self._runtime.snapshot.get("logical_assets") or []:
+            if isinstance(row, dict) and str(row.get("asset_id") or "") == self._asset_id:
+                return row
+        for row in (self._manager.domain_model or {}).get("logical_assets") or []:
+            if isinstance(row, dict) and str(row.get("asset_id") or "") == self._asset_id:
+                return row
+        # Only structural navigation nodes are absent from runtime/model truth.
+        for row in canonical_projection_assets([]):
             if str(row.get("asset_id") or "") == self._asset_id:
                 return row
         return None
@@ -845,7 +853,9 @@ class _LogicalEnergySensor(SensorEntity):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
         self.async_on_remove(self._manager.add_callback(self.async_write_ha_state))
-        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
+        self.async_on_remove(
+            self._runtime.add_asset_callback(self._asset_id, self.async_write_ha_state)
+        )
 
 
 class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
@@ -933,9 +943,6 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
         self._attr_suggested_object_id = f"energy_{_object_id(asset_id)}_{_object_id(property_key)}"
 
     def _property(self):
-        _asset, prop = _logical_property(self._runtime.snapshot, self._asset_id, self._property_key)
-        if prop is not None:
-            return prop
         asset = self._asset() or {}
         for row in asset.get("properties") or []:
             if str(row.get("property_key") or "") == self._property_key:

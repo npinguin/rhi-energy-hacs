@@ -9,13 +9,14 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import UTC, datetime
 import logging
-from typing import Any, Callable
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
 from ..adapters import get_normalizer
+from .callbacks import RuntimeCallbacks, logical_topology
 from .canonical_semantics import (
     aggregate_battery_soc,
     battery_state_from_power,
@@ -111,12 +112,12 @@ class EnergyRuntime:
         self.model: dict[str, Any] | None = None
         self.snapshot: dict[str, Any] = self._empty_snapshot()
         self._unsubscribe = None
-        self._callbacks: list[Callable[[], None]] = []
-        self._topology_callbacks: list[Callable[[], None]] = []
+        self._callback_hub = RuntimeCallbacks()
         self._topology_signature: tuple[Any, ...] | None = None
         self._binding_index_cache: dict[str, dict[str, Any]] = {}
         self._entity_ids_cache: tuple[str, ...] = ()
         self._incremental_entity_targets: dict[str, tuple[tuple[str, str], ...]] = {}
+        self._dirty_entity_ids: set[str] = set()
         self.event_flow = SourceEventCoalescer(hass, self._recompute)
 
     @staticmethod
@@ -136,41 +137,25 @@ class EnergyRuntime:
         }
 
     def add_callback(self, cb):
-        self._callbacks.append(cb)
-        return lambda: self._callbacks.remove(cb) if cb in self._callbacks else None
+        return self._callback_hub.add(cb)
+
+    def add_asset_callback(self, asset_id: str, cb):
+        return self._callback_hub.add_asset(asset_id, cb)
 
     def add_topology_callback(self, cb):
-        """Subscribe only to logical asset/property topology changes."""
-        self._topology_callbacks.append(cb)
-        return lambda: self._topology_callbacks.remove(cb) if cb in self._topology_callbacks else None
-
-    @staticmethod
-    def _logical_topology(snapshot: dict[str, Any]) -> tuple[Any, ...]:
-        return tuple(sorted(
-            (
-                str(asset.get("asset_id") or ""),
-                str(asset.get("object_class") or ""),
-                tuple(sorted(
-                    str(prop.get("property_key") or "")
-                    for prop in (asset.get("properties") or [])
-                    if isinstance(prop, dict) and prop.get("property_key")
-                )),
-            )
-            for asset in (snapshot.get("logical_assets") or [])
-            if isinstance(asset, dict) and asset.get("asset_id")
-        ))
+        return self._callback_hub.add_topology(cb)
 
     def _notify_topology_if_changed(self) -> None:
-        signature = self._logical_topology(self.snapshot)
-        if signature == self._topology_signature:
-            return
-        self._topology_signature = signature
-        for cb in tuple(self._topology_callbacks):
-            cb()
+        signature = logical_topology(self.snapshot)
+        if signature != self._topology_signature:
+            self._topology_signature = signature
+            self._callback_hub.notify_topology()
 
     def _notify(self) -> None:
-        for cb in tuple(self._callbacks):
-            cb()
+        self._callback_hub.notify_all()
+
+    def _notify_assets(self, asset_ids: set[str]) -> None:
+        self._callback_hub.notify_assets(asset_ids)
 
     def _binding_index(self) -> dict[str, dict[str, Any]]:
         """Return the structurally prebound lookup; never rebuild it on telemetry."""
@@ -210,6 +195,7 @@ class EnergyRuntime:
         }
         self._entity_ids_cache = tuple(self._entity_ids()) if model is not None else ()
         self._incremental_entity_targets = build_entity_targets(model)
+        self._dirty_entity_ids.clear()
         if model is not None:
             if self._entity_ids_cache:
                 self._unsubscribe = async_track_state_change_event(
@@ -231,6 +217,8 @@ class EnergyRuntime:
                 event, category="solaredgeoptimizers"
             )
             return
+        if entity_id:
+            self._dirty_entity_ids.add(entity_id)
         self.event_flow.handle(event)
 
     def _producer_assets(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, bool], dict[str, dict[str, Any]]]:
@@ -379,6 +367,7 @@ class EnergyRuntime:
         issues: list[str],
         *,
         include_high_cardinality: bool = True,
+        dirty_entity_ids: set[str] | None = None,
     ) -> None:
         ordered = sorted(assets, key=lambda row: 0 if row.get("object_class") == "battery" else 1)
         for asset in ordered:
@@ -396,6 +385,16 @@ class EnergyRuntime:
             for prop in asset.get("properties") or []:
                 if not prop.get("binding_id") and not prop.get("binding_ids"):
                     continue
+                if dirty_entity_ids is not None:
+                    binding_ids = [str(value) for value in (prop.get("binding_ids") or []) if value]
+                    if prop.get("binding_id"):
+                        binding_ids.append(str(prop.get("binding_id")))
+                    source_entities = {
+                        str(((self._binding_index().get(binding_id) or {}).get("source_identity") or {}).get("current_entity_id") or "")
+                        for binding_id in binding_ids
+                    }
+                    if not (source_entities & dirty_entity_ids):
+                        continue
                 fact_key = str(prop.get("fact_key") or "")
                 try:
                     facts[fact_key] = self._read_property(asset, prop, facts)
@@ -711,33 +710,22 @@ class EnergyRuntime:
             return
 
         domain_assets = [row for row in (self.model.get("logical_assets") or []) if isinstance(row, dict)]
-        facts: dict[str, Any] = {}
+        facts: dict[str, Any] = (
+            {}
+            if full_hydration
+            else deepcopy(self.snapshot.get("facts") or {})
+        )
         runtime_issues: list[str] = []
-        if not full_hydration:
-            # High-cardinality optimizer telemetry is already maintained incrementally.
-            # Preserve those normalized leaf facts instead of re-reading hundreds of
-            # optimizer entities on every unrelated SolarEdge/Modbus state event.
-            previous_facts = self.snapshot.get("facts") or {}
-            optimizer_prefixes = {
-                str(asset.get("asset_id") or "")
-                for asset in domain_assets
-                if str(asset.get("integration_domain") or "") == "solaredgeoptimizers"
-                and str(asset.get("object_class") or "") in {
-                    "solar_optimizer_site",
-                    "solar_zone",
-                    "solar_optimizer",
-                    "solar_panel",
-                }
-            }
-            for key, value in previous_facts.items():
-                if any(str(key).startswith(f"{prefix}.") for prefix in optimizer_prefixes if prefix):
-                    facts[str(key)] = value
+        dirty_entity_ids = None if full_hydration else set(self._dirty_entity_ids)
         self._populate_direct_facts(
             domain_assets,
             facts,
             runtime_issues,
             include_high_cardinality=full_hydration,
+            dirty_entity_ids=dirty_entity_ids,
         )
+        if not full_hydration:
+            self._dirty_entity_ids.difference_update(dirty_entity_ids or set())
         self._aggregate_objects(domain_assets, facts, runtime_issues)
         self._canonicalize(domain_assets, facts, runtime_issues)
 
@@ -895,5 +883,4 @@ class EnergyRuntime:
         if callable(self._unsubscribe):
             self._unsubscribe()
         self._unsubscribe = None
-        self._callbacks.clear()
-        self._topology_callbacks.clear()
+        self._callback_hub.clear()

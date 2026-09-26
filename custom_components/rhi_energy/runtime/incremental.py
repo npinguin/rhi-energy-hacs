@@ -127,5 +127,5 @@ def update_optimizer_entity(runtime, entity_id: str) -> bool:
         runtime.snapshot.get("snapshot_revision") or 0
     ) + 1
     runtime.snapshot["observed_at"] = datetime.now(UTC).isoformat()
-    runtime._notify()
+    runtime._notify_assets(touched_assets)
     return True

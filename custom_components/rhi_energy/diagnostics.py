@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .canonical_device import canonical_device_identifier, source_device_ids
-from .runtime.canonical_structure import canonical_projection_assets
+from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
 
 from .const import (
     DOMAIN,
@@ -214,10 +214,12 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
         materialized = asset.get("ha_materialization") is True
         device = canonical_by_asset.get(asset_id)
         parent_asset_id = str(asset.get("parent_asset_id") or "")
-        # Canonical parentage remains RHI semantic metadata only. HA projection is
-        # deliberately flat; source availability and HA startup order cannot gate it.
         topology_kind = str(asset.get("topology_kind") or "")
-        expected_parent_id = None
+        governed_parent = canonical_parent_asset_id(asset)
+        parent_device = canonical_by_asset.get(str(governed_parent or ""))
+        expected_parent_id = (
+            parent_device.id if governed_parent and parent_device is not None else None
+        )
         actual_parent_id = device.via_device_id if device is not None else None
         matches = (
             device is not None and actual_parent_id == expected_parent_id
