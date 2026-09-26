@@ -103,6 +103,15 @@ def prop(
 ) -> dict[str, Any]:
     if availability is None:
         availability = AVAILABLE if value is not None else UNAVAILABLE
+    if reason_code is None and availability != AVAILABLE:
+        reason_code = {
+            CONFIGURATION_REQUIRED: "CONFIGURATION_REQUIRED",
+            UNAVAILABLE: "VALUE_UNAVAILABLE",
+            STALE: "VALUE_STALE",
+            INCOMPLETE: "VALUE_INCOMPLETE",
+            INVALID: "VALUE_INVALID",
+            PENDING: "VALUE_PENDING",
+        }.get(str(availability), "VALUE_NOT_AVAILABLE")
     # All editable public Energy properties share one stable write boundary.
     # Domain-specific ownership stays inside Energy's write_property dispatcher;
     # the UX never needs pricing/strategy-specific transport contracts.

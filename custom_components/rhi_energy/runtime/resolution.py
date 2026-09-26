@@ -28,7 +28,14 @@ def _binding_ids(prop: dict[str, Any]) -> list[str]:
 
 def _provenance(prop: dict[str, Any], binding_ids: list[str]) -> list[dict[str, Any]]:
     if not binding_ids:
-        return [{"source_type": "domain_derivation"}] if prop.get("derived") else []
+        if prop.get("derived"):
+            return [{"source_type": "domain_derivation"}]
+        if str(prop.get("producer_kind") or "").upper() == "SOURCE":
+            return [{
+                "source_type": "producer_contract",
+                **({"source_domain": str(prop.get("source_domain"))} if prop.get("source_domain") else {}),
+            }]
+        return []
     source = {
         key: deepcopy(prop.get(key))
         for key in (
@@ -50,8 +57,11 @@ def resolve_property(prop: dict[str, Any], value: Any, *, value_revision: int = 
     binding_ids = _binding_ids(prop)
     provenance = _provenance(prop, binding_ids)
     acceptance_status = str(prop.get("status") or "")
+    explicit_producer_kind = str(prop.get("producer_kind") or "").upper()
     producer_kind = (
-        PropertyProducerKind.CONTROL_READBACK
+        explicit_producer_kind
+        if explicit_producer_kind in {"SOURCE", "DERIVED", "CONTROL_READBACK", "CONFIGURATION"}
+        else PropertyProducerKind.CONTROL_READBACK
         if prop.get("write_supported") is True
         else PropertyProducerKind.DERIVED
         if prop.get("derived") is True

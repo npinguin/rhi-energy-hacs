@@ -347,6 +347,8 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
                 "property_key": key, "display_name": str(spec.get("name") or key),
                 "unit": spec.get("unit"), "kind": str(spec.get("kind") or "text"), "platform": "sensor",
                 "input_id": None, "required": False, "derived": False,
+                "producer_kind": "SOURCE",
+                "source_domain": str(item.get("source_domain") or "mobility"),
                 "status": "NORMALIZED",
                 "candidate_count": 0, "issues": [], "fact_key": f"flexible:{source_id}:{key}",
             })

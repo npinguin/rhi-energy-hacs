@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.3.2"
+DOMAIN_MODEL_VERSION: Final[str] = "1.3.3"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -135,7 +135,7 @@ CANONICAL_DOMAIN_MODEL: Final[dict[str, Any]] = {
         "solar_production": {"label": "Solar Production", "parent": "energy_site", "property_definition": "solar_production", "projection": "aggregate", "composition": {"singleton": True, "children": "solar_inverter", "cross_provider": True, "property_resolution": {"solar.power_kw": "complete_sum_children", "solar.energy_today_kwh": "complete_sum_children", "solar.status": "derived_from_children"}}},
         "solar_inverter": {"label": "Solar Inverter", "parent": "solar_production", "property_definition": "solar_production", "projection": "source_backed"},
         "solar_inverter_phase": {"label": "Solar Inverter Phase", "parent": "solar_inverter", "property_definition": "solar_inverter_phase"},
-        "battery_system": {"label": "Home Battery System", "parent": "energy_site", "property_definition": "battery_system", "meaning": "Fixed stationary storage belonging to the home/site installation.", "composition": {"singleton": True, "children": "battery", "cross_provider": True, "property_resolution": {"battery.power_kw": "complete_sum_children", "battery.capacity_kwh": "complete_sum_children", "battery.available_kwh": "complete_sum_children", "battery.soc_pct": "capacity_weighted_from_available_and_capacity", "battery.status": "derived_from_children"}}},
+        "battery_system": {"label": "Home Battery System", "parent": "energy_site", "property_definition": "battery_system", "meaning": "Fixed stationary storage belonging to the home/site installation.", "composition": {"singleton": True, "children": "battery", "cross_provider": True, "property_resolution": {"battery.power_kw": "complete_sum_children", "battery.capacity_kwh": "complete_sum_children", "battery.available_kwh": "complete_sum_children", "battery.soc_pct": "capacity_weighted_from_available_and_capacity", "battery.status": "derived_from_children"}, "control_resolution": {"battery.reserve_soc_pct": "physical_battery_exact_source_identity", "aggregate_physical_control_fanout": "forbidden_without_explicit_system_controller"}}},
         "battery": {"label": "Home Battery", "parent": "battery_system", "property_definition": "battery"},
         "solar_optimizer_site": {"label": "Solar Optimizer Site", "parent": "energy_site", "property_definition": "solar_optimizer_site"},
         "solar_zone": {"label": "Solar Zone / String", "parent": "solar_optimizer_site", "property_definition": "solar_zone"},
@@ -171,7 +171,6 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
         {"input_id":None,"role":"status","property_key":"battery.status","fact_key":"battery.status","name":"Status","unit":None,"kind":"text","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"state","property_key":"battery.state","fact_key":"battery.state","name":"Operating state","unit":None,"kind":"text","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"reserve_target","property_key":"battery.reserve_target_pct","fact_key":"battery.reserve_target_pct","name":"Strategy reserve target","unit":"%","kind":"percentage","required":False,"derived":True,"platform":"number","object_scope":"aggregate","many":False,"editable":True,"editor":"number"},
-        {"input_id":"reserve_write_surface","role":"reserve","property_key":"battery.reserve_soc_pct","fact_key":"battery.reserve_soc_pct","name":"Reserve","unit":"%","kind":"battery","required":False,"platform":"sensor","object_scope":"provider","many":False},
     ),
     "battery": (
         {"input_id":"battery_unit_power","role":"power","property_key":"battery.power_kw","fact_key":"battery.power_kw","name":"Power","unit":"kW","kind":"power","required":True,"platform":"sensor","object_scope":"device","many":False},

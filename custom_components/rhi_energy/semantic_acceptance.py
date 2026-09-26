@@ -317,6 +317,17 @@ def _bind_many(
     return ids
 
 
+def _editable_candidate_matches_platform(candidate: dict[str, Any], platform: str | None) -> bool:
+    """Require the expected technical write surface without using HA entity-id shape."""
+    capability = str((candidate.get("technical_capability") or {}).get("capability_class") or "")
+    expected = {
+        "number": "number_write_surface",
+        "select": "select_write_surface",
+        "switch": "binary_write_surface",
+    }.get(str(platform or ""))
+    return expected is not None and capability == expected
+
+
 def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "battery")
     measurement_ids = ["battery_unit_power", "battery_unit_soc", "battery_capacity"]
@@ -432,59 +443,74 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
     if not units:
         raise ValueError("no_semantically_safe_measurement")
 
-    # Controls are system-scoped for multiple storage units. With exactly one
-    # canonical storage unit, an unambiguous controller capability belongs to that
-    # unit and must not create a second logical Battery.
-    entity_reserves = [
-        candidate
-        for candidate in inputs.get("reserve_write_surface", [])
-        if (candidate.get("source_identity") or {}).get("source_kind") == "entity"
-        and str((candidate.get("technical_capability") or {}).get("capability_class") or "")
-        == "number_write_surface"
-    ]
+    # Physical controls belong to the physical Battery whose accepted measurement
+    # evidence proves the same exact source/config-entry identity. Never fan one
+    # controller surface out across multiple batteries and never promote a per-device
+    # control to the aggregate merely because several candidates exist.
     reserve_binding = None
-    if len(entity_reserves) == 1:
-        reserve = entity_reserves[0]
-        if len(units) == 1:
-            owner_id = str(units[0]["asset_id"])
-            binding_id = f"energy:{owner_id}:reserve"
-            bindings.append(_binding(owner_id, "reserve", reserve, previous.get(binding_id)))
-            units[0]["bindings"]["reserve"] = binding_id
-        else:
-            binding_id = f"energy:{system_id}:reserve"
-            bindings.append(_binding(system_id, "reserve", reserve, previous.get(binding_id)))
-            system_roles["reserve"] = binding_id
-        reserve_binding = binding_id
-    elif not entity_reserves and inputs.get("reserve_write_surface"):
-        issues.append("reserve_write_surface:no_executable_number_entity")
-    elif len(entity_reserves) > 1:
-        issues.append("reserve_write_surface:ambiguous")
+    reserve_bindings: list[str] = []
+    unit_config_entries_by_asset: dict[str, set[str]] = {}
+    config_entry_unit_owners: dict[str, set[str]] = {}
+    for unit in units:
+        owner_id = str(unit.get("asset_id") or "")
+        entries = {
+            str((binding.get("source_identity") or {}).get("config_entry_id") or "")
+            for binding_id in (unit.get("bindings") or {}).values()
+            if (binding := next((row for row in bindings if row.get("binding_id") == binding_id), None))
+            and (binding.get("source_identity") or {}).get("config_entry_id")
+        }
+        unit_config_entries_by_asset[owner_id] = entries
+        for entry_id in entries:
+            config_entry_unit_owners.setdefault(entry_id, set()).add(owner_id)
 
-    # Editable controller capabilities can enrich one unambiguous canonical Battery.
-    # With multiple storage units they remain system-owned to avoid duplication.
-    if not use_adapter_units or len(units) == 1:
-        for unit in units:
-            unit_config_entries = {
-                str((binding.get("source_identity") or {}).get("config_entry_id") or "")
-                for binding_id in (unit.get("bindings") or {}).values()
-                if (binding := next((row for row in bindings if row.get("binding_id") == binding_id), None))
-                and (binding.get("source_identity") or {}).get("config_entry_id")
-            }
-            for spec in (row for row in device_specs if row.get("editable") is True):
-                role = str(spec.get("role") or "")
-                input_id = str(spec.get("input_id") or "")
-                rows = [
-                    candidate
-                    for candidate in inputs.get(input_id, [])
-                    if str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
-                    in unit_config_entries
-                ]
-                if len(rows) == 1 and role not in (unit.get("bindings") or {}):
-                    binding_id = f"energy:{unit['asset_id']}:{role}"
-                    bindings.append(_binding(unit["asset_id"], role, rows[0], previous.get(binding_id)))
-                    unit["bindings"][role] = binding_id
-                elif len(rows) > 1:
-                    issues.append(f"battery_{role}:{unit['asset_id']}:ambiguous")
+    for unit in units:
+        owner_id = str(unit.get("asset_id") or "")
+        unit_config_entries = unit_config_entries_by_asset.get(owner_id, set())
+        for spec in (row for row in device_specs if row.get("editable") is True):
+            role = str(spec.get("role") or "")
+            input_id = str(spec.get("input_id") or "")
+            rows = []
+            for candidate in inputs.get(input_id, []):
+                if not _editable_candidate_matches_platform(candidate, spec.get("platform")):
+                    continue
+                source = candidate.get("source_identity") or {}
+                config_entry_id = str(source.get("config_entry_id") or "")
+                if not config_entry_id or config_entry_id not in unit_config_entries:
+                    continue
+                # Exact config-entry identity is sufficient only when it identifies
+                # one canonical physical Battery. Shared controllers remain fail-closed
+                # until the model declares an explicit system-controller policy.
+                if len(units) > 1 and config_entry_unit_owners.get(config_entry_id, set()) != {owner_id}:
+                    continue
+                rows.append(candidate)
+            if len(rows) == 1 and role not in (unit.get("bindings") or {}):
+                binding_id = f"energy:{owner_id}:{role}"
+                bindings.append(_binding(owner_id, role, rows[0], previous.get(binding_id)))
+                unit["bindings"][role] = binding_id
+                if role == "reserve":
+                    reserve_bindings.append(binding_id)
+            elif len(rows) > 1:
+                issues.append(f"battery_{role}:{owner_id}:ambiguous")
+
+    # Report selected control surfaces that could not be attributed to exactly one
+    # physical Battery. This is a real semantic limitation, not permission to guess.
+    for spec in (row for row in device_specs if row.get("editable") is True):
+        input_id = str(spec.get("input_id") or "")
+        role = str(spec.get("role") or "")
+        accepted_candidate_ids = {
+            str(binding.get("candidate_id") or "")
+            for unit in units
+            for binding_id in (unit.get("bindings") or {}).values()
+            if (binding := next((row for row in bindings if row.get("binding_id") == binding_id), None))
+            and str(binding.get("semantic_role") or "") == role
+        }
+        offered = inputs.get(input_id, [])
+        unattributed = [
+            candidate for candidate in offered
+            if str(candidate.get("candidate_id") or "") not in accepted_candidate_ids
+        ]
+        if unattributed:
+            issues.append(f"battery_{role}:unattributed_control:count_{len(unattributed)}")
 
     complete = sum(1 for unit in units if {"power", "soc"}.issubset((unit.get("bindings") or {}).keys()))
     return (
@@ -495,6 +521,7 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
             "units": units,
             "bindings": system_roles,
             "reserve_binding": reserve_binding,
+            "reserve_bindings": sorted(reserve_bindings),
             "builder_id": builder_id,
             "integration_domain": integration,
             "normalization_status": "READY" if complete == len(units) and not issues else "DEGRADED",
