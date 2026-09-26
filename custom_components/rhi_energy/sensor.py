@@ -37,6 +37,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities: list[SensorEntity] = [
         *(LegacyPublicContractSensor(entry, projector, eid.split(".", 1)[1]) for eid in (*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES)),
         EnergyPublicV2Sensor(entry, projector),
+        EnergyV2MetricSensor(entry, projector, "home_consumption_power_kw"),
+        EnergyV2MetricSensor(entry, projector, "planning_today_required_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_today_planned_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_today_still_to_plan_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_today_flexible_required_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_today_flexible_planned_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_today_flexible_still_to_plan_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_required_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_planned_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_still_to_plan_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_flexible_required_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_flexible_planned_kwh"),
+        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_flexible_still_to_plan_kwh"),
+        EnergyV2MetricSensor(entry, projector, "net_financial_result_eur"),
         EnergyBatteryMetricSensor(entry, runtime, "power_kw"),
         EnergyBatteryMetricSensor(entry, runtime, "soc_pct"),
         EnergyBatteryMetricSensor(entry, runtime, "capacity_kwh"),
@@ -175,6 +189,89 @@ class EnergyPublicV2Sensor(_EnergySensor):
         # surface only; it must never maintain a second field allow-list that can
         # drift from build_public_contract_v2().
         return public_v2_sensor_attributes(self._projector.get_v2())
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(self._projector.add_v2_callback(self.async_write_ha_state))
+
+
+_V2_METRICS = {
+    "home_consumption_power_kw": ("Home Consumption", ("core", "home", "power_kw"), "kW", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "home"),
+    "planning_today_required_kwh": ("Required Today", ("planning", "horizons", "D0", "required_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_today_planned_kwh": ("Planned Today", ("planning", "horizons", "D0", "planned_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_today_still_to_plan_kwh": ("Still To Plan Today", ("planning", "horizons", "D0", "still_to_plan_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_today_flexible_required_kwh": ("Flexible Need Today", ("planning", "horizons", "D0", "flexible_required_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_today_flexible_planned_kwh": ("Flexible Planned Today", ("planning", "horizons", "D0", "flexible_planned_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_today_flexible_still_to_plan_kwh": ("Flexible Still To Plan Today", ("planning", "horizons", "D0", "flexible_still_to_plan_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_tomorrow_required_kwh": ("Required Tomorrow", ("planning", "horizons", "D1", "required_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_tomorrow_planned_kwh": ("Planned Tomorrow", ("planning", "horizons", "D1", "planned_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_tomorrow_still_to_plan_kwh": ("Still To Plan Tomorrow", ("planning", "horizons", "D1", "still_to_plan_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_tomorrow_flexible_required_kwh": ("Flexible Need Tomorrow", ("planning", "horizons", "D1", "flexible_required_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_tomorrow_flexible_planned_kwh": ("Flexible Planned Tomorrow", ("planning", "horizons", "D1", "flexible_planned_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "planning_tomorrow_flexible_still_to_plan_kwh": ("Flexible Still To Plan Tomorrow", ("planning", "horizons", "D1", "flexible_still_to_plan_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
+    "net_financial_result_eur": ("Net Financial Result", ("value_accounting", "net_financial_result", "value"), "EUR", None, None, "planning"),
+}
+
+
+class EnergyV2MetricSensor(SensorEntity):
+    """First-class HA metric projected directly from canonical Public V2."""
+
+    _attr_has_entity_name = False
+    _attr_should_poll = False
+
+    def __init__(self, entry, projector, key: str) -> None:
+        self._entry = entry
+        self._projector = projector
+        self._key = key
+        name, _path, unit, device_class, state_class, group = _V2_METRICS[key]
+        self._group = group
+        self._attr_name = name
+        self._attr_unique_id = f"rhi_energy:v2:metric:{key}"
+        self._attr_suggested_object_id = f"energy_{key}"
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+        self._attr_state_class = state_class
+
+    @property
+    def device_info(self):
+        if self._group == "home":
+            return canonical_device_info({
+                "asset_id": "home_consumption",
+                "object_class": "home_consumption",
+                "display_name": "Home Consumption",
+            })
+        return {
+            "identifiers": {(DOMAIN, "logical:planning")},
+            "name": "Energy Planning",
+            "manufacturer": "Robotix Home Intelligence",
+            "model": "Energy logical object · Planning",
+            "sw_version": RELEASE,
+        }
+
+    def _value(self):
+        _name, path, _unit, _dc, _sc, _group = _V2_METRICS[self._key]
+        value = self._projector.get_v2()
+        for part in path:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(part)
+        return value
+
+    @property
+    def native_value(self):
+        return self._value()
+
+    @property
+    def available(self):
+        return self._value() is not None
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "contract_id": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
+            "metric_key": self._key,
+            "v1_dependency": False,
+        }
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -497,6 +594,7 @@ class EnergyLogicalEntityManager:
         self._sync_requested = False
         self._stopping = False
         self._last_projection_signature = None
+        self._initial_materialization = True
 
     def _inventory(self) -> list[dict]:
         runtime_rows = self._runtime.snapshot.get("logical_assets") or []
@@ -629,24 +727,25 @@ class EnergyLogicalEntityManager:
             projection_state["last_entity_addition_count"] = 0
             return
         self._last_projection_signature = projection_signature
-        self._cleanup_registry(rows)
-        entity_registry = er.async_get(self._hass)
-        desired_binding_uids = {
-            f"rhi_energy:source_binding:{device_id}"
-            for device_id in binding_index
-        }
-        for entity in list(
-            er.async_entries_for_config_entry(
-                entity_registry, self._entry.entry_id
-            )
-        ):
-            unique_id = str(entity.unique_id or "")
-            if (
-                unique_id.startswith("rhi_energy:source_binding:")
-                and unique_id not in desired_binding_uids
+        if not self._initial_materialization:
+            self._cleanup_registry(rows)
+            entity_registry = er.async_get(self._hass)
+            desired_binding_uids = {
+                f"rhi_energy:source_binding:{device_id}"
+                for device_id in binding_index
+            }
+            for entity in list(
+                er.async_entries_for_config_entry(
+                    entity_registry, self._entry.entry_id
+                )
             ):
-                entity_registry.async_remove(entity.entity_id)
-                self._known.discard(unique_id)
+                unique_id = str(entity.unique_id or "")
+                if (
+                    unique_id.startswith("rhi_energy:source_binding:")
+                    and unique_id not in desired_binding_uids
+                ):
+                    entity_registry.async_remove(entity.entity_id)
+                    self._known.discard(unique_id)
         # HA creates/associates canonical devices from each entity's DeviceInfo.
         # Do not pre-create or reconcile the Device Registry here.
         additions: list[SensorEntity] = []
@@ -698,6 +797,8 @@ class EnergyLogicalEntityManager:
         projection_state["batch_size"] = 24
         projection_state["deferred"] = True
         projection_state["non_reentrant"] = True
+        projection_state["initial_registry_cleanup_skipped"] = self._initial_materialization
+        self._initial_materialization = False
 
     async def async_stop(self) -> None:
         self._stopping = True
@@ -900,6 +1001,10 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
             "candidate_count": prop.get("candidate_count"),
             "integration_domain": prop.get("integration_domain") or asset.get("integration_domain"),
             "device_registry_id": prop.get("device_registry_id"),
+            "source_device_path": (
+                f"/config/devices/device/{prop.get('device_registry_id')}"
+                if prop.get("device_registry_id") else None
+            ),
             "config_entry_id": prop.get("config_entry_id"),
             "entity_registry_id": prop.get("entity_registry_id"),
             "source_entity_id": prop.get("current_entity_id"),

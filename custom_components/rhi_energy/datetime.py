@@ -82,6 +82,7 @@ class EnergyReadyByManager:
         self._async_add_entities = async_add_entities
         self._known: set[str] = set()
         self._remove_runtime = None
+        self._initial_materialization = True
 
     def start(self) -> None:
         self._remove_runtime = self._runtime.add_topology_callback(self._sync)
@@ -99,16 +100,18 @@ class EnergyReadyByManager:
 
     def _sync(self) -> None:
         desired = self._desired()
-        registry = er.async_get(self._hass)
-        for entry in list(er.async_entries_for_config_entry(registry, self._entry.entry_id)):
-            uid = str(entry.unique_id or "")
-            if (
-                uid.startswith("rhi_energy:logical:")
-                and ":planning:ready_by" in uid
-                and uid not in desired
-            ):
-                registry.async_remove(entry.entity_id)
-                self._known.discard(uid)
+        if not self._initial_materialization:
+            registry = er.async_get(self._hass)
+            for entry in list(er.async_entries_for_config_entry(registry, self._entry.entry_id)):
+                uid = str(entry.unique_id or "")
+                if (
+                    uid.startswith("rhi_energy:logical:")
+                    and ":planning:ready_by" in uid
+                    and uid not in desired
+                ):
+                    registry.async_remove(entry.entity_id)
+                    self._known.discard(uid)
+    
         additions = []
         for uid, asset_id in desired.items():
             if uid in self._known:
@@ -125,6 +128,8 @@ class EnergyReadyByManager:
             )
         if additions:
             self._async_add_entities(additions)
+
+        self._initial_materialization = False
 
     async def async_stop(self) -> None:
         if callable(self._remove_runtime):

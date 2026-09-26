@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .canonical_device import canonical_device_info
 from .const import DOMAIN
 from .logical_control import logical_asset, logical_property, source_state, supported_controls
+from .v2_configuration import configuration_device_info, configuration_row, editable_rows
 
 
 def _asset(runtime, asset_id: str) -> dict:
@@ -192,6 +193,7 @@ class EnergyLogicalNumberManager:
         self._async_add_entities = async_add_entities
         self._known: set[str] = set()
         self._remove_runtime = None
+        self._initial_materialization = True
 
     def start(self) -> None:
         self._remove_runtime = self._runtime.add_topology_callback(self._sync)
@@ -199,13 +201,14 @@ class EnergyLogicalNumberManager:
 
     def _sync(self) -> None:
         desired = supported_controls(self._runtime, "number")
-        registry = er.async_get(self._hass)
-        for entry in list(er.async_entries_for_config_entry(registry, self._entry.entry_id)):
-            uid = str(entry.unique_id or "")
-            if uid.startswith("rhi_energy:logical:") and ":control:" in uid and uid not in desired:
-                if entry.entity_id.startswith("number.") and ":control:requested_power_kw" not in uid:
-                    registry.async_remove(entry.entity_id)
-                    self._known.discard(uid)
+        if not self._initial_materialization:
+            registry = er.async_get(self._hass)
+            for entry in list(er.async_entries_for_config_entry(registry, self._entry.entry_id)):
+                uid = str(entry.unique_id or "")
+                if uid.startswith("rhi_energy:logical:") and ":control:" in uid and uid not in desired:
+                    if entry.entity_id.startswith("number.") and ":control:requested_power_kw" not in uid:
+                        registry.async_remove(entry.entity_id)
+                        self._known.discard(uid)
         additions = []
         for uid, (asset_id, property_key) in desired.items():
             if uid in self._known or property_key == "requested_power_kw":
@@ -223,6 +226,7 @@ class EnergyLogicalNumberManager:
             )
         if additions:
             self._async_add_entities(additions)
+        self._initial_materialization = False
 
     async def async_stop(self) -> None:
         if callable(self._remove_runtime):
@@ -240,6 +244,7 @@ class EnergyRequestedChargePowerManager:
         self._known: set[str] = set()
         self._remove_runtime = None
         self._remove_interaction = None
+        self._initial_materialization = True
 
     def start(self) -> None:
         self._remove_runtime = self._runtime.add_topology_callback(self._sync)
@@ -261,16 +266,17 @@ class EnergyRequestedChargePowerManager:
 
     def _sync(self) -> None:
         desired = self._desired()
-        registry = er.async_get(self._hass)
-        for entry in list(er.async_entries_for_config_entry(registry, self._entry.entry_id)):
-            uid = str(entry.unique_id or "")
-            if (
-                uid.startswith("rhi_energy:logical:")
-                and ":control:requested_power_kw" in uid
-                and uid not in desired
-            ):
-                registry.async_remove(entry.entity_id)
-                self._known.discard(uid)
+        if not self._initial_materialization:
+            registry = er.async_get(self._hass)
+            for entry in list(er.async_entries_for_config_entry(registry, self._entry.entry_id)):
+                uid = str(entry.unique_id or "")
+                if (
+                    uid.startswith("rhi_energy:logical:")
+                    and ":control:requested_power_kw" in uid
+                    and uid not in desired
+                ):
+                    registry.async_remove(entry.entity_id)
+                    self._known.discard(uid)
         additions = []
         for uid, asset_id in desired.items():
             if uid in self._known:
@@ -283,6 +289,7 @@ class EnergyRequestedChargePowerManager:
             )
         if additions:
             self._async_add_entities(additions)
+        self._initial_materialization = False
 
     async def async_stop(self) -> None:
         if callable(self._remove_runtime):
@@ -293,12 +300,96 @@ class EnergyRequestedChargePowerManager:
         self._remove_interaction = None
 
 
+class EnergyConfigurationNumber(NumberEntity):
+    """Native number editor for editable Public V2 pricing/strategy properties."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, entry, projector, interaction, property_id: str) -> None:
+        self._entry = entry
+        self._projector = projector
+        self._interaction = interaction
+        self._property_id = property_id
+        self._attr_unique_id = f"rhi_energy:v2:configuration:number:{property_id}"
+
+    def _row(self) -> dict:
+        return configuration_row(self._projector.get_v2(), self._property_id)
+
+    @property
+    def name(self):
+        row = self._row()
+        return str(row.get("display_name") or row.get("label") or self._property_id)
+
+    @property
+    def device_info(self):
+        return configuration_device_info()
+
+    @property
+    def native_value(self):
+        value = self._row().get("value")
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def native_unit_of_measurement(self):
+        return self._row().get("unit")
+
+    def _constraint(self, key: str, fallback: float) -> float:
+        value = (self._row().get("constraints") or {}).get(key)
+        try:
+            return float(value) if value is not None else fallback
+        except (TypeError, ValueError):
+            return fallback
+
+    @property
+    def native_min_value(self) -> float:
+        return self._constraint("min", -1000000.0)
+
+    @property
+    def native_max_value(self) -> float:
+        return self._constraint("max", 1000000.0)
+
+    @property
+    def native_step(self) -> float:
+        return self._constraint("step", 0.01)
+
+    @property
+    def available(self) -> bool:
+        return self._row().get("editable") is True
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self._interaction.write_property(self._property_id, value)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self._projector.add_v2_callback(self.async_write_ha_state))
+        self.async_on_remove(self._interaction.add_callback(self.async_write_ha_state))
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     state = hass.data[DOMAIN][entry.entry_id]
+    configuration_numbers = [
+        EnergyConfigurationNumber(
+            entry,
+            state["public_projector"],
+            state["interaction"],
+            str(row["property_id"]),
+        )
+        for row in (
+            editable_rows(state["public_projector"].get_v2(), "number")
+            + editable_rows(state["public_projector"].get_v2(), "slider")
+        )
+    ]
+    if configuration_numbers:
+        async_add_entities(configuration_numbers)
     requested = EnergyRequestedChargePowerManager(
         hass, entry, state["runtime"], state["interaction"], async_add_entities
     )

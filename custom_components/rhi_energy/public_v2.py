@@ -335,6 +335,14 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
             "available_kwh": row.get("available_kwh"),
             "state": row.get("status"),
             "health": row.get("health"),
+            "availability": (
+                "AVAILABLE"
+                if any(
+                    row.get(key) is not None
+                    for key in ("power_kw", "soc_pct", "capacity_kwh", "available_kwh", "status")
+                )
+                else "UNAVAILABLE"
+            ),
         }
         for row in source.get("battery_units") or []
         if isinstance(row, dict)
