@@ -1,7 +1,6 @@
 """Robotix Home Intelligence Energy V2 integration — Shared Baseline 1.8.1."""
 from __future__ import annotations
 
-import asyncio
 import logging
 from time import perf_counter
 from typing import Callable
@@ -11,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .builders.layered_manager import LayeredEnergyBuildManager as EnergyBuildManager
-from .canonical_device import sync_canonical_device_topology
 from .const import (
     DOMAIN,
     DOMAIN_ID,
@@ -217,33 +215,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 + str(state["public_transport"].get("current_entity_id"))
             )
 
-        async def _async_converge_canonical_devices() -> None:
-            started = perf_counter()
-            try:
-                state["canonical_device_sync_stats"] = await sync_canonical_device_topology(
-                    hass,
-                    entry,
-                    runtime.snapshot.get("logical_assets") or [],
-                )
-            finally:
-                duration_ms = round((perf_counter() - started) * 1000, 3)
-                setup_performance["canonical_device_sync_ms"] = duration_ms
-                setup_performance["canonical_device_sync_last_ms"] = duration_ms
-
-        def _schedule_canonical_device_convergence() -> None:
-            current = state.get("canonical_device_sync_task")
-            if current is not None and not current.done():
-                return
-            state["canonical_device_sync_task"] = hass.async_create_task(
-                _async_converge_canonical_devices(),
-                "rhi_energy_canonical_device_convergence",
-            )
-
-        state["canonical_topology_unsubscribe"] = runtime.add_topology_callback(
-            _schedule_canonical_device_convergence
-        )
-        _schedule_canonical_device_convergence()
-        setup_performance["canonical_device_sync_deferred"] = 1.0
+        # Pre-topology boot model: canonical HA devices are materialized naturally
+        # by Home Assistant from entity DeviceInfo during platform registration.
+        # Energy never performs a second explicit Device Registry convergence pass.
+        setup_performance["canonical_device_sync_mode"] = "entity_device_info_only"
 
         # Shared Baseline 1.8.1 supervision is structural, not telemetry-driven.
         # Foundation 1.8.2 additionally makes provider lifetime generation-safe.
@@ -289,16 +264,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     visual_registration_unsub = state.get("visual_registration_unsub")
     if callable(visual_registration_unsub):
         visual_registration_unsub()
-    topology_unsubscribe = state.get("canonical_topology_unsubscribe")
-    if callable(topology_unsubscribe):
-        topology_unsubscribe()
-    topology_task = state.get("canonical_device_sync_task")
-    if topology_task is not None and not topology_task.done():
-        topology_task.cancel()
-        try:
-            await topology_task
-        except asyncio.CancelledError:
-            pass
     supervision = state.get("supervision")
     supervision_unsubscribe = state.get("supervision_unsubscribe")
     if callable(supervision_unsubscribe):

@@ -1,22 +1,12 @@
-"""HA-native Energy source binding topology.
+"""Pure Energy source provenance index.
 
-Energy semantic provenance points from a logical Energy asset to the exact existing
-Home Assistant source device. HA device identity and hierarchy remain owned by the
-source integration: Energy never copies source identifiers/connections and never uses
-via_device to manufacture a Connected devices relationship.
+This module deliberately does not inspect or mutate Home Assistant registries.
+Ordinary boot/runtime must never perform source-device topology cleanup or reconciliation.
 """
 from __future__ import annotations
 
 from collections import defaultdict
-from time import perf_counter
 from typing import Any
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
-
-from .const import DOMAIN
-from .runtime.canonical_structure import STRUCTURAL_CANONICAL_ASSETS
 
 
 def _model_binding_rows(model: dict[str, Any]) -> list[dict[str, str]]:
@@ -95,104 +85,3 @@ def source_device_ids(
     snapshot: dict[str, Any] | None = None,
 ) -> set[str]:
     return set(source_binding_index(model, snapshot))
-
-
-async def async_sync_source_device_topology(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    model: dict[str, Any] | None,
-    store,
-    snapshot: dict[str, Any] | None = None,
-) -> None:
-    """Persist exact provenance and remove legacy Energy-created HA hierarchy."""
-    started = perf_counter()
-    registry = dr.async_get(hass)
-    module = registry.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
-    bindings = source_binding_index(model, snapshot)
-    state = store.data.setdefault("source_device_topology", {})
-
-    legacy_attached = {
-        str(value)
-        for key in ("attached_source_device_ids", "attached_root_device_ids")
-        for value in state.pop(key, []) or []
-        if value
-    }
-    if module is not None:
-        for device_id in sorted(legacy_attached | set(bindings)):
-            device = registry.async_get(device_id)
-            if device is not None and device.via_device_id == module.id:
-                registry.async_update_device(device.id, via_device_id=None)
-
-    # Remove only obsolete Energy-owned proxy devices from older topology
-    # experiments. Never delete a source device that belongs to another integration.
-    entity_registry = er.async_get(hass)
-    valid_energy_identifiers = {(DOMAIN, entry.entry_id), (DOMAIN, "logical:planning")}
-    valid_energy_identifiers.update(
-        (DOMAIN, f"logical:{asset['asset_id']}")
-        for asset in STRUCTURAL_CANONICAL_ASSETS
-        if asset.get("asset_id")
-    )
-    valid_energy_identifiers.update(
-        (DOMAIN, f"logical:{asset['asset_id']}")
-        for asset in (snapshot or {}).get("logical_assets") or []
-        if isinstance(asset, dict) and asset.get("asset_id")
-    )
-    valid_energy_identifiers.update(
-        (DOMAIN, f"logical:{asset_id}")
-        for binding in bindings.values()
-        for asset_id in binding.get("logical_asset_ids") or []
-        if asset_id
-    )
-    entry_entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
-    occupied_device_ids = {
-        entity.device_id
-        for entity in entry_entities
-        if entity.device_id
-    }
-
-    orphan_proxy_device_count = 0
-    scanned_energy_device_count = 0
-    for device in list(registry.devices.values()):
-        if device.id == (module.id if module is not None else None):
-            continue
-        if set(device.config_entries) != {entry.entry_id}:
-            continue
-        scanned_energy_device_count += 1
-        if any(identifier in valid_energy_identifiers for identifier in device.identifiers):
-            continue
-        if device.id in occupied_device_ids:
-            continue
-        registry.async_remove_device(device.id)
-        orphan_proxy_device_count += 1
-
-    next_state = {
-        "source_device_count": len(bindings),
-        "source_device_ids": sorted(bindings),
-        "bindings_by_source_device_id": bindings,
-        "binding_on_exact_source_device": True,
-        "ha_relationship_model": "diagnostic_entity_on_existing_source_device",
-        "via_device_links_created": 0,
-        "copied_source_identity_devices_created": 0,
-        "orphan_proxy_device_count": orphan_proxy_device_count,
-    }
-    current_structural = {
-        key: value
-        for key, value in state.items()
-        if key not in {
-            "last_sync_duration_ms",
-            "sync_count",
-            "last_scanned_energy_device_count",
-            "last_entry_entity_count",
-        }
-    }
-    if current_structural != next_state:
-        state.clear()
-        state.update(next_state)
-        await store.async_save()
-    else:
-        state.update(next_state)
-
-    state["last_sync_duration_ms"] = round((perf_counter() - started) * 1000, 3)
-    state["sync_count"] = int(state.get("sync_count") or 0) + 1
-    state["last_scanned_energy_device_count"] = scanned_energy_device_count
-    state["last_entry_entity_count"] = len(entry_entities)

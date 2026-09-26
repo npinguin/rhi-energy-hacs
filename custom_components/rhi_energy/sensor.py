@@ -22,9 +22,9 @@ from .const import (
     SHARED_BASELINE_ID,
     SHARED_BASELINE_VERSION,
 )
-from .canonical_device import canonical_device_info, source_device_ids, sync_canonical_device_topology
+from .canonical_device import canonical_device_info, source_device_ids
 from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
-from .source_topology import async_sync_source_device_topology, source_binding_index
+from .source_topology import source_binding_index
 from .public_v2 import public_v2_sensor_attributes
 
 
@@ -371,25 +371,10 @@ class EnergyBuildSensor(_DiagnosticSensor):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
 
-        def _manager_updated():
-            self.async_write_ha_state()
-            self._hass.async_create_task(
-                async_sync_source_device_topology(
-                    self._hass,
-                    self._entry,
-                    self._manager.domain_model,
-                    self._store,
-                    self._runtime.snapshot,
-                )
-            )
-
-        self.async_on_remove(self._manager.add_callback(_manager_updated))
-        await async_sync_source_device_topology(
-            self._hass,
-            self._entry,
-            self._manager.domain_model,
-            self._store,
-            self._runtime.snapshot,
+        # Build diagnostics update their state only. Registry cleanup/reconciliation
+        # is migration work and must never run in the ordinary boot/runtime lifecycle.
+        self.async_on_remove(
+            self._manager.add_callback(self.async_write_ha_state)
         )
 
 
@@ -662,14 +647,8 @@ class EnergyLogicalEntityManager:
             ):
                 entity_registry.async_remove(entity.entity_id)
                 self._known.discard(unique_id)
-        # Canonical composition is materialised through HA's native Device Registry.
-        # This reconciles only RHI Energy canonical devices; physical source devices
-        # remain untouched and retain their source-integration topology.
-        topology_stats = await sync_canonical_device_topology(
-            self._hass,
-            self._entry,
-            rows,
-        )
+        # HA creates/associates canonical devices from each entity's DeviceInfo.
+        # Do not pre-create or reconcile the Device Registry here.
         additions: list[SensorEntity] = []
         for source_device_id in sorted(binding_index):
             uid = f"rhi_energy:source_binding:{source_device_id}"
@@ -713,22 +692,12 @@ class EnergyLogicalEntityManager:
                 self._async_add_entities(additions[offset:offset + batch_size])
                 await asyncio.sleep(0)
         projection_state["sync_count"] = int(projection_state.get("sync_count") or 0) + 1
-        projection_state["canonical_device_reconcile"] = topology_stats
         projection_state["last_sync_duration_ms"] = round((perf_counter() - started) * 1000, 3)
         projection_state["last_logical_node_count"] = len(rows)
         projection_state["last_entity_addition_count"] = len(additions)
         projection_state["batch_size"] = 24
         projection_state["deferred"] = True
         projection_state["non_reentrant"] = True
-        self._hass.async_create_task(
-            async_sync_source_device_topology(
-                self._hass,
-                self._entry,
-                self._manager.domain_model,
-                self._store,
-                self._runtime.snapshot,
-            )
-        )
 
     async def async_stop(self) -> None:
         self._stopping = True

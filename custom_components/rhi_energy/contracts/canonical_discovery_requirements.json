@@ -1,8 +1,8 @@
 {
   "contract_id": "RHI_DOMAIN_DISCOVERY_REQUIREMENTS_V1",
   "source_authority": "governance/DOMAIN_MODEL.json#foundation_publication",
-  "generated_from_model_version": "1.3.5",
-  "release": "E0.15.60",
+  "generated_from_model_version": "1.3.6",
+  "release": "E0.15.61",
   "runtime_code_generation": false,
   "foundation_role": "technical_discovery_and_selection_only",
   "adapter_match_rules": "integration_specific_and_non_authoritative",
