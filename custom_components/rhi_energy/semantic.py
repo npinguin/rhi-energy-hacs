@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.1.1"
+DOMAIN_MODEL_VERSION: Final[str] = "1.2.0"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -118,7 +118,7 @@ OBJECT_CLASS_LABELS: Final[dict[str, str]] = {
 CANONICAL_DOMAIN_MODEL: Final[dict[str, Any]] = {
     "domain_id": "energy",
     "version": DOMAIN_MODEL_VERSION,
-    "root": {"object_id": "energy_site", "label": "Energy Site", "kind": "domain_root"},
+    "root": {"object_id": "energy_site", "label": "Energy Site", "kind": "domain_root", "property_definition": "energy_site"},
     "groups": {
         "flexible_loads": {
             "label": "Flexible Loads",
@@ -126,6 +126,7 @@ CANONICAL_DOMAIN_MODEL: Final[dict[str, Any]] = {
             "kind": "logical_group",
             "members": ("flexible_load",),
             "meaning": "Planable/controllable energy assets; capability determines whether an asset consumes, produces or stores energy.",
+            "property_definition": "flexible_loads",
         },
     },
     "objects": {
@@ -154,12 +155,22 @@ CANONICAL_DOMAIN_MODEL: Final[dict[str, Any]] = {
 # - child: child object per technical group (phase/optimizer)
 # - derived/runtime: no Foundation input; generated from canonical Energy runtime truth
 PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
+    "energy_site": (
+        {"input_id":None,"role":"site_consumption","property_key":"site_consumption.power_kw","fact_key":"site_consumption.power_kw","name":"Site consumption power","unit":"kW","kind":"power","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+    ),
+    "flexible_loads": (
+        {"input_id":None,"role":"power","property_key":"flexible_loads.power_kw","fact_key":"flexible_loads.power_kw","name":"Flexible load power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+        {"input_id":None,"role":"attributed_power","property_key":"flexible_loads.attributed_power_kw","fact_key":"flexible_loads.attributed_power_kw","name":"Attributed flexible load power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+    ),
+
     "battery_system": (
         {"input_id":None,"role":"power","property_key":"battery.power_kw","fact_key":"battery.power_kw","name":"Power","unit":"kW","kind":"power","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"soc","property_key":"battery.soc_pct","fact_key":"battery.soc_pct","name":"State of charge","unit":"%","kind":"battery","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"capacity","property_key":"battery.capacity_kwh","fact_key":"battery.capacity_kwh","name":"Capacity","unit":"kWh","kind":"energy","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"capacity","property_key":"battery.available_kwh","fact_key":"battery.available_kwh","name":"Available energy","unit":"kWh","kind":"energy","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"status","property_key":"battery.status","fact_key":"battery.status","name":"Status","unit":None,"kind":"text","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+        {"input_id":None,"role":"state","property_key":"battery.state","fact_key":"battery.state","name":"Operating state","unit":None,"kind":"text","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+        {"input_id":None,"role":"reserve_target","property_key":"battery.reserve_target_pct","fact_key":"battery.reserve_target_pct","name":"Strategy reserve target","unit":"%","kind":"percentage","required":False,"derived":True,"platform":"number","object_scope":"aggregate","many":False,"editable":True,"editor":"number"},
         {"input_id":"reserve_write_surface","role":"reserve","property_key":"battery.reserve_soc_pct","fact_key":"battery.reserve_soc_pct","name":"Reserve","unit":"%","kind":"battery","required":False,"platform":"sensor","object_scope":"provider","many":False},
     ),
     "battery": (
@@ -198,6 +209,7 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
         {"input_id":"grid_net_power","role":"net_power","property_key":"grid_export.power_kw","fact_key":"grid_export.power_kw","name":"Export power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"provider","many":False},
         {"input_id":"grid_import_energy","role":"import_energy","property_key":"grid_import.energy_total_kwh","fact_key":"grid_import.energy_total_kwh","name":"Import energy","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"provider","many":True},
         {"input_id":"grid_export_energy","role":"export_energy","property_key":"grid_export.energy_total_kwh","fact_key":"grid_export.energy_total_kwh","name":"Export energy","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"provider","many":True},
+        {"input_id":None,"role":"flow_direction","property_key":"grid.flow_direction","fact_key":"grid.flow_direction","name":"Flow direction","unit":None,"kind":"text","required":False,"derived":True,"platform":"sensor","object_scope":"provider","many":False},
     ),
     "grid_phase": (
         {"input_id":"grid_phase_power","role":"power","property_key":"grid_phase.power_kw","fact_key":None,"name":"Power","unit":"kW","kind":"power","required":False,"platform":"sensor","object_scope":"child","many":True},
