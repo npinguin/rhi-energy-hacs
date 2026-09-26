@@ -529,6 +529,16 @@ def _decorate_commands(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _battery_reserve_write_supported(concepts: dict[str, Any]) -> bool:
+    """Return physical Battery reserve-control support across accepted providers."""
+    providers = (concepts.get("battery_system") or {}).get("providers") or []
+    return any(
+        bool(provider.get("reserve_binding") or provider.get("reserve_bindings"))
+        for provider in providers
+        if isinstance(provider, dict)
+    )
+
+
 def build_public_contract_v2(
     snapshot: dict[str, Any],
     store_data: dict[str, Any],
@@ -544,9 +554,7 @@ def build_public_contract_v2(
     source = deepcopy(snapshot)
     source["settings"] = deepcopy(store_data.get("settings") or {})
     concepts = model.get("concepts") or {}
-    source["battery_reserve_write_supported"] = bool(
-        (concepts.get("battery_system") or {}).get("reserve_binding")
-    )
+    source["battery_reserve_write_supported"] = _battery_reserve_write_supported(concepts)
     property_operations = deepcopy(store_data.get("property_operation_state") or {})
     objects = _decorate_objects(
         deepcopy(source.get("logical_assets") or []),
