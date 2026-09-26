@@ -215,7 +215,7 @@ class EnergyRuntime:
                 self._unsubscribe = async_track_state_change_event(
                     self.hass, self._entity_ids_cache, self._handle_state_change
                 )
-        self._recompute()
+        self._recompute(full_hydration=True)
         # Entity/device projection is structural. A newly activated semantic model
         # may add/remove canonical devices or properties; telemetry never may.
         self._notify_topology_if_changed()
@@ -372,9 +372,27 @@ class EnergyRuntime:
                 )
         return normalizer(key, value, context)
 
-    def _populate_direct_facts(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
+    def _populate_direct_facts(
+        self,
+        assets: list[dict[str, Any]],
+        facts: dict[str, Any],
+        issues: list[str],
+        *,
+        include_high_cardinality: bool = True,
+    ) -> None:
         ordered = sorted(assets, key=lambda row: 0 if row.get("object_class") == "battery" else 1)
         for asset in ordered:
+            if (
+                not include_high_cardinality
+                and str(asset.get("integration_domain") or "") == "solaredgeoptimizers"
+                and str(asset.get("object_class") or "") in {
+                    "solar_optimizer_site",
+                    "solar_zone",
+                    "solar_optimizer",
+                    "solar_panel",
+                }
+            ):
+                continue
             for prop in asset.get("properties") or []:
                 if not prop.get("binding_id") and not prop.get("binding_ids"):
                     continue
@@ -686,7 +704,7 @@ class EnergyRuntime:
             })
         return rows
 
-    def _recompute(self) -> None:
+    def _recompute(self, *, full_hydration: bool = False) -> None:
         if self.model is None:
             self.snapshot = self._empty_snapshot()
             self._notify()
@@ -695,7 +713,31 @@ class EnergyRuntime:
         domain_assets = [row for row in (self.model.get("logical_assets") or []) if isinstance(row, dict)]
         facts: dict[str, Any] = {}
         runtime_issues: list[str] = []
-        self._populate_direct_facts(domain_assets, facts, runtime_issues)
+        if not full_hydration:
+            # High-cardinality optimizer telemetry is already maintained incrementally.
+            # Preserve those normalized leaf facts instead of re-reading hundreds of
+            # optimizer entities on every unrelated SolarEdge/Modbus state event.
+            previous_facts = self.snapshot.get("facts") or {}
+            optimizer_prefixes = {
+                str(asset.get("asset_id") or "")
+                for asset in domain_assets
+                if str(asset.get("integration_domain") or "") == "solaredgeoptimizers"
+                and str(asset.get("object_class") or "") in {
+                    "solar_optimizer_site",
+                    "solar_zone",
+                    "solar_optimizer",
+                    "solar_panel",
+                }
+            }
+            for key, value in previous_facts.items():
+                if any(str(key).startswith(f"{prefix}.") for prefix in optimizer_prefixes if prefix):
+                    facts[str(key)] = value
+        self._populate_direct_facts(
+            domain_assets,
+            facts,
+            runtime_issues,
+            include_high_cardinality=full_hydration,
+        )
         self._aggregate_objects(domain_assets, facts, runtime_issues)
         self._canonicalize(domain_assets, facts, runtime_issues)
 
