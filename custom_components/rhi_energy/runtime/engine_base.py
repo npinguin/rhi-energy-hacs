@@ -35,6 +35,7 @@ from .consumer_assets import flexible_power_total, normalize_mobility_consumers,
 from .event_flow import SourceEventCoalescer
 from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
+from .incremental import build_entity_targets, update_optimizer_entity
 from .producers import mobility_entity_ids, read_mobility_energy_assets
 
 _LOGGER = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ class EnergyRuntime:
         self._topology_signature: tuple[Any, ...] | None = None
         self._binding_index_cache: dict[str, dict[str, Any]] = {}
         self._entity_ids_cache: tuple[str, ...] = ()
+        self._incremental_entity_targets: dict[str, tuple[tuple[str, str], ...]] = {}
         self.event_flow = SourceEventCoalescer(hass, self._recompute)
 
     @staticmethod
@@ -207,15 +209,28 @@ class EnergyRuntime:
             if isinstance(row, dict) and row.get("binding_id")
         }
         self._entity_ids_cache = tuple(self._entity_ids()) if model is not None else ()
+        self._incremental_entity_targets = build_entity_targets(model)
         if model is not None:
             if self._entity_ids_cache:
                 self._unsubscribe = async_track_state_change_event(
                     self.hass, self._entity_ids_cache, self._handle_state_change
                 )
         self._recompute()
+        # Entity/device projection is structural. A newly activated semantic model
+        # may add/remove canonical devices or properties; telemetry never may.
+        self._notify_topology_if_changed()
+
+    def _incremental_optimizer_update(self, entity_id: str) -> bool:
+        return update_optimizer_entity(self, entity_id)
 
     @callback
     def _handle_state_change(self, event) -> None:
+        entity_id = str(event.data.get("entity_id") or "")
+        if entity_id and self._incremental_optimizer_update(entity_id):
+            self.event_flow.record_incremental(
+                event, category="solaredgeoptimizers"
+            )
+            return
         self.event_flow.handle(event)
 
     def _producer_assets(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, bool], dict[str, dict[str, Any]]]:
@@ -674,7 +689,6 @@ class EnergyRuntime:
     def _recompute(self) -> None:
         if self.model is None:
             self.snapshot = self._empty_snapshot()
-            self._notify_topology_if_changed()
             self._notify()
             return
 
@@ -830,7 +844,8 @@ class EnergyRuntime:
             "runtime_issues": runtime_issues,
             "degraded_logical_assets": degraded_assets[:40],
         }
-        self._notify_topology_if_changed()
+        # Runtime telemetry updates values on already materialized entities only.
+        # Topology/entity projection is activated exclusively by activate_model().
         self._notify()
 
     async def async_stop(self) -> None:

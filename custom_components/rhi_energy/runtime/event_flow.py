@@ -30,14 +30,15 @@ class SourceEventCoalescer:
         self.mobility_publication_event_count = 0
         self.coalesced_source_event_count = 0
         self.recompute_count = 0
+        self.incremental_event_count = 0
+        self.incremental_optimizer_event_count = 0
         self.last_source_entity_id: str | None = None
         self._burst_started_at: float | None = None
         self.last_recompute_duration_ms = 0.0
         self.max_recompute_duration_ms = 0.0
         self.total_recompute_duration_ms = 0.0
 
-    @callback
-    def handle(self, event) -> None:
+    def _record_event(self, event) -> str | None:
         self.source_event_count += 1
         entity_id = str(event.data.get("entity_id") or "") or None
         self.last_source_entity_id = entity_id
@@ -45,6 +46,19 @@ class SourceEventCoalescer:
             self.mobility_publication_event_count += 1
         else:
             self.physical_source_event_count += 1
+        return entity_id
+
+    @callback
+    def record_incremental(self, event, *, category: str) -> None:
+        """Record a source event that was handled without a domain-wide recompute."""
+        self._record_event(event)
+        self.incremental_event_count += 1
+        if category == "solaredgeoptimizers":
+            self.incremental_optimizer_event_count += 1
+
+    @callback
+    def handle(self, event) -> None:
+        self._record_event(event)
 
         now = monotonic()
         if self._burst_started_at is None:
@@ -84,6 +98,8 @@ class SourceEventCoalescer:
             "mobility_publication_event_count": self.mobility_publication_event_count,
             "coalesced_source_event_count": self.coalesced_source_event_count,
             "event_driven_recompute_count": self.recompute_count,
+            "incremental_event_count": self.incremental_event_count,
+            "incremental_optimizer_event_count": self.incremental_optimizer_event_count,
             "recompute_pending": self.pending is not None,
             "last_source_entity_id": self.last_source_entity_id,
             "quiet_window_ms": int(self.QUIET_WINDOW_SECONDS * 1000),

@@ -97,7 +97,8 @@ class EnergyChargingButtonManager:
 
     def start(self) -> None:
         self._remove_runtime = self._runtime.add_topology_callback(self._sync)
-        self._remove_interaction = self._interaction.add_callback(self._sync)
+        # Command/readback updates change availability/state on existing buttons;
+        # they are not entity lifecycle events.
         self._sync()
 
     def _desired(self) -> dict[str, tuple[str, str]]:

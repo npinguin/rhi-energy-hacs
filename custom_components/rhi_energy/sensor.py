@@ -581,8 +581,9 @@ class EnergyLogicalEntityManager:
 
     def start_deferred(self) -> None:
         """Start projection after platform setup and coalesce topology callbacks."""
-        if self._remove_manager is None:
-            self._remove_manager = self._manager.add_callback(self._request_sync)
+        # Generic build-manager notifications also cover health/diagnostic changes.
+        # Entity projection is lifecycle-owned and therefore follows only the
+        # runtime's structural topology callback.
         if self._remove_runtime is None:
             self._remove_runtime = self._runtime.add_topology_callback(self._request_sync)
         self._request_sync()
