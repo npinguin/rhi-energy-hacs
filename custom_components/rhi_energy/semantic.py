@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.2.0"
+DOMAIN_MODEL_VERSION: Final[str] = "1.3.0"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -130,12 +130,12 @@ CANONICAL_DOMAIN_MODEL: Final[dict[str, Any]] = {
         },
     },
     "objects": {
-        "grid_connection": {"label": "Grid Connection", "parent": "energy_site", "property_definition": "grid_connection"},
+        "grid_connection": {"label": "Grid Connection", "parent": "energy_site", "property_definition": "grid_connection", "composition": {"singleton": True, "cross_provider_evidence": True, "source_resolution": "authoritative_binding_per_property"}},
         "grid_phase": {"label": "Grid Phase", "parent": "grid_connection", "property_definition": "grid_phase"},
-        "solar_production": {"label": "Solar Production", "parent": "energy_site", "property_definition": "solar_production", "projection": "aggregate"},
+        "solar_production": {"label": "Solar Production", "parent": "energy_site", "property_definition": "solar_production", "projection": "aggregate", "composition": {"singleton": True, "children": "solar_inverter", "cross_provider": True, "property_resolution": {"solar.power_kw": "complete_sum_children", "solar.energy_today_kwh": "complete_sum_children", "solar.status": "derived_from_children"}}},
         "solar_inverter": {"label": "Solar Inverter", "parent": "solar_production", "property_definition": "solar_production", "projection": "source_backed"},
         "solar_inverter_phase": {"label": "Solar Inverter Phase", "parent": "solar_inverter", "property_definition": "solar_inverter_phase"},
-        "battery_system": {"label": "Home Battery System", "parent": "energy_site", "property_definition": "battery_system", "meaning": "Fixed stationary storage belonging to the home/site installation."},
+        "battery_system": {"label": "Home Battery System", "parent": "energy_site", "property_definition": "battery_system", "meaning": "Fixed stationary storage belonging to the home/site installation.", "composition": {"singleton": True, "children": "battery", "cross_provider": True, "property_resolution": {"battery.power_kw": "complete_sum_children", "battery.capacity_kwh": "complete_sum_children", "battery.available_kwh": "complete_sum_children", "battery.soc_pct": "capacity_weighted_from_available_and_capacity", "battery.status": "derived_from_children"}}},
         "battery": {"label": "Home Battery", "parent": "battery_system", "property_definition": "battery"},
         "solar_optimizer_site": {"label": "Solar Optimizer Site", "parent": "energy_site", "property_definition": "solar_optimizer_site"},
         "solar_zone": {"label": "Solar Zone / String", "parent": "solar_optimizer_site", "property_definition": "solar_zone"},

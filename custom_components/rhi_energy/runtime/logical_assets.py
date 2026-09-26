@@ -84,8 +84,6 @@ def _asset(
         "visual_ref": visual_ref,
     }
     return enrich_asset(asset)
-
-
 def _role_binding(
     roles: dict[str, Any], role: str | None, binding_index: dict[str, dict[str, Any]]
 ) -> tuple[dict[str, Any] | None, list[str]]:
@@ -95,8 +93,6 @@ def _role_binding(
     ids = [str(item) for item in (value if isinstance(value, list) else [value] if value else []) if item]
     existing = [binding_index[binding_id] for binding_id in ids if binding_id in binding_index]
     return (existing[0] if existing else None), [str(row.get("binding_id")) for row in existing]
-
-
 def _properties(
     object_class: str,
     asset_id: str,
@@ -129,12 +125,8 @@ def _properties(
             **property_control_metadata(spec, binding), **binding_source(binding),
         })
     return rows
-
-
 def _selection(build_inputs: dict[str, dict[str, Any]], builder_id: str) -> dict[str, Any]:
     return (build_inputs.get(builder_id) or {}).get("selection") or {}
-
-
 def _build_domain_assets(
     build_inputs: dict[str, dict[str, Any]],
     model: dict[str, Any],
@@ -142,51 +134,67 @@ def _build_domain_assets(
     concepts = model.get("concepts") or {}
     binding_index = build_binding_index(model)
     out: list[LogicalAsset] = []
-
-    # Battery: system aggregate + physical units.
-    for provider in ((concepts.get("battery_system") or {}).get("providers") or []):
-        aid = str(provider.get("asset_id") or "")
-        builder = str(provider.get("builder_id") or "")
-        integration = str(provider.get("integration_domain") or "")
-        if not aid:
-            continue
-        system_roles = dict(provider.get("bindings") or {})
-        if provider.get("reserve_binding"):
-            system_roles["reserve"] = provider.get("reserve_binding")
+    # Battery: one canonical site aggregate composed from every accepted physical
+    # Battery object, independent of provider/integration. Providers remain provenance.
+    battery_providers = list(((concepts.get("battery_system") or {}).get("providers") or []))
+    if battery_providers:
+        all_units = [
+            (provider, unit)
+            for provider in battery_providers
+            for unit in (provider.get("units") or [])
+            if isinstance(unit, dict) and unit.get("asset_id")
+        ]
         aggregate_roles = {
             role
-            for unit in provider.get("units") or []
+            for _provider, unit in all_units
             for role in (unit.get("bindings") or {})
             if role != "reserve"
         }
+        # A site-level control is only projected when exactly one accepted provider
+        # owns that role. Runtime never picks a controller opportunistically.
+        system_roles: dict[str, Any] = {}
+        for role in ("reserve",):
+            candidates = [
+                (provider.get("bindings") or {}).get(role) or provider.get(f"{role}_binding")
+                for provider in battery_providers
+            ]
+            candidates = [str(value) for value in candidates if value]
+            if len(candidates) == 1:
+                system_roles[role] = candidates[0]
+        selected_device_ids = sorted({
+            str(unit.get("device_registry_id"))
+            for _provider, unit in all_units
+            if unit.get("device_registry_id")
+        })
         out.append(_asset(
-            aid, "battery_system", f"Home Battery System · {integration or aid}",
-            builder_id=builder, integration_domain=integration,
-            normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
-            selection_mode=_selection(build_inputs, builder).get("device_filter_mode"),
-            selected_device_ids=[
-                str(unit.get("device_registry_id"))
-                for unit in provider.get("units") or []
-                if unit.get("device_registry_id")
-            ],
-            properties=_properties("battery_system", aid, system_roles, binding_index, aggregate_roles=aggregate_roles),
+            "battery_system", "battery_system", "Home Battery System",
+            builder_id="", integration_domain="", normalization_status=(
+                "READY"
+                if all(str(provider.get("normalization_status") or "") == "READY" for provider in battery_providers)
+                else "DEGRADED"
+            ),
+            selection_mode="canonical_composition",
+            selected_device_ids=selected_device_ids,
+            properties=_properties(
+                "battery_system", "battery_system", system_roles, binding_index,
+                aggregate_roles=aggregate_roles,
+            ),
         ))
-        for unit in provider.get("units") or []:
+        for provider, unit in all_units:
+            builder = str(provider.get("builder_id") or "")
+            integration = str(provider.get("integration_domain") or "")
             uid = str(unit.get("asset_id") or "")
-            if not uid:
-                continue
             out.append(_asset(
                 uid, "battery", str(unit.get("display_name") or "Battery"),
                 builder_id=builder, integration_domain=integration,
                 normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
-                parent_asset_id=aid,
+                parent_asset_id="battery_system",
                 selected_device_ids=[str(unit.get("device_registry_id"))] if unit.get("device_registry_id") else [],
                 device_registry_id=str(unit.get("device_registry_id") or "") or None,
                 via_device_registry_id=str(unit.get("via_device_registry_id") or "") or None,
                 identity=identity(unit),
                 properties=_properties("battery", uid, unit.get("bindings") or {}, binding_index),
             ))
-
     # One provider object + optional phase children.
     for concept, label in (("grid_connection", "Grid Connection"), ("solar_forecast", "Solar Forecast"), ("price_source", "Energy Price Source")):
         for provider in ((concepts.get(concept) or {}).get("providers") or []):
@@ -233,39 +241,48 @@ def _build_domain_assets(
                         normalization_status="READY" if phase.get("binding") else "DEGRADED",
                         properties=_properties("grid_phase", pid, {"power": phase.get("binding")}, binding_index),
                     ))
-
-    # Solar: aggregate system + inverter and phase children.
-    for provider in ((concepts.get("solar_production") or {}).get("providers") or []):
-        sid = str(provider.get("asset_id") or "")
-        builder = str(provider.get("builder_id") or "")
-        integration = str(provider.get("integration_domain") or "")
-        if not sid:
-            continue
+    # Solar: one canonical site aggregate composed from all accepted inverters,
+    # even when those inverters originate from different integrations/providers.
+    solar_providers = list(((concepts.get("solar_production") or {}).get("providers") or []))
+    if solar_providers:
+        all_inverters = [
+            (provider, inverter)
+            for provider in solar_providers
+            for inverter in (provider.get("inverters") or [])
+            if isinstance(inverter, dict) and inverter.get("asset_id")
+        ]
         aggregate_roles = {
             role
-            for inverter in provider.get("inverters") or []
+            for _provider, inverter in all_inverters
             for role in (inverter.get("bindings") or {})
             if role != "phases"
         }
         out.append(_asset(
-            sid, "solar_production", f"Solar Production · {integration or sid}",
-            builder_id=builder, integration_domain=integration,
-            normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
-            selection_mode=_selection(build_inputs, builder).get("device_filter_mode"),
-            selected_device_ids=[
+            "solar_production", "solar_production", "Solar Production",
+            builder_id="", integration_domain="", normalization_status=(
+                "READY"
+                if all(str(provider.get("normalization_status") or "") == "READY" for provider in solar_providers)
+                else "DEGRADED"
+            ),
+            selection_mode="canonical_composition",
+            selected_device_ids=sorted({
                 str(inverter.get("device_registry_id"))
-                for inverter in provider.get("inverters") or []
+                for _provider, inverter in all_inverters
                 if inverter.get("device_registry_id")
-            ],
-            properties=_properties("solar_production", sid, {}, binding_index, aggregate_roles=aggregate_roles),
+            }),
+            properties=_properties(
+                "solar_production", "solar_production", {}, binding_index,
+                aggregate_roles=aggregate_roles,
+            ),
         ))
-        for inverter in provider.get("inverters") or []:
+        for provider, inverter in all_inverters:
+            builder = str(provider.get("builder_id") or "")
+            integration = str(provider.get("integration_domain") or "")
             iid = str(inverter.get("asset_id") or "")
-            if not iid:
-                continue
             inverter_asset = _asset(
                 iid, "solar_inverter", str(inverter.get("display_name") or "Solar Inverter"),
-                builder_id=builder, integration_domain=integration, parent_asset_id=sid,
+                builder_id=builder, integration_domain=integration,
+                parent_asset_id="solar_production",
                 normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
                 selected_device_ids=[str(inverter.get("device_registry_id"))] if inverter.get("device_registry_id") else [],
                 device_registry_id=str(inverter.get("device_registry_id") or "") or None,
@@ -274,36 +291,23 @@ def _build_domain_assets(
                 properties=_properties("solar_production", iid, inverter.get("bindings") or {}, binding_index),
             )
             inverter_asset["linked_battery_asset_ids"] = [
-                str(value)
-                for value in inverter.get("linked_battery_asset_ids") or []
-                if value
+                str(value) for value in inverter.get("linked_battery_asset_ids") or [] if value
             ]
-            inverter_asset["battery_correction_required"] = bool(
-                inverter.get("battery_correction_required")
-            )
-            inverter_asset["battery_linkage_resolution"] = str(
-                inverter.get("battery_linkage_resolution") or "not_required"
-            )
+            inverter_asset["battery_correction_required"] = bool(inverter.get("battery_correction_required"))
+            inverter_asset["battery_linkage_resolution"] = str(inverter.get("battery_linkage_resolution") or "not_required")
             out.append(inverter_asset)
             for index, phase in enumerate(inverter.get("phases") or [], start=1):
                 pid = str(phase.get("asset_id") or "")
                 if pid:
-                    phase_bindings = phase.get("bindings") or (
-                        {"power": phase.get("binding")} if phase.get("binding") else {}
-                    )
+                    phase_bindings = phase.get("bindings") or ({"power": phase.get("binding")} if phase.get("binding") else {})
                     out.append(_asset(
-                        pid,
-                        "solar_inverter_phase",
+                        pid, "solar_inverter_phase",
                         f"Solar Inverter Phase {phase.get('phase') or index}",
-                        builder_id=builder,
-                        integration_domain=integration,
+                        builder_id=builder, integration_domain=integration,
                         parent_asset_id=iid,
                         normalization_status="READY" if phase_bindings else "DEGRADED",
-                        properties=_properties(
-                            "solar_inverter_phase", pid, phase_bindings, binding_index
-                        ),
+                        properties=_properties("solar_inverter_phase", pid, phase_bindings, binding_index),
                     ))
-
     # Device collections.
     for provider in ((concepts.get("gas_meter") or {}).get("providers") or []):
         builder = str(provider.get("builder_id") or "")
@@ -344,7 +348,6 @@ def _build_domain_assets(
                     integration_domain=integration, normalization_status=health,
                 ))
     return out
-
 def build_logical_assets(build_inputs: dict[str, dict[str, Any]], model: dict[str, Any]) -> list[LogicalAsset]:
     out = _build_domain_assets(build_inputs, model)
     dedup: dict[str, LogicalAsset] = {}
@@ -353,7 +356,6 @@ def build_logical_assets(build_inputs: dict[str, dict[str, Any]], model: dict[st
         if asset_id and (asset_id not in dedup or (asset.get("runtime_truth") and not dedup[asset_id].get("runtime_truth"))):
             dedup[asset_id] = asset
     return [dedup[key] for key in sorted(dedup)]
-
 def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalAsset]:
     home_spec = property_definitions("home_consumption")[0]
     rows: list[LogicalAsset] = [_asset(
@@ -409,8 +411,6 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
         asset["producer_asset_type"] = item.get("source_asset_kind") or item.get("asset_type")
         rows.append(asset)
     return rows
-
-
 def apply_runtime_values(
     logical_assets: list[dict[str, Any]],
     facts: dict[str, Any],

@@ -130,7 +130,7 @@ class EnergyPlanningLayerSensor(SensorEntity):
         planning = contract.get("planning") or {}
         if self._layer == "tactical":
             return str(planning.get("health") or "UNAVAILABLE")
-        d0 = ((planning.get("planning_horizons") or {}).get("D0") or {})
+        d0 = ((planning.get("horizons") or {}).get("D0") or {})
         return str(((d0.get("quality") or {}).get("availability")) or planning.get("health") or "UNAVAILABLE")
 
     @property

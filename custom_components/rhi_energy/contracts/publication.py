@@ -17,6 +17,19 @@ DOMAIN_PRESENTATION = {
     ),
 }
 
+_DISCOVERY_REQUIREMENTS_PATH = Path(__file__).resolve().parent / "canonical_discovery_requirements.json"
+
+
+def _discovery_requirements() -> dict[str, Any]:
+    """Load the deployment derivative of the canonical Energy model."""
+    payload = json.loads(_DISCOVERY_REQUIREMENTS_PATH.read_text(encoding="utf-8"))
+    if payload.get("contract_id") != "RHI_DOMAIN_DISCOVERY_REQUIREMENTS_V1":
+        raise ValueError("canonical_discovery_requirements_contract_invalid")
+    if payload.get("runtime_code_generation") is not False:
+        raise ValueError("canonical_discovery_requirements_must_not_generate_runtime")
+    return payload
+
+
 CONCEPT_PRESENTATIONS: dict[str, dict[str, str]] = {
     "grid_connection": {
         "concept_id": "grid_connection",
@@ -98,9 +111,27 @@ def _canonicalize_and_validate(specification: dict[str, Any]) -> dict[str, Any]:
         if str(concept.get(key) or "") != canonical[key]:
             raise ValueError(f"concept_presentation_drift:energy.{concept_id}:{key}")
 
+    # Foundation publication is a technical derivative of the canonical model, never
+    # an independent semantic authority. Integration-specific match predicates may
+    # narrow discovery, but every normalized input must be declared by the model.
+    discovery = _discovery_requirements()
+    declared = (((discovery.get("concepts") or {}).get(concept_id) or {}).get("inputs") or {})
+    published_inputs = (spec.get("candidate_requirements") or {}).get("normalized_inputs") or []
+    undeclared = sorted({
+        str(row.get("input_id") or "")
+        for row in published_inputs
+        if row.get("input_id") and str(row.get("input_id")) not in declared
+    })
+    if undeclared:
+        raise ValueError(
+            f"domain_build_specification_undeclared_input:{concept_id}:" + ",".join(undeclared)
+        )
+
     # Return bounded copies using the single canonical presentation definitions.
     spec["domain_presentation"] = dict(DOMAIN_PRESENTATION)
     spec["concept"] = dict(canonical)
+    spec["canonical_model_ref"] = "governance/DOMAIN_MODEL.json"
+    spec["canonical_discovery_contract"] = discovery["contract_id"]
     return spec
 
 
