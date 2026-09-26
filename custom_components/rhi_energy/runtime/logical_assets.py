@@ -11,8 +11,9 @@ from typing import Any
 
 try:
     from ..models import LogicalAsset, LogicalProperty
-    from ..semantic import object_fact_key, property_definitions
-    from .asset_profiles import binding_device_ids, binding_index as build_binding_index, binding_source, enrich_asset, identity, property_control_metadata, solar_panel_asset
+    from ..semantic import property_definitions
+    from .asset_profiles import binding_device_ids, binding_index as build_binding_index, identity, solar_panel_asset
+    from .logical_asset_factory import _asset, _properties, _selection
     from .optimizer_topology import optimizer_descriptors
     from .resolution import compatibility_availability, resolve_property
 except ImportError:  # direct runpy tests
@@ -22,14 +23,14 @@ except ImportError:  # direct runpy tests
     _semantic = _runpy.run_path(str(_root / "semantic.py"))
     _asset_profiles = _runpy.run_path(str(_root / "runtime" / "asset_profiles.py"))
     build_binding_index = _asset_profiles["binding_index"]
-    binding_source = _asset_profiles["binding_source"]
     binding_device_ids = _asset_profiles["binding_device_ids"]
-    property_control_metadata = _asset_profiles["property_control_metadata"]
-    enrich_asset = _asset_profiles["enrich_asset"]
     identity = _asset_profiles["identity"]
     solar_panel_asset = _asset_profiles["solar_panel_asset"]
+    _factory = _runpy.run_path(str(_root / "runtime" / "logical_asset_factory.py"))
+    _asset = _factory["_asset"]
+    _properties = _factory["_properties"]
+    _selection = _factory["_selection"]
     optimizer_descriptors = _runpy.run_path(str(_root / "runtime" / "optimizer_topology.py"))["optimizer_descriptors"]
-    object_fact_key = _semantic["object_fact_key"]
     property_definitions = _semantic["property_definitions"]
     _resolution = _runpy.run_path(str(_root / "runtime" / "resolution.py"))
     compatibility_availability = _resolution["compatibility_availability"]
@@ -38,95 +39,6 @@ except ImportError:  # direct runpy tests
     LogicalProperty = dict  # type: ignore[assignment,misc]
 
 
-def _asset(
-    asset_id: str,
-    object_class: str,
-    display_name: str,
-    *,
-    properties: list[LogicalProperty],
-    builder_id: str = "",
-    integration_domain: str = "",
-    normalization_status: str = "DEGRADED",
-    runtime_truth: bool = True,
-    parent_asset_id: str | None = None,
-    selected_device_ids: list[str] | None = None,
-    selection_mode: str | None = None,
-    lifecycle_scope: str = "accepted",
-    source_domain: str = "energy",
-    device_registry_id: str | None = None,
-    via_device_registry_id: str | None = None,
-    identity: dict[str, Any] | None = None,
-    profile_id: str | None = None,
-    visual_ref: str | None = None,
-) -> LogicalAsset:
-    asset: LogicalAsset = {
-        "asset_id": asset_id,
-        "object_class": object_class,
-        "asset_type": object_class,
-        "display_name": display_name,
-        "builder_id": builder_id,
-        "integration_domain": integration_domain,
-        "selection_mode": selection_mode,
-        "selected_device_ids": selected_device_ids or [],
-        "normalization_status": normalization_status,
-        "runtime_truth": runtime_truth,
-        "parent_asset_id": parent_asset_id,
-        "properties": properties,
-        "health": normalization_status,
-        "property_count": len(properties),
-        "available_property_count": 0,
-        "lifecycle_scope": lifecycle_scope,
-        "source_domain": source_domain,
-        "device_registry_id": device_registry_id,
-        "via_device_registry_id": via_device_registry_id,
-        "identity": identity or {},
-        "profile_id": profile_id,
-        "visual_ref": visual_ref,
-    }
-    return enrich_asset(asset)
-def _role_binding(
-    roles: dict[str, Any], role: str | None, binding_index: dict[str, dict[str, Any]]
-) -> tuple[dict[str, Any] | None, list[str]]:
-    if not role:
-        return None, []
-    value = roles.get(role)
-    ids = [str(item) for item in (value if isinstance(value, list) else [value] if value else []) if item]
-    existing = [binding_index[binding_id] for binding_id in ids if binding_id in binding_index]
-    return (existing[0] if existing else None), [str(row.get("binding_id")) for row in existing]
-def _properties(
-    object_class: str,
-    asset_id: str,
-    roles: dict[str, Any],
-    binding_index: dict[str, dict[str, Any]],
-    *,
-    aggregate_roles: set[str] | None = None,
-) -> list[LogicalProperty]:
-    rows: list[LogicalProperty] = []
-    for spec in property_definitions(object_class):
-        role = str(spec.get("role") or "") or None
-        binding, binding_ids = _role_binding(roles, role, binding_index)
-        derived_from_bound = bool(spec.get("derived") and role and roles.get(role))
-        supported = bool(binding_ids or derived_from_bound or (role and aggregate_roles and role in aggregate_roles))
-        # Optional capabilities that a concrete asset does not publish are not
-        # properties of that asset.  Keeping them as empty rows created misleading
-        # UNKNOWN/UNAVAILABLE surfaces throughout diagnostics and HA projection.
-        if not supported and not spec.get("required"):
-            continue
-        status = "NORMALIZED" if binding else "MATCHED" if supported else "MISSING" if spec.get("required") else "UNSUPPORTED"
-        property_key = str(spec.get("property_key") or "")
-        rows.append({
-            "property_key": property_key, "display_name": str(spec.get("name") or property_key),
-            "unit": spec.get("unit"), "kind": str(spec.get("kind") or "text"),
-            "platform": str(spec.get("platform") or "sensor"), "input_id": spec.get("input_id"),
-            "required": bool(spec.get("required")),
-            "derived": bool(spec.get("derived") or (role and aggregate_roles and role in aggregate_roles)),
-            "status": status, "candidate_count": len(binding_ids), "binding_ids": binding_ids,
-            "issues": [], "fact_key": None if str(spec.get("kind") or "") == "action" else object_fact_key(asset_id, property_key),
-            **property_control_metadata(spec, binding), **binding_source(binding),
-        })
-    return rows
-def _selection(build_inputs: dict[str, dict[str, Any]], builder_id: str) -> dict[str, Any]:
-    return (build_inputs.get(builder_id) or {}).get("selection") or {}
 def _build_domain_assets(
     build_inputs: dict[str, dict[str, Any]],
     model: dict[str, Any],
@@ -195,8 +107,64 @@ def _build_domain_assets(
                 identity=identity(unit),
                 properties=_properties("battery", uid, unit.get("bindings") or {}, binding_index),
             ))
-    # One provider object + optional phase children.
-    for concept, label in (("grid_connection", "Grid Connection"), ("solar_forecast", "Solar Forecast"), ("price_source", "Energy Price Source")):
+    # Grid: one canonical site boundary. Multiple providers may publish evidence,
+    # but runtime never chooses between competing bindings. Semantic acceptance /
+    # configuration must leave exactly one authoritative binding per property.
+    grid_providers = list(((concepts.get("grid_connection") or {}).get("providers") or []))
+    if grid_providers:
+        grid_roles: dict[str, Any] = {}
+        ambiguous_roles: list[str] = []
+        all_role_names = sorted({
+            str(role)
+            for provider in grid_providers
+            for role in (provider.get("bindings") or {})
+            if role != "phases"
+        })
+        for role in all_role_names:
+            candidates = sorted({
+                str((provider.get("bindings") or {}).get(role))
+                for provider in grid_providers
+                if (provider.get("bindings") or {}).get(role)
+            })
+            if len(candidates) == 1:
+                grid_roles[role] = candidates[0]
+            elif len(candidates) > 1:
+                ambiguous_roles.append(role)
+        grid_asset = _asset(
+            "grid_connection", "grid_connection", "Grid Connection",
+            builder_id="", integration_domain="",
+            normalization_status="READY" if "net_power" in grid_roles and not ambiguous_roles else "DEGRADED",
+            selection_mode="canonical_authority",
+            selected_device_ids=binding_device_ids(grid_roles, binding_index),
+            properties=_properties("grid_connection", "grid_connection", grid_roles, binding_index),
+        )
+        grid_asset["source_resolution_issues"] = [
+            f"multiple_authoritative_bindings:{role}" for role in ambiguous_roles
+        ]
+        out.append(grid_asset)
+        # Phase evidence is retained as canonical children only when the phase binding
+        # itself is unique; provider identity remains provenance on the child.
+        seen_phase_bindings: set[str] = set()
+        for provider in grid_providers:
+            builder = str(provider.get("builder_id") or "")
+            integration = str(provider.get("integration_domain") or "")
+            for index, phase in enumerate(provider.get("phases") or [], start=1):
+                binding = str(phase.get("binding") or "")
+                if not binding or binding in seen_phase_bindings:
+                    continue
+                seen_phase_bindings.add(binding)
+                pid = str(phase.get("asset_id") or f"grid_phase_{len(seen_phase_bindings)}")
+                out.append(_asset(
+                    pid, "grid_phase", f"Grid Phase {index}",
+                    builder_id=builder, integration_domain=integration,
+                    parent_asset_id="grid_connection",
+                    normalization_status="READY",
+                    properties=_properties("grid_phase", pid, {"power": binding}, binding_index),
+                ))
+
+    # Supporting singleton/provider concepts remain source-backed objects. They are
+    # not site-composition aggregates and therefore preserve provider provenance.
+    for concept, label in (("solar_forecast", "Solar Forecast"), ("price_source", "Energy Price Source")):
         for provider in ((concepts.get(concept) or {}).get("providers") or []):
             if concept == "price_source":
                 for source in provider.get("sources") or []:
@@ -230,17 +198,6 @@ def _build_domain_assets(
                 selected_device_ids=binding_device_ids(provider_roles, binding_index),
                 properties=_properties(concept, aid, provider_roles, binding_index),
             ))
-            if concept == "grid_connection":
-                for index, phase in enumerate(provider.get("phases") or [], start=1):
-                    pid = str(phase.get("asset_id") or "")
-                    if not pid:
-                        continue
-                    out.append(_asset(
-                        pid, "grid_phase", f"Grid Phase {index}",
-                        builder_id=builder, integration_domain=integration, parent_asset_id=aid,
-                        normalization_status="READY" if phase.get("binding") else "DEGRADED",
-                        properties=_properties("grid_phase", pid, {"power": phase.get("binding")}, binding_index),
-                    ))
     # Solar: one canonical site aggregate composed from all accepted inverters,
     # even when those inverters originate from different integrations/providers.
     solar_providers = list(((concepts.get("solar_production") or {}).get("providers") or []))

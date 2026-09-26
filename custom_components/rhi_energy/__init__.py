@@ -1,6 +1,7 @@
 """Robotix Home Intelligence Energy V2 integration — Shared Baseline 1.8.1."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from time import perf_counter
 from typing import Callable
@@ -192,14 +193,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await manager.async_start()
         setup_performance["manager_start_ms"] = round((perf_counter() - stage_started) * 1000, 3)
 
-        stage_started = perf_counter()
-        await sync_canonical_device_topology(
-            hass,
-            entry,
-            runtime.snapshot.get("logical_assets") or [],
-        )
-        setup_performance["canonical_device_sync_ms"] = round((perf_counter() - stage_started) * 1000, 3)
-
+        # Canonical HA-device convergence is presentation work, not an Energy
+        # runtime activation prerequisite. Slow/large source integrations must never
+        # keep Public V2 or the HA platforms behind Device Registry reconciliation.
         stage_started = perf_counter()
         await metering.async_start()
         setup_performance["metering_start_ms"] = round((perf_counter() - stage_started) * 1000, 3)
@@ -213,6 +209,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         stage_started = perf_counter()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         setup_performance["platform_setup_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+
+        async def _async_converge_canonical_devices() -> None:
+            started = perf_counter()
+            try:
+                state["canonical_device_sync_stats"] = await sync_canonical_device_topology(
+                    hass,
+                    entry,
+                    runtime.snapshot.get("logical_assets") or [],
+                )
+            finally:
+                duration_ms = round((perf_counter() - started) * 1000, 3)
+                setup_performance["canonical_device_sync_ms"] = duration_ms
+                setup_performance["canonical_device_sync_last_ms"] = duration_ms
+
+        def _schedule_canonical_device_convergence() -> None:
+            current = state.get("canonical_device_sync_task")
+            if current is not None and not current.done():
+                return
+            state["canonical_device_sync_task"] = hass.async_create_task(
+                _async_converge_canonical_devices(),
+                "rhi_energy_canonical_device_convergence",
+            )
+
+        state["canonical_topology_unsubscribe"] = runtime.add_topology_callback(
+            _schedule_canonical_device_convergence
+        )
+        _schedule_canonical_device_convergence()
+        setup_performance["canonical_device_sync_deferred"] = 1.0
+
         # Shared Baseline 1.8.1 supervision is structural, not telemetry-driven.
         # Foundation 1.8.2 additionally makes provider lifetime generation-safe.
         stage_started = perf_counter()
@@ -257,6 +282,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     visual_registration_unsub = state.get("visual_registration_unsub")
     if callable(visual_registration_unsub):
         visual_registration_unsub()
+    topology_unsubscribe = state.get("canonical_topology_unsubscribe")
+    if callable(topology_unsubscribe):
+        topology_unsubscribe()
+    topology_task = state.get("canonical_device_sync_task")
+    if topology_task is not None and not topology_task.done():
+        topology_task.cancel()
+        try:
+            await topology_task
+        except asyncio.CancelledError:
+            pass
     supervision = state.get("supervision")
     supervision_unsubscribe = state.get("supervision_unsubscribe")
     if callable(supervision_unsubscribe):
