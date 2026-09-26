@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.3.1"
+DOMAIN_MODEL_VERSION: Final[str] = "1.3.2"
 
 
 class SemanticDefinition(TypedDict, total=False):

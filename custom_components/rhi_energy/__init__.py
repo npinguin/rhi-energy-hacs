@@ -23,7 +23,7 @@ from .const import (
 )
 from .runtime.interaction import EnergyInteractionEngine
 from .runtime.metering import EnergyMetering
-from .migration import async_prepare_legacy_entity_takeover
+from .migration import async_prepare_public_entity_takeover, canonical_public_v2_transport_status
 from .public_projector import PublicContractProjector
 from .profile_catalog import EnergyProfileCatalogProvider
 from .visual_catalog import EnergyVisualAssetCatalogProvider
@@ -143,7 +143,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     setup_performance: dict[str, float] = {}
 
     stage_started = perf_counter()
-    migration = await async_prepare_legacy_entity_takeover(hass, entry)
+    migration = await async_prepare_public_entity_takeover(hass, entry)
     setup_performance["migration_ms"] = round((perf_counter() - stage_started) * 1000, 3)
 
     provider = _ensure_publication_provider(hass)
@@ -209,6 +209,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         stage_started = perf_counter()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         setup_performance["platform_setup_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+
+        state["public_transport"] = canonical_public_v2_transport_status(hass)
+        if state["public_transport"].get("ready") is not True:
+            raise ConfigEntryNotReady(
+                "canonical_public_v2_transport_not_ready:"
+                + str(state["public_transport"].get("current_entity_id"))
+            )
 
         async def _async_converge_canonical_devices() -> None:
             started = perf_counter()

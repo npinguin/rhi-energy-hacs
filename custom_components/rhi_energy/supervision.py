@@ -14,6 +14,7 @@ from .const import (
     LEGACY_DIAGNOSTIC_ENTITIES,
     LEGACY_PUBLIC_ENTITIES,
     PUBLICATION_REVISION,
+    PUBLIC_V2_ENTITY,
     RELEASE,
 )
 from .v1_parity import projection_consistency_issues
@@ -134,7 +135,13 @@ class EnergyDomainSupervision:
             getattr(manager, "configuration_status", None), configuration=True
         )
         foundation_status = _status(getattr(manager, "foundation_status", None))
-        contract_status = "OK" if foundation_status == "OK" else "BLOCKED"
+        transport_record = state.get("public_transport")
+        canonical_transport_status = (
+            "BLOCKED"
+            if isinstance(transport_record, dict) and transport_record.get("ready") is False
+            else "OK"
+        )
+        contract_status = "OK" if foundation_status == "OK" and canonical_transport_status == "OK" else "BLOCKED"
         build_status = _status(getattr(manager, "build_health", None))
         runtime_status = _status(runtime_snapshot.get("health"))
         compatibility_entities = (*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES)
@@ -191,11 +198,17 @@ class EnergyDomainSupervision:
                 severity="ERROR" if configuration_status in {"BLOCKED", "STALE"} else "WARNING",
                 scope=["energy"],
             ))
-        if contract_status != "OK":
+        if foundation_status != "OK":
             issues.append(_issue(
                 "energy:contract:foundation_handoff", "CONTRACT",
                 f"FOUNDATION_HANDOFF_{contract_status}", blocking=True,
                 severity="CRITICAL", scope=["SelectedDomainBuildInput"],
+            ))
+        if canonical_transport_status != "OK":
+            issues.append(_issue(
+                "energy:contract:public_v2_transport", "CONTRACT",
+                "PUBLIC_V2_CANONICAL_TRANSPORT_UNAVAILABLE", blocking=True,
+                severity="CRITICAL", scope=[PUBLIC_V2_ENTITY],
             ))
         if build_status != "OK":
             issues.append(_issue(

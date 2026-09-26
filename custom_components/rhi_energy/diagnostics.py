@@ -15,6 +15,8 @@ from .const import (
     LEGACY_CONTRACT_VERSION,
     LEGACY_DIAGNOSTIC_ENTITIES,
     LEGACY_PUBLIC_ENTITIES,
+    PUBLIC_V2_ENTITY,
+    PUBLIC_V2_UNIQUE_ID,
     RELEASE,
     RELEASE_NAME,
     SHARED_BASELINE_CHECKSUM,
@@ -329,6 +331,24 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     registry = er.async_get(hass)
     public_surface = []
     compatibility_entities = (*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES)
+    canonical_v2_current_id = registry.async_get_entity_id("sensor", DOMAIN, PUBLIC_V2_UNIQUE_ID)
+    canonical_v2_registry_entry = registry.async_get(canonical_v2_current_id) if canonical_v2_current_id else None
+    canonical_v2_transport = {
+        "expected_entity_id": PUBLIC_V2_ENTITY,
+        "current_entity_id": canonical_v2_current_id,
+        "unique_id": getattr(canonical_v2_registry_entry, "unique_id", None),
+        "registered": canonical_v2_registry_entry is not None,
+        "owned_by_energy": getattr(canonical_v2_registry_entry, "platform", None) == DOMAIN if canonical_v2_registry_entry is not None else False,
+        "canonical_entity_id_match": canonical_v2_current_id == PUBLIC_V2_ENTITY,
+        "canonical_unique_id_match": getattr(canonical_v2_registry_entry, "unique_id", None) == PUBLIC_V2_UNIQUE_ID if canonical_v2_registry_entry is not None else False,
+        "live_state_present": hass.states.get(PUBLIC_V2_ENTITY) is not None,
+    }
+    canonical_v2_transport["ready"] = all((
+        canonical_v2_transport["registered"], canonical_v2_transport["owned_by_energy"],
+        canonical_v2_transport["canonical_entity_id_match"], canonical_v2_transport["canonical_unique_id_match"],
+        canonical_v2_transport["live_state_present"],
+    ))
+    public_surface.append(canonical_v2_transport)
     for entity_id in compatibility_entities:
         registry_entry = registry.async_get(entity_id)
         public_surface.append(
@@ -437,10 +457,12 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             ],
         },
         "public_surface": {
-            "expected_entity_count": len(compatibility_entities),
-            "product_entity_count": len(LEGACY_PUBLIC_ENTITIES),
+            "canonical_transport": canonical_v2_transport,
+            "canonical_transport_ready": canonical_v2_transport["ready"],
+            "expected_entity_count": 1 + len(compatibility_entities),
+            "product_entity_count": 1 + len(LEGACY_PUBLIC_ENTITIES),
             "diagnostic_entity_count": len(LEGACY_DIAGNOSTIC_ENTITIES),
-            "expected_entity_ids": list(compatibility_entities),
+            "expected_entity_ids": [PUBLIC_V2_ENTITY, *compatibility_entities],
             "registered_entity_count": sum(row["registered"] for row in public_surface),
             "owned_entity_count": sum(row["owned_by_energy"] for row in public_surface),
             "live_state_count": sum(row["live_state_present"] for row in public_surface),
