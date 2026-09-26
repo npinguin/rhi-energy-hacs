@@ -214,16 +214,10 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
         materialized = asset.get("ha_materialization") is True
         device = canonical_by_asset.get(asset_id)
         parent_asset_id = str(asset.get("parent_asset_id") or "")
-        parent = canonical_by_asset.get(parent_asset_id) if parent_asset_id else None
-        # Semantic canonical parentage is not HA Device Registry topology. Match the
-        # same governed rule as canonical_device.py: only explicit physical/gateway
-        # topology_kind=via_device may materialize a via_device relation.
+        # Canonical parentage remains RHI semantic metadata only. HA projection is
+        # deliberately flat; source availability and HA startup order cannot gate it.
         topology_kind = str(asset.get("topology_kind") or "")
-        expected_parent_id = (
-            parent.id
-            if materialized and topology_kind == "via_device" and parent is not None
-            else None
-        )
+        expected_parent_id = None
         actual_parent_id = device.via_device_id if device is not None else None
         matches = (
             device is not None and actual_parent_id == expected_parent_id

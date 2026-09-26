@@ -8,7 +8,7 @@ import asyncio
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, RELEASE
-from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
+from .runtime.canonical_structure import canonical_projection_assets
 from .semantic import OBJECT_CLASS_LABELS
 
 
@@ -20,7 +20,7 @@ def canonical_device_info(asset: dict[str, Any]) -> dict[str, Any]:
     """Return one canonical HA DeviceInfo shape without semantic HA parentage.
 
     Energy canonical composition remains in the canonical graph/relationship contract.
-    HA via_device is reserved for explicitly governed physical/gateway topology.
+    Home Assistant registry parentage is not used for semantic composition.
     """
     asset_id = str(asset.get("asset_id") or "")
     object_class = str(asset.get("object_class") or asset.get("asset_type") or "logical_object")
@@ -67,25 +67,18 @@ async def sync_canonical_device_topology(hass, entry, assets: list[dict[str, Any
         # High-cardinality optimizer/panel sites must never monopolise the HA loop.
         await asyncio.sleep(0)
 
+    # RHI semantic composition is intentionally not projected into Home Assistant
+    # Device Registry parentage.  Until HA parent/child semantics are mature and
+    # stable, canonical Energy devices stay flat and the canonical RHI graph owns
+    # all parent/child relationships.  This pass also removes historical links.
     for offset in range(0, len(rows), batch_size):
         for asset in rows[offset:offset + batch_size]:
             asset_id = str(asset["asset_id"])
             device = created.get(asset_id)
             if device is None:
                 continue
-            topology_kind = str(asset.get("topology_kind") or "")
-            # Canonical semantic composition is not an HA Device Registry via-device
-            # relationship. Only an explicitly governed physical/gateway projection
-            # may set via_device_id.
-            parent_asset_id = str(asset.get("parent_asset_id") or "")
-            parent = created.get(parent_asset_id) if parent_asset_id else None
-            wanted_parent_id = (
-                parent.id
-                if topology_kind == "via_device" and parent is not None
-                else None
-            )
-            if device.via_device_id != wanted_parent_id:
-                registry.async_update_device(device.id, via_device_id=wanted_parent_id)
+            if device.via_device_id is not None:
+                registry.async_update_device(device.id, via_device_id=None)
                 parent_update_count += 1
         await asyncio.sleep(0)
     return {
