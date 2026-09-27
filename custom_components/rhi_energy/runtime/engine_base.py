@@ -616,7 +616,13 @@ class EnergyRuntime:
         d1 = (plan.get("planning_horizons") or {}).get("D1") or {}
         d0_ready = ((d0.get("quality") or {}).get("availability") == "AVAILABLE")
         d1_ready = ((d1.get("quality") or {}).get("availability") == "AVAILABLE")
-        active_flexible = [row for row in flexible if str(row.get("lifecycle_status") or row.get("lifecycle_state") or "active").lower() not in {"disabled", "inactive"}]
+        active_flexible = [
+            row for row in flexible
+            if str(row.get("lifecycle_status") or row.get("lifecycle_state") or "active").lower() not in {"disabled", "inactive"}
+            and str(row.get("participation_state") or "participating").lower() == "participating"
+            and row.get("planning_input_ready", True) is not False
+            and row.get("infrastructure_only", False) is not True
+        ]
         flex_ready = producer_available and all(row.get("power_kw") is not None for row in active_flexible)
         system_ready = {
             "battery_system": all(facts.get(key) is not None for key in ("battery.power_kw", "battery.soc_pct", "battery.capacity_kwh", "battery.available_kwh")),

@@ -82,7 +82,28 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
             envelope.get("max_power_kw", envelope.get("maximum_power_kw"))
         ) if envelope_ready else None
         lifecycle_state = str(first("lifecycle_state", "lifecycle_status") or "active").strip().lower()
-        participation_state = "disabled" if lifecycle_state in {"disabled", "inactive"} else "participating"
+        source_asset_kind = str(asset.get("source_asset_kind") or "").strip().lower()
+        source_context = asset.get("source_context") if isinstance(asset.get("source_context"), dict) else {}
+        mobility_context = source_context.get("mobility") if isinstance(source_context.get("mobility"), dict) else {}
+        consumer_fallback = str(mobility_context.get("consumer_fallback") or "").strip().lower()
+        planning_input_value = first("planning_input_ready")
+        if planning_input_value is None:
+            planning_input_value = asset.get("planning_input_ready")
+        planning_input_ready = None if planning_input_value is None else bool(planning_input_value)
+        infrastructure_only = (
+            source_asset_kind == "charger"
+            or consumer_fallback == "unassigned_charger"
+            or str(asset.get("asset_type") or "").strip().lower() in {"charger", "connection"}
+        )
+        if lifecycle_state in {"disabled", "inactive"}:
+            participation_state = "disabled"
+        elif infrastructure_only:
+            participation_state = "infrastructure_only"
+        else:
+            # Planning readiness is orthogonal to consumer identity. A real
+            # vehicle/load may be temporarily not ready for Tactical Planning
+            # while remaining a valid consumer on Flow/Consumers/Operational.
+            participation_state = "participating"
         normalized = {
             **deepcopy(asset),
             "asset_id": str(asset["asset_id"]),
@@ -90,6 +111,8 @@ def normalize_mobility_consumers(consumers: list[dict[str, Any]]) -> list[dict[s
             "asset_type": "flexible_asset",
             "energy_asset_role": "flexible_load",
             "participation_state": participation_state,
+            "planning_input_ready": False if infrastructure_only else (True if planning_input_ready is None else planning_input_ready),
+            "infrastructure_only": infrastructure_only,
             "power_kw": power,
             "energy_to_target_kwh": number(first("energy_to_target_kwh", "required_energy_kwh", "energy_need_kwh")),
             "requested_power_kw": number(first("requested_power_kw", "requested_charge_power_kw")),

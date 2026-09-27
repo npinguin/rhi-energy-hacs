@@ -779,7 +779,13 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         usable_battery = 0.0
 
     active_assets = sorted(
-        [asset for asset in flexible_assets if not (settings.get("holds") or {}).get(asset.get("asset_id"))],
+        [
+            asset for asset in flexible_assets
+            if not (settings.get("holds") or {}).get(asset.get("asset_id"))
+            and str(asset.get("participation_state") or "participating").strip().lower() == "participating"
+            and asset.get("planning_input_ready", True) is not False
+            and asset.get("infrastructure_only", False) is not True
+        ],
         key=_deadline_sort_key,
     )
     original_need = {str(asset.get("asset_id")): max(0.0, number(asset.get("energy_to_target_kwh")) or 0.0) for asset in active_assets}
@@ -1221,7 +1227,13 @@ def intelligence(plan: dict[str, Any], facts: dict[str, Any], settings: dict[str
     balance=d0.get("balance") or {}
     gi=number(balance.get("expected_grid_import_kwh"))
     ge=number(balance.get("expected_grid_export_kwh"))
-    needs=[a for a in flexible_assets if (number(a.get("energy_to_target_kwh")) or 0)>0]
+    needs=[
+        a for a in flexible_assets
+        if str(a.get("participation_state") or "participating").strip().lower() == "participating"
+        and a.get("planning_input_ready", True) is not False
+        and a.get("infrastructure_only", False) is not True
+        and (number(a.get("energy_to_target_kwh")) or 0) > 0
+    ]
     plan_availability = ((d0.get("quality") or {}).get("availability"))
     if mode == "disabled":
         decision="HOLD"; rec="Energy automation is disabled."; reason="strategy_disabled"; readiness=UNAVAILABLE

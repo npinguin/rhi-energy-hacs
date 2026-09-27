@@ -9,7 +9,7 @@ try:
     from .const import RELEASE
     from .profile_catalog import EnergyProfileCatalogProvider, profile_context
     from .visual_catalog import resolve_visual_ref
-    from .runtime.canonical_semantics import pricing_properties, strategy_properties
+    from .runtime.canonical_semantics import prop, pricing_properties, strategy_properties
     from .runtime.value_accounting import interval_actuals
     from .runtime.coverage import canonical_coverage
 except ImportError:  # direct runpy tests
@@ -24,6 +24,7 @@ except ImportError:  # direct runpy tests
     profile_context = _profiles["profile_context"]
     resolve_visual_ref = _visual["resolve_visual_ref"]
     _canonical = _runpy.run_path(str(_root / "runtime" / "canonical_semantics.py"))
+    prop = _canonical["prop"]
     pricing_properties = _canonical["pricing_properties"]
     strategy_properties = _canonical["strategy_properties"]
     _value = _runpy.run_path(str(_root / "runtime" / "value_accounting.py"))
@@ -212,7 +213,12 @@ def _semantic_field(value: Any, *, unit: str | None = None, reason: str) -> dict
 
 
 def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
-    """Expose stable D0/D1 planning outcomes from the canonical planner only."""
+    """Expose canonical D0/D1 planning without discarding Tactical detail.
+
+    The planner is the semantic authority. Public V2 adds stable summary fields but
+    must preserve its buckets, lanes, demand/supply/balance, candidates and quality
+    so UX consumers never need to reconstruct the plan.
+    """
     horizons: dict[str, Any] = {}
     for horizon_id in ("D0", "D1"):
         raw = deepcopy(((plan.get("planning_horizons") or {}).get(horizon_id) or {}))
@@ -239,11 +245,11 @@ def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
         ))
         status = "AVAILABLE" if canonical_available and usable else "UNAVAILABLE"
         reason = None if status == "AVAILABLE" else (
-            "planning_outcome_incomplete"
-            if raw
-            else "planning_horizon_missing"
+            "planning_outcome_incomplete" if raw else "planning_horizon_missing"
         )
         horizons[horizon_id] = {
+            **raw,
+            "horizon_id": str(raw.get("horizon_id") or horizon_id),
             "required_kwh": required,
             "planned_kwh": planned,
             "executed_kwh": None,
@@ -258,15 +264,18 @@ def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
             "execution_reason": "advisory_plan_has_no_authoritative_execution_meter",
             "quality": deepcopy(quality),
             "source_refs": deepcopy(raw.get("source_refs") or []),
+            "buckets": deepcopy(raw.get("buckets") or []),
         }
     return {
         "plan_id": plan.get("plan_id"),
         "generated_at": plan.get("generated_at"),
         "health": plan.get("health") or "UNKNOWN",
         "reason": plan.get("reason"),
+        "baseline_plan": deepcopy(plan.get("baseline_plan") or {}),
+        "flexible_plan": deepcopy(plan.get("flexible_plan") or {}),
+        "battery_ledger": deepcopy(plan.get("battery_ledger") or {}),
         "horizons": horizons,
     }
-
 
 def _value_accounting_outcome(selected_period: str, selected_value: dict[str, Any]) -> dict[str, Any]:
     value = selected_value.get("net_financial_result_eur")
@@ -292,6 +301,139 @@ def _value_accounting_outcome(selected_period: str, selected_value: dict[str, An
     }
 
 
+
+def _metering_projection(metering_state: dict[str, Any], selected_period: str) -> dict[str, Any]:
+    """Publish canonical period measurements without inferring remediation from command availability."""
+    raw_periods = deepcopy((metering_state or {}).get("periods") or {})
+    periods: dict[str, Any] = {}
+    measured_key_map = {
+        "solar_production_kwh": "solar_kwh",
+        "grid_import_kwh": "grid_import_kwh",
+        "grid_export_kwh": "grid_export_kwh",
+        "site_consumption_kwh": "site_consumption_kwh",
+        "home_consumption_kwh": "home_consumption_kwh",
+        "battery_charge_kwh": "battery_charge_kwh",
+        "battery_discharge_kwh": "battery_discharge_kwh",
+        "flexible_loads_energy_in_kwh": "flexible_loads_energy_in_kwh",
+    }
+    for period_id in ("hour", "today", "week", "month", "year"):
+        raw = deepcopy(raw_periods.get(period_id) or {})
+        measured = {
+            public_key: deepcopy(raw.get(store_key))
+            for public_key, store_key in measured_key_map.items()
+        }
+        has_measurement = any(value is not None for value in measured.values())
+        quality = str(raw.get("quality") or "UNKNOWN").upper()
+        availability = "AVAILABLE" if has_measurement else "UNAVAILABLE"
+        reset_required = raw.get("baseline_reset_required") is True
+        periods[period_id] = {
+            "period_id": period_id,
+            "period_key": raw.get("period_key"),
+            "availability": availability,
+            "measurement_state": availability,
+            "quality": quality,
+            "baseline_reset_required": reset_required,
+            "user_action_required": reset_required,
+            "baseline_reset_at": raw.get("baseline_reset_at"),
+            "gap_count": int(raw.get("gap_count") or 0),
+            "field_quality": deepcopy(raw.get("field_quality") or {}),
+            "field_coverage_seconds": deepcopy(raw.get("field_coverage_seconds") or {}),
+            "financial_quality": deepcopy(raw.get("financial_quality") or {}),
+            "summary": {
+                "measured": measured,
+                "quality": {
+                    "period": quality,
+                    "health": quality,
+                    "measurement_state": availability,
+                    "availability": availability,
+                    "user_action_required": reset_required,
+                },
+            },
+        }
+    selected = periods.get(selected_period) or {
+        "period_id": selected_period,
+        "availability": "UNAVAILABLE",
+        "measurement_state": "UNAVAILABLE",
+        "quality": "UNKNOWN",
+        "baseline_reset_required": False,
+        "user_action_required": False,
+        "summary": {"measured": {}, "quality": {"period": "UNKNOWN", "measurement_state": "UNAVAILABLE"}},
+    }
+    return {
+        "selected_period_id": selected_period,
+        "selected": deepcopy(selected),
+        "periods": periods,
+        "period_order": ["hour", "today", "week", "month", "year"],
+        "remediation_semantics": "reset_required_is_evidence_owned_not_command_presence",
+    }
+
+
+def _retrospective_projection(
+    planning: dict[str, Any],
+    metering: dict[str, Any],
+    command_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Expose truthful retrospective evidence readiness; never synthesize a performance score."""
+    horizons = (planning or {}).get("horizons") or {}
+    planning_ready = any(
+        str((horizons.get(horizon_id) or {}).get("status") or "").upper() == "AVAILABLE"
+        for horizon_id in ("D0", "D1")
+    )
+    selected_metering = (metering or {}).get("selected") or {}
+    measured_ready = str(selected_metering.get("availability") or "").upper() == "AVAILABLE"
+    terminal = [
+        deepcopy(row)
+        for row in (command_state or {}).values()
+        if isinstance(row, dict)
+        and str(row.get("status") or "").upper() in {"CONFIRMED", "REJECTED", "TIMED_OUT"}
+    ]
+    execution_ready = bool(terminal)
+    prerequisites = [
+        {
+            "prerequisite_id": "planning_outcome",
+            "label": "Planning outcomes",
+            "state": "READY" if planning_ready else "PENDING",
+            "reason": None if planning_ready else "canonical_planning_outcome_not_available",
+        },
+        {
+            "prerequisite_id": "execution_evidence",
+            "label": "Execution results",
+            "state": "READY" if execution_ready else "PENDING",
+            "reason": None if execution_ready else "no_persisted_execution_result_available",
+        },
+        {
+            "prerequisite_id": "completed_metering",
+            "label": "Measured energy",
+            "state": "READY" if measured_ready else "PENDING",
+            "reason": None if measured_ready else "selected_metering_period_has_no_measurement_evidence",
+        },
+    ]
+    ready_count = sum(row["state"] == "READY" for row in prerequisites)
+    evidence_ready = ready_count == len(prerequisites)
+    return {
+        "contract_id": "RHI_ENERGY_RETROSPECTIVE_V1",
+        "status": "NOT_EVALUATED" if evidence_ready else "COLLECTING_EVIDENCE",
+        "reason": (
+            "objective_performance_model_not_published"
+            if evidence_ready
+            else "retrospective_prerequisites_incomplete"
+        ),
+        "prerequisites": prerequisites,
+        "evidence_coverage_pct": round(ready_count / len(prerequisites) * 100, 1),
+        "confidence": "NOT_ASSESSED",
+        "score": None,
+        "trend": None,
+        "objectives": [],
+        "execution_kpis": {
+            "result_count": len(terminal),
+            "success_count": sum(str(row.get("status") or "").upper() == "CONFIRMED" for row in terminal),
+            "failure_count": sum(str(row.get("status") or "").upper() in {"REJECTED", "TIMED_OUT"} for row in terminal),
+            "pending_count": sum(str(row.get("status") or "").upper() == "PENDING" for row in (command_state or {}).values() if isinstance(row, dict)),
+        },
+        "score_semantics": "no_score_without_backend_owned_objectives_and_closed_evidence",
+    }
+
+
 def _build_core(source: dict[str, Any]) -> dict[str, Any]:
     """Project stable current-home Energy truth without re-deriving semantics.
 
@@ -303,6 +445,8 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
         deepcopy(row)
         for row in source.get("flexible_assets") or []
         if isinstance(row, dict)
+        and str(row.get("participation_state") or "participating").strip().lower() != "infrastructure_only"
+        and row.get("infrastructure_only") is not True
     ]
     battery = {
         "power_kw": facts.get("battery.power_kw"),
@@ -592,10 +736,77 @@ def build_public_contract_v2(
         strategy_properties(settings),
         property_operations,
     )
+    pricing_by_id = {
+        str(row.get("property_id") or row.get("key") or ""): row
+        for row in pricing_rows
+        if isinstance(row, dict)
+    }
+    tariff_ids = (
+        "pricing.import_network_eur_kwh",
+        "pricing.import_levies_eur_kwh",
+        "pricing.import_vat_pct",
+    )
+    configured_tariff_ids = [
+        key for key in tariff_ids
+        if (pricing_by_id.get(key) or {}).get("value") is not None
+    ]
+    if len(configured_tariff_ids) == 0:
+        pricing_accounting_mode = "MARKET_ONLY"
+        tariff_blockers: list[str] = []
+    elif len(configured_tariff_ids) == len(tariff_ids):
+        pricing_accounting_mode = "FULL_TARIFF"
+        tariff_blockers = []
+    else:
+        pricing_accounting_mode = "PARTIAL_TARIFF_CONFIGURATION"
+        tariff_blockers = [key for key in tariff_ids if key not in configured_tariff_ids]
+    market_blockers = (
+        ["pricing.spot_eur_kwh"]
+        if (pricing_by_id.get("pricing.import_price_current_eur_kwh") or {}).get("value") is None
+        else []
+    )
+    pricing_blockers = market_blockers + tariff_blockers
+    metering_rows = _apply_configuration_operation_state(
+        [
+            prop(
+                "metering",
+                "metering.selected_period",
+                str(settings.get("metering_selected_period") or "today"),
+                editable=True,
+                editor="select",
+                operation_id="energy.metering.set_property",
+                constraints={"allowed": ["hour", "today", "week", "month", "year"]},
+                choices=[
+                    {"value": "hour", "label": "This hour"},
+                    {"value": "today", "label": "Today"},
+                    {"value": "week", "label": "This week"},
+                    {"value": "month", "label": "This month"},
+                    {"value": "year", "label": "This year"},
+                ],
+                group="metering",
+            )
+        ],
+        property_operations,
+    )
     canonical_configuration = {
         "pricing": {
             "properties": pricing_rows,
             "availability": "AVAILABLE" if any(row.get("availability") == "AVAILABLE" for row in pricing_rows) else "UNAVAILABLE",
+            "accounting_mode": pricing_accounting_mode,
+            "accounting_configuration_complete": not pricing_blockers,
+            "blocking_property_ids": pricing_blockers,
+            "optional_property_ids": [
+                "pricing.import_network_eur_kwh",
+                "pricing.import_levies_eur_kwh",
+                "pricing.import_vat_pct",
+                "pricing.export_fee_eur_kwh",
+            ] if pricing_accounting_mode == "MARKET_ONLY" else [
+                "pricing.export_fee_eur_kwh",
+            ],
+            "configuration_semantics": "market_only_is_valid; partial_import_tariff_fails_closed",
+        },
+        "metering": {
+            "properties": metering_rows,
+            "availability": "AVAILABLE",
         },
         "strategy": {
             "configured_properties": strategy_rows,
@@ -647,6 +858,13 @@ def build_public_contract_v2(
     }
     selected_period = str(settings.get("metering_selected_period") or "today")
     selected_value = deepcopy(value_accounting.get(selected_period) or {})
+    metering_projection = _metering_projection(store_data.get("metering") or {}, selected_period)
+    planning_projection = _planning_projection(source.get("plan") or {})
+    retrospective_projection = _retrospective_projection(
+        planning_projection,
+        metering_projection,
+        store_data.get("command_state") or {},
+    )
     unresolved = sum(
         1
         for asset in objects
@@ -685,7 +903,9 @@ def build_public_contract_v2(
         ],
         "configuration": canonical_configuration,
         "coverage": coverage,
-        "planning": _planning_projection(source.get("plan") or {}),
+        "planning": planning_projection,
+        "metering": metering_projection,
+        "retrospective": retrospective_projection,
         "intelligence": deepcopy(source.get("intelligence") or {}),
         "overview": deepcopy(source.get("overview") or {}),
         "commands": commands,
@@ -705,7 +925,7 @@ def build_public_contract_v2(
             "executable_control_count": sum(sum(1 for row in asset.get("controls") or [] if row.get("supported") is True) for asset in objects),
             "unresolved_property_count": unresolved,
             "relationship_count": len(_relationships(source)),
-            "configuration_property_count": len(pricing_rows) + len(strategy_rows),
+            "configuration_property_count": len(pricing_rows) + len(strategy_rows) + len(metering_rows),
             "coverage_complete": coverage.get("complete"),
             "command_count": len(commands),
             "activity_count": len(activity),
