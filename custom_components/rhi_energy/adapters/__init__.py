@@ -19,6 +19,7 @@ CandidateFilter = Callable[[str, dict[str, Any]], bool]
 MarketRoleResolver = Callable[[dict[str, Any]], str | None]
 TopologyKeyResolver = Callable[[dict[str, Any]], str | None]
 BatteryUnitKeyResolver = Callable[[dict[str, Any]], str | None]
+InverterIdentityResolver = Callable[[dict[str, Any]], tuple[str, str] | None]
 _MODULE_CACHE: dict[str, Any | None] = {}
 
 
@@ -77,3 +78,9 @@ def get_battery_unit_key_resolver(integration_domain: str | None) -> BatteryUnit
     """Return a stable physical battery-unit key from Foundation-published evidence."""
     resolver = getattr(_module(integration_domain), "battery_unit_key", None)
     return resolver if callable(resolver) else lambda _candidate: None
+
+
+def get_inverter_identity_resolver(integration_domain: str | None) -> InverterIdentityResolver:
+    """Return provider-specific stable inverter identity as (hardware_model, serial)."""
+    resolver = getattr(_module(integration_domain), "inverter_identity", None)
+    return resolver if callable(resolver) else lambda _row: None

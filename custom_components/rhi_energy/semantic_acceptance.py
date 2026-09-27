@@ -21,7 +21,7 @@ import re
 from typing import Any
 
 try:
-    from .adapters import get_battery_unit_key_resolver, get_candidate_filter, get_market_role_resolver
+    from .adapters import get_battery_unit_key_resolver, get_candidate_filter, get_market_role_resolver, get_inverter_identity_resolver
     from .models import AcceptedSourceBinding, EnergyDomainModel
     from .runtime.logical_assets import build_logical_assets
     from .semantic import input_definitions, source_object_key
@@ -44,6 +44,8 @@ except ImportError:  # Direct runpy/static unit-test execution without package c
         return _adapter_function(str(integration or ""), "battery_unit_key", lambda _candidate: None)
     def get_market_role_resolver(integration):
         return _adapter_function(str(integration or ""), "market_role", lambda candidate: (candidate.get("semantic_metadata") or {}).get("market_role"))
+    def get_inverter_identity_resolver(integration):
+        return _adapter_function(str(integration or ""), "inverter_identity", lambda _row: None)
     AcceptedSourceBinding = dict  # type: ignore[assignment,misc]
     EnergyDomainModel = dict  # type: ignore[assignment,misc]
 
@@ -256,6 +258,8 @@ def _candidate_metadata(candidate: dict[str, Any]) -> dict[str, Any]:
         "config_entry_id": source.get("config_entry_id"),
         "source_entity_id": source.get("current_entity_id"),
         "source_unique_id": source.get("unique_id"),
+        "device_identifiers": deepcopy(evidence.get("device_identifiers") or []),
+        "device_connections": deepcopy(evidence.get("device_connections") or []),
     }
 
 
@@ -615,7 +619,7 @@ def _accept_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
         "generation_meter_phases": generation_meter_phases,
         "builder_id": builder_id,
         "integration_domain": integration,
-        "normalization_status": "READY" if "net_power" in roles and not issues else "DEGRADED",
+        "normalization_status": "READY" if (("net_power" in roles) or (integration == "home_assistant_energy" and roles)) and not issues else "DEGRADED",
     }, issues
 
 def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
@@ -624,9 +628,61 @@ def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any
         phase_rows, local = _safe_for(build_input, phase_input)
         issues.extend(local)
         inputs[phase_input] = phase_rows
-    # A Solar Inverter is a physical production object and therefore requires
-    # authoritative solar-power evidence. Status/energy sibling devices may enrich
-    # an anchored inverter but must never materialize an inverter by themselves.
+    builder_id = str(build_input.get("builder_id") or "solar")
+    integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
+    system_id = f"solar_{_hash([integration, builder_id], 8)}"
+    bindings: list[AcceptedSourceBinding] = []
+
+    # Home Assistant Energy represents production sources, not physical inverter
+    # hardware. Accept any selected resource that provides power and/or cumulative
+    # production energy and preserve it as a generic source object.
+    if integration == "home_assistant_energy":
+        anchors = sorted({
+            _candidate_device_id(candidate)
+            for input_id in ("solar_power", "solar_ac_energy")
+            for candidate in inputs.get(input_id, [])
+            if _candidate_device_id(candidate)
+        })
+        sources: list[dict[str, Any]] = []
+        for anchor in anchors:
+            asset_id = f"solar_source_{_hash([builder_id, anchor], 10)}"
+            role_map: dict[str, str] = {}
+            local_candidates: list[dict[str, Any]] = []
+            for input_id, role in (("solar_power", "power"), ("solar_ac_energy", "ac_energy")):
+                rows = [
+                    candidate
+                    for candidate in inputs.get(input_id, [])
+                    if _candidate_device_id(candidate) == anchor
+                ]
+                if len(rows) == 1:
+                    binding_id = f"energy:{asset_id}:{role}"
+                    bindings.append(_binding(asset_id, role, rows[0], previous.get(binding_id)))
+                    role_map[role] = binding_id
+                    local_candidates.extend(rows)
+                elif len(rows) > 1:
+                    issues.append(f"solar_source_{role}:{anchor}:ambiguous")
+            if role_map:
+                metadata = _candidate_metadata(local_candidates[0])
+                sources.append({
+                    "asset_id": asset_id,
+                    "bindings": role_map,
+                    "source_key": anchor,
+                    **metadata,
+                })
+        if not sources:
+            raise ValueError("no_semantically_safe_input")
+        return bindings, {
+            "asset_id": system_id,
+            "asset_type": "solar_source_collection",
+            "sources": sources,
+            "inverters": [],
+            "builder_id": builder_id,
+            "integration_domain": integration,
+            "normalization_status": "READY" if not issues else "DEGRADED",
+        }, issues
+
+    # Physical Solar integrations materialize Solar Inverter objects and therefore
+    # require authoritative realtime solar-power evidence as their anchor.
     anchors = sorted({
         _candidate_device_id(candidate)
         for candidate in inputs.get("solar_power", [])
@@ -634,10 +690,6 @@ def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any
     })
     if not anchors:
         raise ValueError("no_semantically_safe_input")
-    builder_id = str(build_input.get("builder_id") or "solar")
-    integration = str((build_input.get("selection") or {}).get("integration_domain") or "")
-    system_id = f"solar_{_hash([integration, builder_id], 8)}"
-    bindings: list[AcceptedSourceBinding] = []
     inverters: list[dict[str, Any]] = []
     device_specs = [spec for spec in input_definitions("solar_production") if spec.get("object_scope") == "device"]
     for device_id in anchors:
@@ -1026,6 +1078,39 @@ def _materialize_structural_relations(concepts: dict[str, Any]) -> None:
             inverter["linked_battery_asset_ids"] = linked
             inverter["battery_correction_required"] = correction_required
             inverter["battery_linkage_resolution"] = resolution
+
+    # SolarEdge master/slave composition: local Modbus owns canonical inverter
+    # identity and realtime truth; optimizer cloud contributes delayed topology.
+    # Matching is fail-closed on stable hardware model + normalized serial only.
+    master_by_identity: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for provider in solar_providers:
+        integration = str(provider.get("integration_domain") or "")
+        if integration != "solaredge_modbus_multi":
+            continue
+        resolver = get_inverter_identity_resolver(integration)
+        for inverter in provider.get("inverters") or []:
+            identity = resolver(inverter)
+            if identity:
+                master_by_identity.setdefault(identity, []).append(inverter)
+
+    for provider in ((concepts.get("solar_optimizer") or {}).get("providers") or []):
+        integration = str(provider.get("integration_domain") or "")
+        if integration != "solaredgeoptimizers":
+            continue
+        resolver = get_inverter_identity_resolver(integration)
+        for zone in provider.get("zones") or []:
+            identity = resolver(zone)
+            if not identity:
+                continue
+            matches = master_by_identity.get(identity) or []
+            if len(matches) == 1:
+                zone["master_inverter_asset_id"] = str(matches[0].get("asset_id") or "")
+                zone["master_linkage_resolution"] = "hardware_model_and_normalized_serial"
+                zone["slave_topology_only"] = True
+            elif len(matches) > 1:
+                zone["master_linkage_resolution"] = "ambiguous_master_identity"
+            else:
+                zone["master_linkage_resolution"] = "master_not_found"
 
 
 def accept_energy_selected_inputs(

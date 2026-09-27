@@ -145,6 +145,16 @@ class HomeAssistantEnergyFrameworkProvider:
             "availability": availability,
         }
 
+    @staticmethod
+    def _rate_reference(source: dict[str, Any]) -> str | None:
+        """Return HA Energy's live net-rate entity without recreating HA templates."""
+        if source.get("stat_rate"):
+            return str(source.get("stat_rate"))
+        power_config = source.get("power_config")
+        if isinstance(power_config, dict) and power_config.get("stat_rate"):
+            return str(power_config.get("stat_rate"))
+        return None
+
     def _refresh(self) -> None:
         data = getattr(self._manager, "data", None) or {}
         resources: list[dict[str, Any]] = []
@@ -173,7 +183,7 @@ class HomeAssistantEnergyFrameworkProvider:
                     capabilities.append(row)
 
             if source_type == "grid":
-                add(capability_key="grid_net_power", capability_class="power_measurement", reference=source.get("stat_rate"))
+                add(capability_key="grid_net_power", capability_class="power_measurement", reference=self._rate_reference(source))
                 add(capability_key="grid_import_energy", capability_class="energy_counter", reference=source.get("stat_energy_from"))
                 add(capability_key="grid_export_energy", capability_class="energy_counter", reference=source.get("stat_energy_to"))
             elif source_type == "solar":

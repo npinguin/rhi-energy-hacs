@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.4.1"
+DOMAIN_MODEL_VERSION: Final[str] = "1.4.2"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -80,6 +80,7 @@ CANONICAL_OBJECT_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "battery": {"owner": "energy", "member_of": ("battery_system",)},
     "battery_system": {"owner": "energy", "members": "battery"},
     "solar_inverter": {"owner": "energy", "member_of": ("solar_production",)},
+    "solar_source": {"owner": "energy", "member_of": ("solar_production",), "physical_hardware": False},
     "solar_optimizer_site": {"owner": "energy", "members": ("solar_zone", "solar_optimizer")},
     "solar_zone": {"owner": "energy", "member_of": ("solar_optimizer_site",)},
     "solar_optimizer": {"owner": "energy", "member_of": ("solar_optimizer_site", "solar_zone")},
@@ -101,6 +102,7 @@ OBJECT_CLASS_LABELS: Final[dict[str, str]] = {
     "generation_meter_phase": "Generation Meter Phase",
     "solar_production": "Solar Production",
     "solar_inverter": "Solar Inverter",
+    "solar_source": "Solar Source",
     "solar_inverter_phase": "Solar Inverter Phase",
     "solar_forecast": "Solar Forecast",
     "price_source": "Energy Price Source",
@@ -137,6 +139,7 @@ CANONICAL_DOMAIN_MODEL: Final[dict[str, Any]] = {
         "generation_meter_phase": {"label": "Generation Meter Phase", "parent": "grid_connection", "property_definition": "generation_meter_phase"},
         "solar_production": {"label": "Solar Production", "parent": "energy_site", "property_definition": "solar_production", "projection": "aggregate", "composition": {"singleton": True, "children": "solar_inverter", "cross_provider": True, "property_resolution": {"solar.power_kw": "complete_sum_children", "solar.energy_today_kwh": "complete_sum_children", "solar.status": "derived_from_children"}}},
         "solar_inverter": {"label": "Solar Inverter", "parent": "solar_production", "property_definition": "solar_production", "projection": "source_backed"},
+        "solar_source": {"label": "Solar Source", "parent": "solar_production", "property_definition": "solar_source", "projection": "source", "composition": {"physical_hardware": False, "source_backed": True, "fake_inverter_forbidden": True}},
         "solar_inverter_phase": {"label": "Solar Inverter Phase", "parent": "solar_inverter", "property_definition": "solar_inverter_phase"},
         "battery_system": {"label": "Home Battery System", "parent": "energy_site", "property_definition": "battery_system", "meaning": "Fixed stationary storage belonging to the home/site installation.", "composition": {"singleton": True, "children": "battery", "cross_provider": True, "property_resolution": {"battery.power_kw": "complete_sum_children", "battery.capacity_kwh": "complete_sum_children", "battery.available_kwh": "complete_sum_children", "battery.soc_pct": "capacity_weighted_from_available_and_capacity", "battery.status": "derived_from_children"}, "control_resolution": {"battery.reserve_soc_pct": "physical_battery_exact_source_identity", "aggregate_physical_control_fanout": "forbidden_without_explicit_system_controller"}}},
         "battery": {"label": "Home Battery", "parent": "battery_system", "property_definition": "battery"},
@@ -382,6 +385,13 @@ def source_object_key(candidate: dict[str, Any]) -> str:
         or ""
     )
 
+
+# Generic Home Assistant Energy production sources are accounting sources, not
+# physical inverters. Keep their capability surface intentionally minimal.
+PROPERTY_DEFINITIONS["solar_source"] = (
+    {"input_id":"solar_power","role":"power","property_key":"solar.power_kw","fact_key":"solar.power_kw","name":"Production power","unit":"kW","kind":"power","required":False,"platform":"sensor","object_scope":"provider","many":False},
+    {"input_id":"solar_ac_energy","role":"ac_energy","property_key":"solar.ac_energy_total_kwh","fact_key":"solar.ac_energy_total_kwh","name":"Production energy total","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"provider","many":False},
+)
 
 def property_definitions(object_class: str) -> tuple[SemanticDefinition, ...]:
     return PROPERTY_DEFINITIONS.get(object_class, ())

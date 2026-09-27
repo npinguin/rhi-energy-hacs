@@ -19,6 +19,7 @@ HA_MATERIALIZATION_POLICY: dict[str, dict[str, Any]] = {
     "generation_meter_phase": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_generation_meter_phase_surface"},
     "solar_production": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_generation_subsystem"},
     "solar_inverter": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_generation_device_projection"},
+    "solar_source": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "generic_energy_source_projection"},
     "solar_inverter_phase": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_phase_surface"},
     "battery_system": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_storage_subsystem"},
     "battery": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_storage_unit_projection"},

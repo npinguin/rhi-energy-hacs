@@ -112,6 +112,25 @@ def _properties(
             **property_control_metadata(spec, binding), **binding_source(binding),
         })
     return rows
+
+def solar_source_asset(
+    provider: dict[str, Any],
+    source: dict[str, Any],
+    binding_index: dict[str, dict[str, Any]],
+) -> LogicalAsset:
+    """Project one generic production source without pretending it is inverter hardware."""
+    sid = str(source.get("asset_id") or "")
+    return _asset(
+        sid, "solar_source", str(source.get("display_name") or "Solar Source"),
+        builder_id=str(provider.get("builder_id") or ""),
+        integration_domain=str(provider.get("integration_domain") or ""),
+        parent_asset_id="solar_production",
+        normalization_status=str(provider.get("normalization_status") or "DEGRADED"),
+        selected_device_ids=[str(source.get("device_registry_id"))] if source.get("device_registry_id") else [],
+        device_registry_id=str(source.get("device_registry_id") or "") or None,
+        properties=_properties("solar_source", sid, source.get("bindings") or {}, binding_index),
+    )
+
 def _selection(build_inputs: dict[str, dict[str, Any]], builder_id: str) -> dict[str, Any]:
     return (build_inputs.get(builder_id) or {}).get("selection") or {}
 

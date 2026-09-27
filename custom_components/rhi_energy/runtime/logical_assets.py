@@ -13,7 +13,7 @@ try:
     from ..models import LogicalAsset, LogicalProperty
     from ..semantic import property_definitions
     from .asset_profiles import binding_device_ids, binding_index as build_binding_index, identity, solar_panel_asset
-    from .logical_asset_factory import _asset, _properties, _selection
+    from .logical_asset_factory import _asset, _properties, _selection, solar_source_asset
     from .optimizer_topology import optimizer_descriptors
     from .resolution import compatibility_availability, resolve_property
 except ImportError:  # direct runpy tests
@@ -30,6 +30,7 @@ except ImportError:  # direct runpy tests
     _asset = _factory["_asset"]
     _properties = _factory["_properties"]
     _selection = _factory["_selection"]
+    solar_source_asset = _factory["solar_source_asset"]
     optimizer_descriptors = _runpy.run_path(str(_root / "runtime" / "optimizer_topology.py"))["optimizer_descriptors"]
     property_definitions = _semantic["property_definitions"]
     _resolution = _runpy.run_path(str(_root / "runtime" / "resolution.py"))
@@ -236,10 +237,16 @@ def _build_domain_assets(
             for inverter in (provider.get("inverters") or [])
             if isinstance(inverter, dict) and inverter.get("asset_id")
         ]
+        all_sources = [
+            (provider, source)
+            for provider in solar_providers
+            for source in (provider.get("sources") or [])
+            if isinstance(source, dict) and source.get("asset_id")
+        ]
         aggregate_roles = {
             role
-            for _provider, inverter in all_inverters
-            for role in (inverter.get("bindings") or {})
+            for _provider, item in (*all_inverters, *all_sources)
+            for role in (item.get("bindings") or {})
             if role != "phases"
         }
         out.append(_asset(
@@ -251,15 +258,17 @@ def _build_domain_assets(
             ),
             selection_mode="canonical_composition",
             selected_device_ids=sorted({
-                str(inverter.get("device_registry_id"))
-                for _provider, inverter in all_inverters
-                if inverter.get("device_registry_id")
+                str(item.get("device_registry_id"))
+                for _provider, item in (*all_inverters, *all_sources)
+                if item.get("device_registry_id")
             }),
             properties=_properties(
                 "solar_production", "solar_production", {}, binding_index,
                 aggregate_roles=aggregate_roles,
             ),
         ))
+        for provider, source in all_sources:
+            out.append(solar_source_asset(provider, source, binding_index))
         for provider, inverter in all_inverters:
             builder = str(provider.get("builder_id") or "")
             integration = str(provider.get("integration_domain") or "")
@@ -310,12 +319,16 @@ def _build_domain_assets(
                     identity=identity(meter),
                     properties=_properties("gas_meter", aid, meter.get("bindings") or {"total": meter.get("binding")}, binding_index),
                 ))
+    solar_master_present = any(str(provider.get("integration_domain") or "") == "solaredge_modbus_multi" for provider in ((concepts.get("solar_production") or {}).get("providers") or []))
+    optimizer_master_parent = "solar_production" if solar_master_present else None
     for provider in ((concepts.get("solar_optimizer") or {}).get("providers") or []):
         builder, integration = str(provider.get("builder_id") or ""), str(provider.get("integration_domain") or "")
         health = str(provider.get("normalization_status") or "DEGRADED")
-        for descriptor in optimizer_descriptors(provider):
+        for descriptor in optimizer_descriptors(provider, master_parent_asset_id=optimizer_master_parent):
             row, object_class = descriptor["row"], str(descriptor["object_class"])
             aid = str(row.get("asset_id") or "")
+            if descriptor.get("suppress_projection"):
+                continue
             out.append(_asset(
                 aid, object_class, str(descriptor["display_name"]), builder_id=builder,
                 integration_domain=integration, normalization_status=health,

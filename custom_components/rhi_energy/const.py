@@ -1,12 +1,12 @@
-"""Constants for RHI Energy E0.15.71 visual registry presentation on Shared Baseline 1.8.1."""
+"""Constants for RHI Energy E0.15.72 source semantics and topology stability on Shared Baseline 1.8.1."""
 DOMAIN = "rhi_energy"
 DOMAIN_ID = "energy"
-RELEASE = "E0.15.71"
-RELEASE_NAME = "VISUAL_REGISTRY_PRESENTATION"
+RELEASE = "E0.15.72"
+RELEASE_NAME = "SOURCE_SEMANTICS_TOPOLOGY_STABILITY"
 SHARED_BASELINE_ID = "RHI_SHARED_ARCHITECTURE_BASELINE"
 SHARED_BASELINE_VERSION = "1.8.1"
 SHARED_BASELINE_CHECKSUM = "sha256:ffd431f072af18febbc05dd170d40ab3a2c7b1110ed3fb6f1b1980a1ef00e767"
-PUBLICATION_REVISION = 22
+PUBLICATION_REVISION = 23
 PUBLICATION_CONTRACT = "domain_build_specification_v1.2.0"
 BUILD_INPUT_REGISTRY_KEY = "rhi_selected_domain_build_input_registry"
 INTEROP_PROVIDER_REGISTRY_KEY = "rhi_domain_interop_provider_registry"

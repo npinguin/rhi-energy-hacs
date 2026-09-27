@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.solar_production.home_assistant_energy.v1",
-  "builder_version": "1.0.0",
+  "builder_version": "1.0.1",
   "concept": {
     "concept_id": "solar_production",
     "display_name": "Solar Production",
@@ -36,8 +36,8 @@
         "allowed_source_kinds": [
           "framework_resource"
         ],
-        "required": true,
-        "cardinality": "exactly_one_per_group",
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
         "integration_matches": [
           {
             "integration_domain": "home_assistant_energy",
@@ -117,7 +117,7 @@
   "build_policy": {
     "auto_prepare_when_unambiguous": true,
     "review_when_multiple_equal_matches": true,
-    "block_when_required_input_missing": true
+    "block_when_required_input_missing": false
   },
   "safety": {
     "creates_binding": false,

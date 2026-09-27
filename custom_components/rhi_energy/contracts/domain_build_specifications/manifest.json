@@ -183,7 +183,7 @@
     },
     {
       "builder_id": "energy.grid_connection.home_assistant_energy.v1",
-      "builder_version": "1.0.0",
+      "builder_version": "1.0.1",
       "concept_id": "grid_connection",
       "integration_domains": [
         "home_assistant_energy"
@@ -191,7 +191,7 @@
     },
     {
       "builder_id": "energy.solar_production.home_assistant_energy.v1",
-      "builder_version": "1.0.0",
+      "builder_version": "1.0.1",
       "concept_id": "solar_production",
       "integration_domains": [
         "home_assistant_energy"
@@ -222,5 +222,5 @@
   },
   "publication_contract": "domain_build_specification_v1.2.0",
   "shared_baseline_version": "1.8.1",
-  "publication_revision": 22
+  "publication_revision": 23
 }

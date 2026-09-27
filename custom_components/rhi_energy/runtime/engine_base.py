@@ -39,6 +39,7 @@ from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
 from .incremental import build_entity_targets, update_optimizer_entity
 from .producers import mobility_entity_ids, read_mobility_energy_assets
+from .solar_accounting import aggregate_solar_system
 
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
@@ -497,24 +498,15 @@ class EnergyRuntime:
             ):
                 issues.append(f"battery_system:{sid}:energy_aggregate_incomplete")
 
-        # Solar systems aggregate inverter facts only when every participating inverter is known.
         for system in [row for row in assets if row.get("object_class") == "solar_production"]:
             sid = str(system.get("asset_id") or "")
-            inverters = self._children(assets, sid, "solar_inverter")
-            powers = [facts.get(f"{row.get('asset_id')}.power_kw") for row in inverters]
-            energies = [facts.get(f"{row.get('asset_id')}.energy_today_kwh") for row in inverters]
-            statuses = [facts.get(f"{row.get('asset_id')}.status") for row in inverters]
-            facts[f"{sid}.power_kw"] = complete_numeric_sum(powers, expected_count=len(inverters))
-            facts[f"{sid}.energy_today_kwh"] = complete_numeric_sum(energies, expected_count=len(inverters))
-            facts[f"{sid}.status"] = next(iter(set(statuses))) if inverters and all(value is not None for value in statuses) and len(set(statuses)) == 1 else "mixed" if inverters and all(value is not None for value in statuses) else None
-
-            # Solar Production composes normalized Solar Inverter objects only.
-            facts["solar.power_kw"] = facts[f"{sid}.power_kw"]
-            facts["solar.energy_today_kwh"] = facts[f"{sid}.energy_today_kwh"]
-            facts["solar.status"] = facts[f"{sid}.status"]
-            facts["solar_production.source_id"] = sid
-            if inverters and any(value is None for value in powers):
-                issues.append(f"solar_production:{sid}:power_aggregate_incomplete")
+            issues.extend(aggregate_solar_system(
+                system,
+                self._children(assets, sid, "solar_inverter"),
+                self._children(assets, sid, "solar_source"),
+                facts,
+                complete_numeric_sum,
+            ))
 
         meters = [row for row in assets if row.get("object_class") == "gas_meter"]
         gas_values = [facts.get(f"{row.get('asset_id')}.total_m3") for row in meters]

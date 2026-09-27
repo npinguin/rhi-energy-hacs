@@ -71,3 +71,35 @@ def topology_key(row: dict[str, Any]) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+_SERIAL = re.compile(r"([0-9A-F]{8}(?:-[0-9A-Z]+)?)", re.IGNORECASE)
+
+
+def _normalized_cloud_serial(value: str) -> str | None:
+    match = _SERIAL.search(str(value or ""))
+    if not match:
+        return None
+    serial = match.group(1).upper()
+    # SolarEdge cloud may append a hardware/channel suffix (e.g. 7B07C591-D8).
+    # Modbus identity uses the base inverter serial. Strip only the final suffix.
+    if "-" in serial:
+        serial = serial.rsplit("-", 1)[0]
+    return serial
+
+
+def inverter_identity(row: dict[str, Any]) -> tuple[str, str] | None:
+    """Return stable cloud inverter hardware + normalized serial identity."""
+    model = str(row.get("model") or row.get("device_model") or "").strip().upper()
+    if not model or model.startswith("STRING"):
+        return None
+    for pair in (row.get("device_identifiers") or []):
+        if isinstance(pair, (list, tuple)) and len(pair) == 2:
+            serial = _normalized_cloud_serial(str(pair[1]))
+            if serial:
+                return model, serial
+    for value in (row.get("source_unique_id"), row.get("unique_id")):
+        serial = _normalized_cloud_serial(str(value or ""))
+        if serial:
+            return model, serial
+    return None
