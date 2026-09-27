@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .builders.layered_manager import LayeredEnergyBuildManager as EnergyBuildManager
+from .home_assistant_energy import async_ensure_home_assistant_energy_framework_provider
 from .const import (
     DOMAIN,
     DOMAIN_ID,
@@ -133,6 +134,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     Energy specifications even while Energy is not configured yet.
     """
     _ensure_publication_provider(hass)
+    await async_ensure_home_assistant_energy_framework_provider(hass)
     return True
 
 

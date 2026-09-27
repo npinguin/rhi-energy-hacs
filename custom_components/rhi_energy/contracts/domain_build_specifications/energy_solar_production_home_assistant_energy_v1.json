@@ -1,0 +1,133 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.solar_production.home_assistant_energy.v1",
+  "builder_version": "1.0.0",
+  "concept": {
+    "concept_id": "solar_production",
+    "display_name": "Solar Production",
+    "description": "Represents photovoltaic production measured by the Energy domain.",
+    "selection_guidance": "Select the integrations and devices that expose authoritative photovoltaic production measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "home_assistant_energy",
+      "source_kind": "framework_resource",
+      "resource_type": "solar"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "resource",
+      "grouping": "framework_resource",
+      "minimum_groups": 0,
+      "maximum_groups": null
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "solar_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "solar_power",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "solar"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "solar_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "solar_ac_energy",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "solar"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "solar_ac_energy"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "solar_system",
+      "solar_inverter"
+    ],
+    "possible_facts": [
+      "solar.power_kw",
+      "solar.ac_energy_total_kwh"
+    ],
+    "possible_editable_properties": [],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

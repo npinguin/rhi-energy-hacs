@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.4.0"
+DOMAIN_MODEL_VERSION: Final[str] = "1.4.1"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -169,8 +169,8 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
     "battery_system": (
         {"input_id":None,"role":"power","property_key":"battery.power_kw","fact_key":"battery.power_kw","name":"Power","unit":"kW","kind":"power","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"soc","property_key":"battery.soc_pct","fact_key":"battery.soc_pct","name":"State of charge","unit":"%","kind":"battery","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
-        {"input_id":None,"role":"capacity","property_key":"battery.capacity_kwh","fact_key":"battery.capacity_kwh","name":"Capacity","unit":"kWh","kind":"energy","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
-        {"input_id":None,"role":"capacity","property_key":"battery.available_kwh","fact_key":"battery.available_kwh","name":"Available energy","unit":"kWh","kind":"energy","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+        {"input_id":None,"role":"capacity","property_key":"battery.capacity_kwh","fact_key":"battery.capacity_kwh","name":"Capacity","unit":"kWh","kind":"energy","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+        {"input_id":None,"role":"capacity","property_key":"battery.available_kwh","fact_key":"battery.available_kwh","name":"Available energy","unit":"kWh","kind":"energy","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"status","property_key":"battery.status","fact_key":"battery.status","name":"Status","unit":None,"kind":"text","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"state","property_key":"battery.state","fact_key":"battery.state","name":"Operating state","unit":None,"kind":"text","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"reserve_target","property_key":"battery.reserve_target_pct","fact_key":"battery.reserve_target_pct","name":"Strategy reserve target","unit":"%","kind":"percentage","required":False,"derived":True,"platform":"number","object_scope":"aggregate","many":False,"editable":True,"editor":"number"},
@@ -178,7 +178,7 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
     "battery": (
         {"input_id":"battery_unit_power","role":"power","property_key":"battery.power_kw","fact_key":"battery.power_kw","name":"Power","unit":"kW","kind":"power","required":True,"platform":"sensor","object_scope":"device","many":False},
         {"input_id":"battery_unit_soc","role":"soc","property_key":"battery.soc_pct","fact_key":"battery.soc_pct","name":"State of charge","unit":"%","kind":"battery","required":True,"platform":"sensor","object_scope":"device","many":False},
-        {"input_id":"battery_capacity","role":"capacity","property_key":"battery.capacity_kwh","fact_key":"battery.capacity_kwh","name":"Capacity","unit":"kWh","kind":"energy","required":True,"platform":"sensor","object_scope":"device","many":False},
+        {"input_id":"battery_capacity","role":"capacity","property_key":"battery.capacity_kwh","fact_key":"battery.capacity_kwh","name":"Capacity","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"device","many":False},
         {"input_id":"battery_available_energy","role":"available_energy","property_key":"battery.available_energy_kwh","fact_key":"battery.available_energy_kwh","name":"Available energy","unit":"kWh","kind":"energy","required":False,"platform":"sensor","object_scope":"device","many":False},
         {"input_id":"battery_capacity","role":"capacity","property_key":"battery.available_kwh","fact_key":"battery.available_kwh","name":"Available energy (derived)","unit":"kWh","kind":"energy","required":False,"derived":True,"platform":"sensor","object_scope":"device","many":False},
         {"input_id":"battery_status","role":"status","property_key":"battery.status","fact_key":"battery.status","name":"Status","unit":None,"kind":"text","required":False,"platform":"sensor","object_scope":"device","many":False},
@@ -369,6 +369,18 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
         {"input_id":None,"role":None,"property_key":"operating_state","fact_key":None,"name":"Operating state","unit":None,"kind":"text","required":False,"platform":"sensor","object_scope":"runtime","many":False},
     ),
 }
+
+
+def source_object_key(candidate: dict[str, Any]) -> str:
+    """Return the stable source-object grouping key without requiring HA runtime types."""
+    source = candidate.get("source_identity") or {}
+    evidence = candidate.get("evidence") or {}
+    return str(
+        source.get("device_registry_id")
+        or evidence.get("device_registry_id")
+        or source.get("resource_id")
+        or ""
+    )
 
 
 def property_definitions(object_class: str) -> tuple[SemanticDefinition, ...]:

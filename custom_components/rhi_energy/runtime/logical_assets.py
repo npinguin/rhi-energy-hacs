@@ -107,13 +107,13 @@ def _build_domain_assets(
                 identity=identity(unit),
                 properties=_properties("battery", uid, unit.get("bindings") or {}, binding_index),
             ))
-    # Grid: one canonical site boundary. Multiple providers may publish evidence,
-    # but runtime never chooses between competing bindings. Semantic acceptance /
-    # configuration must leave exactly one authoritative binding per property.
+    # Grid: selected providers are distinct contributions, exactly like other
+    # multi-provider RHI concepts. Do not cross-provider deduplicate/fuse them or
+    # invent property authority. The canonical site boundary composes every selected
+    # provider binding; user selection defines the participating source set.
     grid_providers = list(((concepts.get("grid_connection") or {}).get("providers") or []))
     if grid_providers:
         grid_roles: dict[str, Any] = {}
-        ambiguous_roles: list[str] = []
         all_role_names = sorted({
             str(role)
             for provider in grid_providers
@@ -121,26 +121,31 @@ def _build_domain_assets(
             if role not in {"phases", "generation_meter_phases"}
         })
         for role in all_role_names:
-            candidates = sorted({
+            candidates = [
                 str((provider.get("bindings") or {}).get(role))
                 for provider in grid_providers
                 if (provider.get("bindings") or {}).get(role)
-            })
-            if len(candidates) == 1:
-                grid_roles[role] = candidates[0]
-            elif len(candidates) > 1:
-                ambiguous_roles.append(role)
+            ]
+            if candidates:
+                grid_roles[role] = candidates[0] if len(candidates) == 1 else candidates
         grid_asset = _asset(
             "grid_connection", "grid_connection", "Grid Connection",
             builder_id="", integration_domain="",
-            normalization_status="READY" if "net_power" in grid_roles and not ambiguous_roles else "DEGRADED",
-            selection_mode="canonical_authority",
+            normalization_status=(
+                "READY"
+                if "net_power" in grid_roles
+                and all(str(provider.get("normalization_status") or "") == "READY" for provider in grid_providers)
+                else "DEGRADED"
+            ),
+            selection_mode="canonical_composition",
             selected_device_ids=binding_device_ids(grid_roles, binding_index),
             properties=_properties("grid_connection", "grid_connection", grid_roles, binding_index),
         )
-        grid_asset["source_resolution_issues"] = [
-            f"multiple_authoritative_bindings:{role}" for role in ambiguous_roles
-        ]
+        grid_asset["source_composition"] = {
+            "policy": "selected_providers_are_distinct",
+            "provider_count": len(grid_providers),
+            "cross_provider_deduplication": False,
+        }
         out.append(grid_asset)
         # Phase evidence is retained as canonical children only when the phase binding
         # itself is unique; provider identity remains provenance on the child.

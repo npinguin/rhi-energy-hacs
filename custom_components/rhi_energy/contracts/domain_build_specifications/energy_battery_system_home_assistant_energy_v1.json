@@ -1,0 +1,247 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.battery_system.home_assistant_energy.v1",
+  "builder_version": "1.0.0",
+  "concept": {
+    "concept_id": "battery_system",
+    "display_name": "Home Battery System",
+    "description": "Represents a stationary home battery system including power, state of charge and capacity.",
+    "selection_guidance": "Select all integrations and devices that expose the home battery system and its authoritative measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "home_assistant_energy",
+      "source_kind": "framework_resource",
+      "resource_type": "battery"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "resource",
+      "grouping": "framework_resource",
+      "minimum_groups": 0,
+      "maximum_groups": null
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "battery_unit_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "battery_unit_power",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "battery"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "battery_unit_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_unit_soc",
+        "technical_capabilities": {
+          "any_of": [
+            "percentage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "battery_unit_soc",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "battery"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "battery_unit_soc"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_capacity",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "battery_capacity",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "battery"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "battery_capacity"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_energy_import",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "battery_energy_import",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "battery"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "battery_energy_import"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_energy_export",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "battery_energy_export",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "battery"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "battery_energy_export"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "battery_system",
+      "battery"
+    ],
+    "possible_facts": [
+      "battery.power_kw",
+      "battery.soc_pct",
+      "battery.capacity_kwh",
+      "battery.energy_import_kwh",
+      "battery.energy_export_kwh"
+    ],
+    "possible_editable_properties": [],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

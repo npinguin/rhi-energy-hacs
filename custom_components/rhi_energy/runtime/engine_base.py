@@ -98,7 +98,6 @@ def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
         for row in (asset.get("properties") or [])
         if isinstance(row, dict) and row.get("property_key")
     }
-
 class EnergyRuntime:
     def __init__(self, hass: HomeAssistant, store) -> None:
         self.hass = hass
@@ -133,7 +132,6 @@ class EnergyRuntime:
 
     def add_callback(self, cb):
         return self._callback_hub.add(cb)
-
     def add_asset_callback(self, asset_id: str, cb):
         return self._callback_hub.add_asset(asset_id, cb)
 
@@ -160,8 +158,10 @@ class EnergyRuntime:
         binding = self._binding_index().get(str(binding_id or "")) or {}
         source = binding.get("source_identity") or {}
         entity_id = source.get("current_entity_id")
-        state = self.hass.states.get(entity_id) if entity_id else None
         fallback_unit = (binding.get("technical_capability") or {}).get("native_unit")
+        if source.get("source_kind") == "framework_resource" and entity_id is None:
+            return source.get("static_value"), fallback_unit, {}
+        state = self.hass.states.get(entity_id) if entity_id else None
         if state is None or str(state.state).lower() in _UNKNOWN_STATES:
             return None, fallback_unit, {}
         return state.state, state.attributes.get("unit_of_measurement") or fallback_unit, dict(state.attributes)

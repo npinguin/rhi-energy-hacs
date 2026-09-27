@@ -24,13 +24,15 @@ try:
     from .adapters import get_battery_unit_key_resolver, get_candidate_filter, get_market_role_resolver
     from .models import AcceptedSourceBinding, EnergyDomainModel
     from .runtime.logical_assets import build_logical_assets
-    from .semantic import input_definitions
+    from .semantic import input_definitions, source_object_key
 except ImportError:  # Direct runpy/static unit-test execution without package context.
     from pathlib import Path as _Path
     import runpy as _runpy
     _root = _Path(__file__).resolve().parent
     build_logical_assets = _runpy.run_path(str(_root / "runtime" / "logical_assets.py"))["build_logical_assets"]
-    input_definitions = _runpy.run_path(str(_root / "semantic.py"))["input_definitions"]
+    _semantic_module = _runpy.run_path(str(_root / "semantic.py"))
+    input_definitions = _semantic_module["input_definitions"]
+    source_object_key = _semantic_module["source_object_key"]
     def _adapter_function(integration: str, name: str, default):
         path = _root / "adapters" / f"{integration}.py"
         if not path.is_file():
@@ -230,9 +232,8 @@ def _concept_id_for_builder(builder_id: str) -> str | None:
 
 
 def _candidate_device_id(candidate: dict[str, Any]) -> str:
-    source = candidate.get("source_identity") or {}
-    evidence = candidate.get("evidence") or {}
-    return str(source.get("device_registry_id") or evidence.get("device_registry_id") or "")
+    """Compatibility wrapper for the pure domain-owned source object key."""
+    return source_object_key(candidate)
 
 
 def _candidate_config_id(candidate: dict[str, Any]) -> str:

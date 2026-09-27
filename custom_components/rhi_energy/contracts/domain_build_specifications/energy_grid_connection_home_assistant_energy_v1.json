@@ -1,0 +1,172 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.grid_connection.home_assistant_energy.v1",
+  "builder_version": "1.0.0",
+  "concept": {
+    "concept_id": "grid_connection",
+    "display_name": "Grid Connection",
+    "description": "Represents the electrical connection between the property and the public grid.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative grid import, export and connection measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "home_assistant_energy",
+      "source_kind": "framework_resource",
+      "resource_type": "grid"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "resource",
+      "grouping": "framework_resource",
+      "minimum_groups": 0,
+      "maximum_groups": 1
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "grid_net_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": true,
+        "cardinality": "exactly_one",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "grid_net_power",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "grid"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "grid_net_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_import_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "grid_import_energy",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "grid"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "grid_import_energy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_export_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "framework_resource"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "home_assistant_energy",
+            "raw_capability_id": "grid_export_energy",
+            "source_kind": "framework_resource",
+            "all_of": [
+              {
+                "field": "source_identity.framework_domain",
+                "operator": "equals",
+                "value": "energy"
+              },
+              {
+                "field": "source_identity.resource_type",
+                "operator": "equals",
+                "value": "grid"
+              },
+              {
+                "field": "source_identity.capability_key",
+                "operator": "equals",
+                "value": "grid_export_energy"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "grid_connection"
+    ],
+    "possible_facts": [
+      "grid.net_power_kw",
+      "grid_import.power_kw",
+      "grid_export.power_kw",
+      "grid_import.energy_total_kwh",
+      "grid_export.energy_total_kwh"
+    ],
+    "possible_editable_properties": [],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}
