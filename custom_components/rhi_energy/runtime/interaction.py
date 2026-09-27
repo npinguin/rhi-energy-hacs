@@ -23,6 +23,7 @@ from .canonical_semantics import (
     AVAILABLE,
     PENDING,
     UNSUPPORTED,
+    automation_control_policy,
     by_key,
     command_state_key,
     number,
@@ -614,8 +615,12 @@ class EnergyInteractionEngine:
                         expected_requested_power_kw=payload.get("requested_power_kw"),
                     )
             elif command_id == "energy.command.execute_plan":
-                await self._execute_plan("manual")
-                row.update(status="CONFIRMED", dispatch_state="LOCAL_COMPLETE", reason="plan_evaluated")
+                outcome = await self._execute_plan("manual")
+                row.update(
+                    status="CONFIRMED" if outcome.get("executed") else "REJECTED",
+                    dispatch_state="LOCAL_COMPLETE" if outcome.get("executed") else "NOT_DISPATCHED",
+                    reason=str(outcome.get("reason") or "plan_not_executed"),
+                )
             else:
                 row.update(status="REJECTED", dispatch_state="NOT_DISPATCHED", reason="unsupported_command")
         except Exception as exc:  # persist terminal failure; never lose an admitted operation
@@ -905,6 +910,9 @@ class EnergyInteractionEngine:
         execute_command_id = "energy.command.execute_plan"
         execute_key = command_state_key(execute_command_id, "energy")
         execute_last = states.get(execute_key, {})
+        execution_policy = automation_control_policy(self.store.data.get("settings") or {})
+        execute_enabled = execution_policy["manual_plan_execution_allowed"]
+        execute_reason = None if execute_enabled else "automation_mode_disabled"
         rows.append(
             {
                 "command_instance_id": "energy.command.execute_plan.energy",
@@ -912,12 +920,23 @@ class EnergyInteractionEngine:
                 "owner": "energy",
                 "target_asset_id": "energy",
                 "role": "execute_plan",
+                "label": "Apply current plan" if execution_policy["configured_mode"] == "advice" else "Run current plan now",
                 "supported": True,
-                "availability": AVAILABLE,
-                "state": "available",
-                "reason": {"code": None, "message": None, "severity": None, "source": "energy"},
+                "availability": AVAILABLE if execute_enabled else "UNAVAILABLE",
+                "state": "available" if execute_enabled else "unavailable",
+                "visible": True,
+                "ux_visible": True,
+                "enabled": execute_enabled,
+                "ux_enabled": execute_enabled,
+                "blocked_reason": execute_reason,
+                "reason": {
+                    "code": execute_reason,
+                    "message": None if execute_enabled else "Managed plan execution is disabled by the current automation mode.",
+                    "severity": None if execute_enabled else "blocking",
+                    "source": "automation_policy",
+                },
                 "parameters": {},
-                "requires_confirmation": False,
+                "requires_confirmation": execution_policy["configured_mode"] == "advice",
                 "invoke": {
                     "operation_id": "energy.command.execute",
                     "service": "rhi_energy.invoke_command",
@@ -945,9 +964,8 @@ class EnergyInteractionEngine:
         return rows
 
     async def _automatic_tick(self, _now) -> None:
-        strategy = (self.store.data.get("settings") or {}).get("strategy", {})
-        mode = strategy.get("energy.automation_mode") or strategy.get("energy.operating_mode")
-        if mode != "automatic":
+        policy = automation_control_policy(self.store.data.get("settings") or {})
+        if not policy["autonomous_execution_allowed"]:
             return
         await self._execute_plan("automatic")
 
@@ -976,7 +994,30 @@ class EnergyInteractionEngine:
                 return rows, "current_d0_bucket"
         return {}, "no_current_planning_bucket"
 
-    async def _execute_plan(self, origin: str) -> None:
+    async def _execute_plan(self, origin: str) -> dict[str, Any]:
+        policy = automation_control_policy(self.store.data.get("settings") or {})
+        allowed = (
+            policy["autonomous_execution_allowed"]
+            if origin == "automatic"
+            else policy["manual_plan_execution_allowed"]
+        )
+        if not allowed:
+            reason = (
+                "automatic_execution_not_authorized_by_mode"
+                if origin == "automatic"
+                else "manual_plan_execution_not_authorized_by_mode"
+            )
+            self.store.add_activity({
+                "activity_type": "plan_execution",
+                "origin": origin,
+                "status": "not_executed",
+                "reason": reason,
+                "automation_mode": policy["configured_mode"],
+            })
+            await self.store.async_save()
+            self._notify()
+            return {"executed": False, "reason": reason, "policy": policy}
+
         snap = self.runtime.snapshot
         facts = snap.get("facts") or {}
         holds = (self.store.data.get("settings") or {}).get("holds", {})
@@ -1008,13 +1049,21 @@ class EnergyInteractionEngine:
             })
             await self.store.async_save()
             self._notify()
-            return
+            return {"executed": False, "reason": plan_reason, "policy": policy}
 
         for asset in assets:
             asset_id = str(asset["asset_id"])
             if asset_id in protected:
                 continue
             allocation = allocations.get(asset_id)
+            if allocation is not None:
+                allocation_allowed = (
+                    allocation.get("plan_execution_allowed") is True
+                    if origin == "automatic"
+                    else allocation.get("manual_plan_execution_allowed") is not False
+                )
+                if not allocation_allowed:
+                    allocation = None
             held = bool(holds.get(asset_id))
             operating = str(asset.get("operating_state") or "").lower()
             running = operating in {"running", "charging", "active", "on"}
@@ -1066,6 +1115,12 @@ class EnergyInteractionEngine:
         })
         await self.store.async_save()
         self._notify()
+        return {
+            "executed": True,
+            "reason": plan_reason,
+            "policy": policy,
+            "planned_asset_count": len(allocations),
+        }
 
     async def async_stop(self) -> None:
         if callable(self._remove_runtime):

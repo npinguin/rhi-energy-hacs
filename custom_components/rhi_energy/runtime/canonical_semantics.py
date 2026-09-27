@@ -751,6 +751,38 @@ def _lane_totals(buckets: list[dict[str, Any]], *, complete: bool, solar: float 
     }
 
 
+def automation_control_policy(settings: dict[str, Any]) -> dict[str, Any]:
+    """Canonical authority boundary between planning, advice and autonomous execution."""
+    strategy = settings.get("strategy") or {}
+    raw_mode = str(
+        strategy.get("energy.automation_mode")
+        or strategy.get("energy.operating_mode")
+        or "advice"
+    ).strip().lower()
+    mode = {"recommend": "advice", "off": "disabled"}.get(raw_mode, raw_mode)
+    if mode not in {"automatic", "advice", "disabled"}:
+        mode = "advice"
+    return {
+        "configured_mode": mode,
+        "planning_enabled": True,
+        "autonomous_execution_allowed": mode == "automatic",
+        "manual_plan_execution_allowed": mode in {"automatic", "advice"},
+        "direct_manual_commands_allowed": True,
+        "allocation_state": (
+            "scheduled" if mode == "automatic"
+            else "advisory" if mode == "advice"
+            else "informational"
+        ),
+        "authority": (
+            "home_intelligence"
+            if mode == "automatic"
+            else "user_approval"
+            if mode == "advice"
+            else "none"
+        ),
+    }
+
+
 def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible_assets: list[dict[str, Any]], now: datetime | None = None) -> dict[str, Any]:
     """Deterministic D0/D1 advisory plan with chronological evidence semantics.
 
@@ -763,7 +795,8 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
     strategy = settings.get("strategy") or {}
     planning_cfg = settings.get("planning") or {}
     baseload_profile = settings.get("baseload_profile") or {}
-    mode = strategy.get("energy.automation_mode") or strategy.get("energy.operating_mode") or "advice"
+    control_policy = automation_control_policy(settings)
+    mode = control_policy["configured_mode"]
     solar_today = number(facts.get("forecast.solar_remaining_today_kwh"))
     solar_tomorrow = number(facts.get("forecast.solar_tomorrow_kwh"))
 
@@ -974,8 +1007,9 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                         "minimum_power_kw": round(min_power, 3),
                         "effective_min_power_kw": round(min_power, 3),
                         "effective_max_power_kw": round(max_power, 3),
-                        "allocation_state": "scheduled" if mode == "automatic" else "advisory",
-                        "plan_execution_allowed": mode == "automatic",
+                        "allocation_state": control_policy["allocation_state"],
+                        "plan_execution_allowed": control_policy["autonomous_execution_allowed"],
+                        "manual_plan_execution_allowed": control_policy["manual_plan_execution_allowed"],
                         "planned_import_price_eur_kwh": bucket_price,
                     })
 
@@ -1184,6 +1218,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         "battery_ledger": {"initial_usable_kwh": usable_battery, "after_d0_kwh": battery_after_d0, "after_d1_kwh": battery_after_d1},
         "health": "OK" if d0["quality"]["availability"] == AVAILABLE else "DEGRADED",
         "reason": "deterministic_chronological_capacity_price_policy_aware_plan",
+        "execution_policy": deepcopy(control_policy),
     }
 
 def automatic_execution_decision(grid_export_kw: Any, asset: dict[str, Any], planning_hold: bool = False) -> dict[str, Any]:

@@ -274,6 +274,7 @@ def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
         "baseline_plan": deepcopy(plan.get("baseline_plan") or {}),
         "flexible_plan": deepcopy(plan.get("flexible_plan") or {}),
         "battery_ledger": deepcopy(plan.get("battery_ledger") or {}),
+        "execution_policy": deepcopy(plan.get("execution_policy") or {}),
         "horizons": horizons,
     }
 
