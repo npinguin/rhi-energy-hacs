@@ -12,6 +12,7 @@ import logging
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
@@ -42,7 +43,6 @@ from .producers import mobility_entity_ids, read_mobility_energy_assets
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
 
-
 def _unit_to_kw(value: Any, unit: str | None) -> float | None:
     value = number(value)
     if value is None:
@@ -54,7 +54,6 @@ def _unit_to_kw(value: Any, unit: str | None) -> float | None:
     elif unit not in {"kW", None, ""}:
         return None
     return round(value, 6)
-
 
 def _unit_to_w(value: Any, unit: str | None) -> float | None:
     value = number(value)
@@ -68,7 +67,6 @@ def _unit_to_w(value: Any, unit: str | None) -> float | None:
         return None
     return round(value, 3)
 
-
 def _unit_to_kwh(value: Any, unit: str | None) -> float | None:
     value = number(value)
     if value is None:
@@ -81,7 +79,6 @@ def _unit_to_kwh(value: Any, unit: str | None) -> float | None:
         return None
     return round(value, 6)
 
-
 def _price_to_eur_kwh(value: Any, unit: str | None) -> float | None:
     value = number(value)
     if value is None:
@@ -90,12 +87,10 @@ def _price_to_eur_kwh(value: Any, unit: str | None) -> float | None:
         value /= 1000
     return round(value, 6)
 
-
 def _present(value: Any) -> bool:
     if value is None:
         return False
     return not (isinstance(value, str) and value.strip().lower() in _UNKNOWN_STATES)
-
 
 def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
@@ -103,7 +98,6 @@ def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
         for row in (asset.get("properties") or [])
         if isinstance(row, dict) and row.get("property_key")
     }
-
 
 class EnergyRuntime:
     def __init__(self, hass: HomeAssistant, store) -> None:
@@ -119,6 +113,7 @@ class EnergyRuntime:
         self._incremental_entity_targets: dict[str, tuple[tuple[str, str], ...]] = {}
         self._dirty_entity_ids: set[str] = set()
         self.event_flow = SourceEventCoalescer(hass, self._recompute)
+        self._startup_hydration_unsub = None
 
     @staticmethod
     def _empty_snapshot() -> dict[str, Any]:
@@ -182,29 +177,44 @@ class EnergyRuntime:
             ids.append("sun.sun")
         return sorted({str(value) for value in ids if value})
 
+    def _hydrate_active_model(self) -> None:
+        """Hydrate current sources and only then enable telemetry listeners."""
+        if self.model is None:
+            self.snapshot = self._empty_snapshot()
+            self._notify()
+        else:
+            self._recompute(full_hydration=True)
+            if self._entity_ids_cache:
+                self._unsubscribe = async_track_state_change_event(
+                    self.hass, self._entity_ids_cache, self._handle_state_change)
+        self._notify_topology_if_changed()
+
+    @callback
+    def _handle_homeassistant_started(self, _event) -> None:
+        self._startup_hydration_unsub = None
+        self._hydrate_active_model()
+
     def activate_model(self, model: dict[str, Any] | None) -> None:
         _LOGGER.debug("Activating Energy domain binding model revision=%s", (model or {}).get("domain_model_revision"))
         if callable(self._unsubscribe):
             self._unsubscribe()
+        if callable(self._startup_hydration_unsub):
+            self._startup_hydration_unsub()
         self._unsubscribe = None
+        self._startup_hydration_unsub = None
         self.model = model
+        bindings = (model or {}).get("accepted_bindings", [])
         self._binding_index_cache = {
-            str(row.get("binding_id")): row
-            for row in (model or {}).get("accepted_bindings", [])
-            if isinstance(row, dict) and row.get("binding_id")
+            str(row["binding_id"]): row for row in bindings if isinstance(row, dict) and row.get("binding_id")
         }
         self._entity_ids_cache = tuple(self._entity_ids()) if model is not None else ()
         self._incremental_entity_targets = build_entity_targets(model)
         self._dirty_entity_ids.clear()
-        if model is not None:
-            if self._entity_ids_cache:
-                self._unsubscribe = async_track_state_change_event(
-                    self.hass, self._entity_ids_cache, self._handle_state_change
-                )
-        self._recompute(full_hydration=True)
-        # Entity/device projection is structural. A newly activated semantic model
-        # may add/remove canonical devices or properties; telemetry never may.
-        self._notify_topology_if_changed()
+        if self.hass.is_running:
+            self._hydrate_active_model()
+        else:
+            self._startup_hydration_unsub = self.hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STARTED, self._handle_homeassistant_started)
 
     def _incremental_optimizer_update(self, entity_id: str) -> bool:
         return update_optimizer_entity(self, entity_id)
@@ -883,4 +893,7 @@ class EnergyRuntime:
         if callable(self._unsubscribe):
             self._unsubscribe()
         self._unsubscribe = None
+        if callable(self._startup_hydration_unsub):
+            self._startup_hydration_unsub()
+        self._startup_hydration_unsub = None
         self._callback_hub.clear()
