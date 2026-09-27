@@ -488,12 +488,27 @@ def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     for index, relation in enumerate(snapshot.get("connections") or []):
         if not isinstance(relation, dict):
             continue
-        source = relation.get("source_asset_id") or relation.get("from_asset_id") or relation.get("source")
-        target = relation.get("target_asset_id") or relation.get("to_asset_id") or relation.get("target")
+        # Producer-owned Mobility connection rows use asset_id for the physical
+        # charger and connected_asset_id for the assigned vehicle/load. Preserve
+        # those canonical identities instead of requiring a pre-shaped graph edge.
+        source = (
+            relation.get("source_asset_id")
+            or relation.get("from_asset_id")
+            or relation.get("source")
+            or relation.get("asset_id")
+        )
+        target = (
+            relation.get("target_asset_id")
+            or relation.get("to_asset_id")
+            or relation.get("target")
+            or relation.get("connected_asset_id")
+            or relation.get("connected_consumer_id")
+        )
         if not source or not target:
             continue
         relationship_id = str(relation.get("relationship_id") or f"external:{index}:{source}:{target}")
         rows[relationship_id] = {
+            **deepcopy(relation),
             "relationship_id": relationship_id,
             "source_asset_id": str(source),
             "target_asset_id": str(target),
@@ -661,6 +676,13 @@ def build_public_contract_v2(
         "objects": objects,
         "profiles": _profile_catalog(),
         "relationships": _relationships(source),
+        # Keep the producer-owned physical connection projection available as a
+        # first-class V2 surface. Consumers must not reconstruct it from Energy
+        # logical objects because charger identity remains Mobility-owned.
+        "connections": [
+            deepcopy(row) for row in source.get("connections") or []
+            if isinstance(row, dict)
+        ],
         "configuration": canonical_configuration,
         "coverage": coverage,
         "planning": _planning_projection(source.get("plan") or {}),

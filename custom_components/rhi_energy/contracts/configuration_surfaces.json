@@ -1,0 +1,242 @@
+{
+  "contract_id": "RHI_DOMAIN_CONFIGURATION_SURFACES_V1",
+  "runtime_code_generation": false,
+  "concepts": {
+    "grid_connection": [
+      {
+        "surface_id": "grid_connection_entity_mapping",
+        "surface_type": "logical_device_mapping",
+        "object_type": "grid_connection",
+        "cardinality": "singleton",
+        "materialization": [
+          "configured"
+        ],
+        "display_name": "Grid connection",
+        "minimum": {
+          "any_of": [
+            [
+              "net_power"
+            ],
+            [
+              "import_power",
+              "export_power"
+            ]
+          ]
+        },
+        "fields": [
+          {
+            "field_id": "net_power",
+            "display_name": "Net grid power",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "power_measurement"
+            ],
+            "units": [
+              "W",
+              "kW"
+            ]
+          },
+          {
+            "field_id": "import_power",
+            "display_name": "Import power",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "power_measurement"
+            ],
+            "units": [
+              "W",
+              "kW"
+            ]
+          },
+          {
+            "field_id": "export_power",
+            "display_name": "Export power",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "power_measurement"
+            ],
+            "units": [
+              "W",
+              "kW"
+            ]
+          },
+          {
+            "field_id": "import_energy_total",
+            "display_name": "Import energy total",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "energy_counter"
+            ],
+            "units": [
+              "Wh",
+              "kWh"
+            ]
+          },
+          {
+            "field_id": "export_energy_total",
+            "display_name": "Export energy total",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "energy_counter"
+            ],
+            "units": [
+              "Wh",
+              "kWh"
+            ]
+          }
+        ]
+      }
+    ],
+    "solar_production": [
+      {
+        "surface_id": "solar_source_entity_mapping",
+        "surface_type": "logical_device_mapping",
+        "object_type": "solar_source",
+        "cardinality": "multiple",
+        "materialization": [
+          "configured"
+        ],
+        "display_name": "Solar source",
+        "minimum": {
+          "any_of": [
+            [
+              "power"
+            ],
+            [
+              "energy_total"
+            ]
+          ]
+        },
+        "fields": [
+          {
+            "field_id": "power",
+            "display_name": "Current production",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "power_measurement"
+            ],
+            "units": [
+              "W",
+              "kW"
+            ]
+          },
+          {
+            "field_id": "energy_total",
+            "display_name": "Production energy total",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "energy_counter"
+            ],
+            "units": [
+              "Wh",
+              "kWh"
+            ]
+          }
+        ]
+      }
+    ],
+    "battery_system": [
+      {
+        "surface_id": "battery_entity_mapping",
+        "surface_type": "logical_device_mapping",
+        "object_type": "battery",
+        "cardinality": "multiple",
+        "materialization": [
+          "configured"
+        ],
+        "display_name": "Battery",
+        "minimum": {
+          "all_of": [
+            "power",
+            "state_of_charge"
+          ]
+        },
+        "fields": [
+          {
+            "field_id": "power",
+            "display_name": "Battery power",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "power_measurement"
+            ],
+            "units": [
+              "W",
+              "kW"
+            ]
+          },
+          {
+            "field_id": "state_of_charge",
+            "display_name": "State of charge",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "percentage_measurement"
+            ],
+            "units": [
+              "%"
+            ]
+          },
+          {
+            "field_id": "capacity",
+            "display_name": "Usable capacity",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "energy_capacity"
+            ],
+            "units": [
+              "Wh",
+              "kWh"
+            ]
+          },
+          {
+            "field_id": "charge_energy_total",
+            "display_name": "Charge energy total",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "energy_counter"
+            ],
+            "units": [
+              "Wh",
+              "kWh"
+            ]
+          },
+          {
+            "field_id": "discharge_energy_total",
+            "display_name": "Discharge energy total",
+            "allowed_source_kinds": [
+              "entity"
+            ],
+            "technical_capabilities": [
+              "energy_counter"
+            ],
+            "units": [
+              "Wh",
+              "kWh"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

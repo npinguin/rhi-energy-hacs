@@ -18,6 +18,19 @@ DOMAIN_PRESENTATION = {
 }
 
 _DISCOVERY_REQUIREMENTS_PATH = Path(__file__).resolve().parent / "canonical_discovery_requirements.json"
+_CONFIGURATION_SURFACES_PATH = Path(__file__).resolve().parent / "configuration_surfaces.json"
+
+
+def _configuration_surfaces() -> dict[str, list[dict[str, Any]]]:
+    payload = json.loads(_CONFIGURATION_SURFACES_PATH.read_text(encoding="utf-8"))
+    if payload.get("contract_id") != "RHI_DOMAIN_CONFIGURATION_SURFACES_V1":
+        raise ValueError("configuration_surfaces_contract_invalid")
+    if payload.get("runtime_code_generation") is not False:
+        raise ValueError("configuration_surfaces_must_not_generate_runtime")
+    concepts = payload.get("concepts") or {}
+    if not isinstance(concepts, dict):
+        raise ValueError("configuration_surfaces_concepts_invalid")
+    return concepts
 
 
 def _discovery_requirements() -> dict[str, Any]:
@@ -132,6 +145,9 @@ def _canonicalize_and_validate(specification: dict[str, Any]) -> dict[str, Any]:
     spec["concept"] = dict(canonical)
     spec["canonical_model_ref"] = "governance/DOMAIN_MODEL.json"
     spec["canonical_discovery_contract"] = discovery["contract_id"]
+    surfaces = _configuration_surfaces().get(concept_id)
+    if surfaces:
+        spec["configuration_surfaces"] = json.loads(json.dumps(surfaces))
     return spec
 
 
