@@ -485,6 +485,10 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "event_contract": "rhi_selected_domain_build_inputs_changed",
             "event_payload_used_as_runtime_truth": False,
             "domain_rescans_ha_registries": False,
+            "structural_build_count": int(getattr(manager, "structural_build_count", 0) or 0),
+            "structural_skip_count": int(getattr(manager, "structural_skip_count", 0) or 0),
+            "structural_build_reasons": list(getattr(manager, "structural_build_reasons", []) or [])[-20:],
+            "structural_token_present": getattr(manager, "_last_structural_token", None) is not None,
         },
         "binding": {
             "accepted_binding_owner": "rhi_energy",

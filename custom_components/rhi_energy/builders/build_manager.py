@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
+import json
 import logging
 from typing import Any, Callable
 
@@ -15,6 +17,38 @@ DOMAIN_ID = "energy"
 SELECTED_INPUT_CONTRACT_VERSION = "1.2.0"
 FOUNDATION_CANDIDATE_CONTRACT_VERSION = "1.1.0"
 
+
+def _selected_input_structural_token(entry: dict[str, Any]) -> str:
+    """Mirror Foundation F1.8.22 structural handoff normalization exactly."""
+    normalized: list[dict[str, Any]] = []
+    for raw in (entry.get("inputs") or []):
+        if not isinstance(raw, dict):
+            continue
+        item = deepcopy(raw)
+        item.pop("configuration_revision", None)
+        item.pop("candidate_revision", None)
+        item.pop("build_input_revision", None)
+        selection = dict(item.get("selection") or {})
+        selection.pop("publication_revision", None)
+        item["selection"] = selection
+        for evidence in item.get("candidate_evidence", []) or []:
+            if not isinstance(evidence, dict):
+                continue
+            quality = dict(evidence.get("quality") or {})
+            quality.pop("availability", None)
+            evidence["quality"] = quality
+        for group in item.get("candidate_groups", []) or []:
+            if not isinstance(group, dict):
+                continue
+            for candidate in group.get("candidates", []) or []:
+                if not isinstance(candidate, dict):
+                    continue
+                quality = dict(candidate.get("quality") or {})
+                quality.pop("availability", None)
+                candidate["quality"] = quality
+        normalized.append(item)
+    payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 def _candidate_evidence_index(entry: dict[str, Any]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
@@ -238,6 +272,10 @@ class EnergyBuildManager:
         self._callbacks: list[Callable[[], None]] = []
         self._model_callbacks: list[Callable[[dict[str, Any] | None], None]] = []
         self._unsubscribe_event: Callable[[], None] | None = None
+        self._last_structural_token: str | None = None
+        self.structural_build_count = 0
+        self.structural_skip_count = 0
+        self.structural_build_reasons: list[str] = []
 
     def add_callback(self, cb):
         self._callbacks.append(cb)
@@ -284,6 +322,7 @@ class EnergyBuildManager:
         self.build_input_revision = 0
         self.builder_assessments = {}
         self.affected_scope = []
+        self._last_structural_token = None
         if changed:
             self._notify_model()
         self._notify()
@@ -304,6 +343,7 @@ class EnergyBuildManager:
             return False
 
         inputs = [item for item in (entry.get("inputs") or []) if isinstance(item, dict)]
+        structural_token = _selected_input_structural_token(entry)
         self.handoff_present = True
         self.configuration_revision = int(entry.get("configuration_revision") or 0)
         self.last_configuration_revision = self.configuration_revision
@@ -311,6 +351,12 @@ class EnergyBuildManager:
             [int(item.get("build_input_revision") or 0) for item in inputs],
             default=self.configuration_revision,
         )
+
+        if self.domain_model is not None and self._last_structural_token == structural_token:
+            self.structural_skip_count += 1
+            self.last_success = reason
+            self._notify()
+            return self.build_health in {"OK", "DEGRADED"}
 
         wrong_contract = [
             str(item.get("builder_id") or "unknown")
@@ -398,6 +444,10 @@ class EnergyBuildManager:
             self.build_health = "DEGRADED"
             self.reason = "partial_semantic_acceptance"
         self.last_success = reason if self.build_health in {"OK", "DEGRADED"} else self.last_success
+        if self.build_health in {"OK", "DEGRADED"}:
+            self._last_structural_token = structural_token
+            self.structural_build_count += 1
+            self.structural_build_reasons = [*self.structural_build_reasons, str(reason)][-20:]
 
         if changed:
             _LOGGER.info(
