@@ -145,6 +145,15 @@ def _raw_capability(candidate: dict[str, Any]) -> str:
 
 def _validate_candidate(candidate: dict[str, Any], expected_input: str) -> None:
     source = candidate.get("source_identity") or {}
+    configured_field = str(candidate.get("configured_surface_field_id") or "")
+    if configured_field:
+        if configured_field != expected_input:
+            raise ValueError(f"semantic_validation_failed:{expected_input}_configured_field_mismatch")
+        if source.get("source_kind") != "entity" or not source.get("target_scope"):
+            raise ValueError(f"semantic_validation_failed:{expected_input}_configured_source_invalid")
+        if not isinstance(candidate.get("technical_capability"), dict):
+            raise ValueError(f"semantic_validation_failed:{expected_input}_technical_capability_missing")
+        return
     match = candidate.get("selected_match") or {}
     if not _raw_capability(candidate):
         raise ValueError(f"semantic_validation_failed:{expected_input}_raw_capability_missing")
@@ -186,7 +195,10 @@ def _binding(
         "semantic_role": role,
         "candidate_id": candidate_id,
         "candidate_revision": candidate.get("candidate_revision"),
-        "raw_capability_id": selected_match.get("raw_capability_id"),
+        "raw_capability_id": (
+            selected_match.get("raw_capability_id")
+            or candidate.get("configured_surface_field_id")
+        ),
         "published_match": deepcopy(selected_match.get("published_match") or {}),
         "source_identity": source,
         "target_scope": source.get("target_scope"),
@@ -619,7 +631,17 @@ def _accept_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
         "generation_meter_phases": generation_meter_phases,
         "builder_id": builder_id,
         "integration_domain": integration,
-        "normalization_status": "READY" if (("net_power" in roles) or (integration == "home_assistant_energy" and roles)) and not issues else "DEGRADED",
+        "normalization_status": "READY" if (
+            (
+                "net_power" in roles
+                or (
+                    "measured_import_power" in roles
+                    and "measured_export_power" in roles
+                )
+                or (integration == "home_assistant_energy" and roles)
+            )
+            and not issues
+        ) else "DEGRADED",
     }, issues
 
 def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
@@ -636,7 +658,7 @@ def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any
     # Home Assistant Energy represents production sources, not physical inverter
     # hardware. Accept any selected resource that provides power and/or cumulative
     # production energy and preserve it as a generic source object.
-    if integration == "home_assistant_energy":
+    if integration == "home_assistant_energy" or build_input.get("configured_object_type") == "solar_source":
         anchors = sorted({
             _candidate_device_id(candidate)
             for input_id in ("solar_power", "solar_ac_energy")
@@ -1134,7 +1156,11 @@ def accept_energy_selected_inputs(
     provider_assets: dict[str, list[dict[str, Any]]] = {concept: [] for concept in _COLLECTION_CONCEPTS}
 
     for builder_id, build_input in sorted(build_inputs.items()):
-        concept_id = _concept_id_for_builder(builder_id) or "unknown"
+        concept_id = (
+            str((build_input.get("selection") or {}).get("concept") or "")
+            or _concept_id_for_builder(builder_id)
+            or "unknown"
+        )
         revisions.append((build_input.get("configuration_revision"), build_input.get("candidate_revision"), build_input.get("build_input_revision")))
         if _selection_explicitly_empty(build_input):
             explicitly_absent.add(concept_id)

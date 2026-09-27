@@ -134,7 +134,7 @@ def _build_domain_assets(
             builder_id="", integration_domain="",
             normalization_status=(
                 "READY"
-                if "net_power" in grid_roles
+                if ("net_power" in grid_roles or {"measured_import_power", "measured_export_power"} <= set(grid_roles))
                 and all(str(provider.get("normalization_status") or "") == "READY" for provider in grid_providers)
                 else "DEGRADED"
             ),

@@ -15,17 +15,17 @@
         "minimum": {
           "any_of": [
             [
-              "net_power"
+              "grid_net_power"
             ],
             [
-              "import_power",
-              "export_power"
+              "grid_import_power",
+              "grid_export_power"
             ]
           ]
         },
         "fields": [
           {
-            "field_id": "net_power",
+            "field_id": "grid_net_power",
             "display_name": "Net grid power",
             "allowed_source_kinds": [
               "entity"
@@ -39,7 +39,7 @@
             ]
           },
           {
-            "field_id": "import_power",
+            "field_id": "grid_import_power",
             "display_name": "Import power",
             "allowed_source_kinds": [
               "entity"
@@ -53,7 +53,7 @@
             ]
           },
           {
-            "field_id": "export_power",
+            "field_id": "grid_export_power",
             "display_name": "Export power",
             "allowed_source_kinds": [
               "entity"
@@ -67,7 +67,7 @@
             ]
           },
           {
-            "field_id": "import_energy_total",
+            "field_id": "grid_import_energy",
             "display_name": "Import energy total",
             "allowed_source_kinds": [
               "entity"
@@ -81,7 +81,7 @@
             ]
           },
           {
-            "field_id": "export_energy_total",
+            "field_id": "grid_export_energy",
             "display_name": "Export energy total",
             "allowed_source_kinds": [
               "entity"
@@ -110,16 +110,16 @@
         "minimum": {
           "any_of": [
             [
-              "power"
+              "solar_power"
             ],
             [
-              "energy_total"
+              "solar_ac_energy"
             ]
           ]
         },
         "fields": [
           {
-            "field_id": "power",
+            "field_id": "solar_power",
             "display_name": "Current production",
             "allowed_source_kinds": [
               "entity"
@@ -133,7 +133,7 @@
             ]
           },
           {
-            "field_id": "energy_total",
+            "field_id": "solar_ac_energy",
             "display_name": "Production energy total",
             "allowed_source_kinds": [
               "entity"
@@ -161,13 +161,13 @@
         "display_name": "Battery",
         "minimum": {
           "all_of": [
-            "power",
-            "state_of_charge"
+            "battery_unit_power",
+            "battery_unit_soc"
           ]
         },
         "fields": [
           {
-            "field_id": "power",
+            "field_id": "battery_unit_power",
             "display_name": "Battery power",
             "allowed_source_kinds": [
               "entity"
@@ -181,7 +181,7 @@
             ]
           },
           {
-            "field_id": "state_of_charge",
+            "field_id": "battery_unit_soc",
             "display_name": "State of charge",
             "allowed_source_kinds": [
               "entity"
@@ -194,7 +194,7 @@
             ]
           },
           {
-            "field_id": "capacity",
+            "field_id": "battery_capacity",
             "display_name": "Usable capacity",
             "allowed_source_kinds": [
               "entity"
@@ -208,7 +208,7 @@
             ]
           },
           {
-            "field_id": "charge_energy_total",
+            "field_id": "battery_energy_import",
             "display_name": "Charge energy total",
             "allowed_source_kinds": [
               "entity"
@@ -222,7 +222,7 @@
             ]
           },
           {
-            "field_id": "discharge_energy_total",
+            "field_id": "battery_energy_export",
             "display_name": "Discharge energy total",
             "allowed_source_kinds": [
               "entity"

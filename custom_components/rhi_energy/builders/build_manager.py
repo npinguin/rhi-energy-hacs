@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from homeassistant.core import Event, HomeAssistant
 
+from ..configured_surface_acceptance import adapt_configured_surface_input, surface_assessment_key
 from ..semantic_acceptance import accept_energy_selected_inputs
 from ..const import BUILD_INPUT_REGISTRY_KEY, SELECTED_BUILD_INPUTS_CHANGED_EVENT
 
@@ -16,6 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN_ID = "energy"
 SELECTED_INPUT_CONTRACT_VERSION = "1.2.0"
 FOUNDATION_CANDIDATE_CONTRACT_VERSION = "1.1.0"
+CONFIGURED_SURFACE_CONTRACT_VERSION = "1.0.0"
 
 
 def _selected_input_structural_token(entry: dict[str, Any]) -> str:
@@ -37,6 +39,12 @@ def _selected_input_structural_token(entry: dict[str, Any]) -> str:
             quality = dict(evidence.get("quality") or {})
             quality.pop("availability", None)
             evidence["quality"] = quality
+        for field in item.get("fields", []) or []:
+            if not isinstance(field, dict):
+                continue
+            quality = dict(field.get("quality") or {})
+            quality.pop("availability", None)
+            field["quality"] = quality
         for group in item.get("candidate_groups", []) or []:
             if not isinstance(group, dict):
                 continue
@@ -220,6 +228,34 @@ def _builder_assessment(entry: dict[str, Any], *, structural_valid: bool = True)
     }
 
 
+
+def _configured_surface_assessment(entry: dict[str, Any], *, structural_valid: bool = True) -> dict[str, Any]:
+    discovery = entry.get("discovery_assessment") or {}
+    return {
+        "builder_id": None,
+        "surface_key": surface_assessment_key(entry),
+        "concept": entry.get("concept_id"),
+        "object_type": entry.get("object_type"),
+        "instance_id": entry.get("instance_id"),
+        "status": (
+            "READY"
+            if structural_valid
+            and discovery.get("required_inputs_complete") is True
+            and discovery.get("review_required") is not True
+            else "BLOCKED" if structural_valid else "INVALID_ATTRIBUTION"
+        ),
+        "selection_mode": "explicit_entities",
+        "selected_device_count": len({
+            str((field.get("source_identity") or {}).get("device_registry_id"))
+            for field in (entry.get("fields") or [])
+            if isinstance(field, dict) and (field.get("source_identity") or {}).get("device_registry_id")
+        }),
+        "candidate_count": len([field for field in (entry.get("fields") or []) if isinstance(field, dict)]),
+        "required_inputs_complete": discovery.get("required_inputs_complete"),
+        "review_required": discovery.get("review_required"),
+        "issues": [str(value) for value in (discovery.get("issues") or [])][:20],
+    }
+
 def _materialize_semantic_acceptance_input(entry: dict[str, Any]) -> dict[str, Any]:
     """Create Energy-local semantic-acceptance view from SelectedDomainBuildInput.
 
@@ -359,9 +395,22 @@ class EnergyBuildManager:
             return self.build_health in {"OK", "DEGRADED"}
 
         wrong_contract = [
-            str(item.get("builder_id") or "unknown")
+            str(item.get("builder_id") or item.get("surface_id") or "unknown")
             for item in inputs
-            if item.get("contract_version") != SELECTED_INPUT_CONTRACT_VERSION
+            if (
+                (
+                    item.get("kind") == "selected_domain_build_input"
+                    and item.get("contract_version") != SELECTED_INPUT_CONTRACT_VERSION
+                )
+                or (
+                    item.get("kind") == "configured_domain_surface_input"
+                    and item.get("contract_version") != CONFIGURED_SURFACE_CONTRACT_VERSION
+                )
+                or item.get("kind") not in {
+                    "selected_domain_build_input",
+                    "configured_domain_surface_input",
+                }
+            )
         ]
         if wrong_contract:
             self.foundation_status = "INVALID"
@@ -382,6 +431,22 @@ class EnergyBuildManager:
         assessments: dict[str, dict[str, Any]] = {}
         preflight_issues: list[str] = []
         for item in inputs:
+            if item.get("kind") == "configured_domain_surface_input":
+                surface_key = surface_assessment_key(item)
+                try:
+                    key, materialized = adapt_configured_surface_input(item)
+                    assessments[surface_key] = _configured_surface_assessment(
+                        item, structural_valid=True
+                    )
+                    payload[key] = materialized
+                except Exception as exc:
+                    structurally_invalid.append(surface_key)
+                    assessments[surface_key] = _configured_surface_assessment(
+                        item, structural_valid=False
+                    )
+                    preflight_issues.append(f"{surface_key}:{exc}")
+                continue
+
             builder_id = str(item.get("builder_id") or "unknown")
             valid = _selected_handoff_complete(item)
             assessments[builder_id] = _builder_assessment(item, structural_valid=valid)
