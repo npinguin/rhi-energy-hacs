@@ -379,7 +379,8 @@ def source_object_key(candidate: dict[str, Any]) -> str:
     source = candidate.get("source_identity") or {}
     evidence = candidate.get("evidence") or {}
     return str(
-        source.get("device_registry_id")
+        candidate.get("configured_object_key")
+        or source.get("device_registry_id")
         or evidence.get("device_registry_id")
         or source.get("resource_id")
         or ""

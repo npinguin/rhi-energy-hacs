@@ -58,6 +58,9 @@ def adapt_configured_surface_input(row: dict[str, Any]) -> tuple[str, dict[str, 
             integrations.add(integration)
         candidate = {
             "candidate_id": str(field.get("candidate_id") or f"configured:{field_id}"),
+            "configured_object_key": (
+                f"configured:{object_type}:{row.get('instance_id') or 'singleton'}"
+            ),
             "candidate_revision": int(row.get("candidate_revision") or 1),
             "source_identity": source,
             "technical_capability": deepcopy(field.get("technical_capability") or {}),

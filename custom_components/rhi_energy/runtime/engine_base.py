@@ -38,6 +38,7 @@ from .event_flow import SourceEventCoalescer
 from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
 from .incremental import build_entity_targets, update_optimizer_entity
+from .grid_power import apply_grid_power_facts
 from .producers import mobility_entity_ids, read_mobility_energy_assets
 from .solar_accounting import aggregate_solar_system
 
@@ -425,11 +426,7 @@ class EnergyRuntime:
             props = _properties(asset)
             aid = str(asset.get("asset_id") or "")
             if asset.get("object_class") == "grid_connection":
-                net = facts.get((props.get("grid.net_power_kw") or {}).get("fact_key"))
-                if "grid_import.power_kw" in props:
-                    facts[str(props["grid_import.power_kw"].get("fact_key"))] = max(float(net), 0.0) if isinstance(net, (int, float)) else None
-                if "grid_export.power_kw" in props:
-                    facts[str(props["grid_export.power_kw"].get("fact_key"))] = max(-float(net), 0.0) if isinstance(net, (int, float)) else None
+                apply_grid_power_facts(props, facts)
             if asset.get("object_class") == "battery":
                 capacity = facts.get((props.get("battery.capacity_kwh") or {}).get("fact_key"))
                 soc = facts.get((props.get("battery.soc_pct") or {}).get("fact_key"))

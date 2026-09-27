@@ -173,6 +173,42 @@ def battery_state_from_power(power_kw: float | None, *, deadband_kw: float = 0.0
     return "idle"
 
 
+def normalize_grid_power(
+    net_power_kw: Any,
+    import_power_kw: Any,
+    export_power_kw: Any,
+) -> dict[str, Any]:
+    """Normalize one signed source or one complete directional pair.
+
+    Canonical convention: positive net power is import; negative net power is export.
+    The source configuration never needs all three inputs.
+    """
+    net = number(net_power_kw)
+    if net is not None:
+        return {
+            "net_power_kw": round(net, 6),
+            "import_power_kw": round(max(net, 0.0), 6),
+            "export_power_kw": round(max(-net, 0.0), 6),
+            "source_mode": "signed_net",
+        }
+
+    imported = number(import_power_kw)
+    exported = number(export_power_kw)
+    if imported is None or exported is None or imported < 0 or exported < 0:
+        return {
+            "net_power_kw": None,
+            "import_power_kw": None,
+            "export_power_kw": None,
+            "source_mode": "incomplete",
+        }
+    return {
+        "net_power_kw": round(imported - exported, 6),
+        "import_power_kw": round(imported, 6),
+        "export_power_kw": round(exported, 6),
+        "source_mode": "directional_pair",
+    }
+
+
 def grid_flow_direction(net_power_kw: float | None, *, deadband_kw: float = 0.05) -> str | None:
     """Return canonical site-boundary direction; positive grid power is import."""
     if net_power_kw is None:
