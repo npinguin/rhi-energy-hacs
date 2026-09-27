@@ -1,0 +1,726 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.grid_connection.sonnenbatterie.v1",
+  "builder_version": "1.1.0",
+  "concept": {
+    "concept_id": "grid_connection",
+    "display_name": "Grid Connection",
+    "description": "Represents the electrical connection between the property and the public grid.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative grid import, export and connection measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "sonnenbatterie"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_device",
+      "minimum_groups": 0,
+      "maximum_groups": 1
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "grid_net_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": true,
+        "cardinality": "exactly_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_net_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_grid_inout"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_import_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_import_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_grid_input"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_export_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_export_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_grid_output"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "home_consumption_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "home_consumption_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_consumption_w"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "home_consumption_average_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "home_consumption_average_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_consumption_avg"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "site_consumption_meter_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "site_consumption_meter_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_w_total"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_generation_meter_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "solar_generation_meter_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_w_total"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_generation_direct_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "solar_generation_direct_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_production_w"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_frequency",
+        "technical_capabilities": {
+          "any_of": [
+            "frequency_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_frequency",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_netfrequency"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_phase_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_power_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_w_l1"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_power_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_w_l2"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_power_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_w_l3"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_phase_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_current_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_a_l1"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_current_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_a_l2"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_current_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_a_l3"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_phase_voltage_ln",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_voltage_ln_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_v_l1_n"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_voltage_ln_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_v_l2_n"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_voltage_ln_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_v_l3_n"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_phase_voltage_ll",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_voltage_ll_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_v_l1_l2"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_voltage_ll_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_v_l2_l3"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "grid_phase_voltage_ll_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_consumption_1_2_v_l3_l1"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "generation_phase_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_power_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_w_l1"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_power_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_w_l2"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_power_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_w_l3"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "generation_phase_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_current_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_a_l1"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_current_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_a_l2"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_current_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_a_l3"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "generation_phase_voltage_ln",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_voltage_ln_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_v_l1_n"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_voltage_ln_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_v_l2_n"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_voltage_ln_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_v_l3_n"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "generation_phase_voltage_ll",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_voltage_ll_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_v_l1_l2"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_voltage_ll_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_v_l2_l3"
+              }
+            ]
+          },
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "generation_phase_voltage_ll_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_meter_production_0_1_v_l3_l1"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "grid_connection",
+      "grid_phase",
+      "generation_meter_phase"
+    ],
+    "possible_facts": [
+      "grid.net_power_kw",
+      "grid.import_power_kw",
+      "grid.export_power_kw",
+      "grid.measured_import_power_kw",
+      "grid.measured_export_power_kw",
+      "home_consumption.measured_power_kw",
+      "home_consumption.average_power_kw",
+      "metering.site_consumption_power_kw",
+      "metering.solar_generation_power_kw",
+      "metering.solar_generation_direct_power_kw",
+      "grid.frequency_hz",
+      "grid_phase.power_kw",
+      "grid_phase.current_a",
+      "grid_phase.voltage_ln_v",
+      "grid_phase.voltage_ll_v",
+      "generation_phase.power_kw",
+      "generation_phase.current_a",
+      "generation_phase.voltage_ln_v",
+      "generation_phase.voltage_ll_v"
+    ],
+    "possible_editable_properties": [],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

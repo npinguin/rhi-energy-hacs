@@ -1,0 +1,394 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.solar_production.sma.v1",
+  "builder_version": "1.1.0",
+  "concept": {
+    "concept_id": "solar_production",
+    "display_name": "Solar Production",
+    "description": "Represents photovoltaic production measured by the Energy domain.",
+    "selection_guidance": "Select the integrations and devices that expose authoritative photovoltaic production measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "sma"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_device",
+      "minimum_groups": 0,
+      "maximum_groups": null
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "solar_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6100_0046C200_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_ac_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6100_00664F00_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_ac_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6100_40263F00_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "inverter_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "inverter_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6180_08214800_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_tracker_a_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_tracker_a_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6380_40251E00_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_tracker_b_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_tracker_b_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6380_40251E00_1"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_tracker_a_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_tracker_a_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6380_40452100_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_tracker_b_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_tracker_b_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6380_40452100_1"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_ac_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_ac_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6400_00260100_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_energy_today",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_energy_today",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6400_00262200_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "solar_generation_meter_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "solar_generation_meter_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6400_0046C300_0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "inverter_power_limit",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sma",
+            "raw_capability_id": "inverter_power_limit",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "-6800_00832A00_0"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "solar_system",
+      "solar_inverter"
+    ],
+    "possible_facts": [
+      "solar.power_kw",
+      "solar.ac_current_a",
+      "solar.ac_power_kw",
+      "solar.status",
+      "solar.tracker_a_power_kw",
+      "solar.tracker_b_power_kw",
+      "solar.tracker_a_current_a",
+      "solar.tracker_b_current_a",
+      "solar.ac_energy_total_kwh",
+      "solar.energy_today_kwh",
+      "solar.generation_meter_energy_total_kwh",
+      "solar.inverter_power_limit_kw"
+    ],
+    "possible_editable_properties": [],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}

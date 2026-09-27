@@ -549,23 +549,73 @@ def _accept_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
             binding_id = _single_role(bindings, previous, asset_id, role, rows, issues)
             if binding_id:
                 roles[role] = binding_id
-    phases = []
-    # Youless exposes authoritative site power and cumulative registers but no
-    # operational per-phase power capability in the supported source profile.
-    if integration != "youless":
-        phase_rows, local = _safe_for(build_input, "grid_phase_power")
-        issues.extend(local)
-        for candidate in phase_rows:
-            phase_id = f"grid_phase_{_hash([asset_id, candidate.get('candidate_id')], 10)}"
-            binding_id = f"energy:{phase_id}:power"
-            bindings.append(_binding(phase_id, "power", candidate, previous.get(binding_id)))
-            phases.append({"asset_id": phase_id, "binding": binding_id, **_candidate_metadata(candidate)})
-        if phases:
-            roles["phases"] = [phase["binding"] for phase in phases]
+
+    # Phase structure is determined from the domain-owned raw capability id emitted
+    # by the build specification (e.g. grid_phase_current_l1), never from mutable
+    # HA entity ids, friendly names or device display names.
+    def _phase_rows(prefix: str, definitions: dict[str, str]) -> list[dict[str, Any]]:
+        phase_candidates: dict[str, dict[str, dict[str, Any]]] = {}
+        for input_id, role in definitions.items():
+            rows, local = _safe_for(build_input, input_id)
+            issues.extend(local)
+            for candidate in rows:
+                raw_id = _raw_capability(candidate).lower()
+                match = re.search(r"_(l[123])$", raw_id)
+                if not match:
+                    continue
+                phase_candidates.setdefault(match.group(1).upper(), {})[role] = candidate
+        result: list[dict[str, Any]] = []
+        for phase in ("L1", "L2", "L3"):
+            candidates = phase_candidates.get(phase) or {}
+            if not candidates:
+                continue
+            phase_id = f"{prefix}_{_hash([asset_id, phase], 10)}"
+            phase_bindings: dict[str, str] = {}
+            for role, candidate in candidates.items():
+                binding_id = f"energy:{phase_id}:{role}"
+                bindings.append(_binding(phase_id, role, candidate, previous.get(binding_id)))
+                phase_bindings[role] = binding_id
+            result.append({
+                "asset_id": phase_id,
+                "phase": phase,
+                "bindings": phase_bindings,
+                **_candidate_metadata(next(iter(candidates.values()))),
+            })
+        return result
+
+    phases = _phase_rows("grid_phase", {
+        "grid_phase_power": "power",
+        "grid_phase_current": "current",
+        "grid_phase_voltage_ln": "voltage_ln",
+        "grid_phase_voltage_ll": "voltage_ll",
+    })
+    generation_meter_phases = _phase_rows("generation_meter_phase", {
+        "generation_phase_power": "power",
+        "generation_phase_current": "current",
+        "generation_phase_voltage_ln": "voltage_ln",
+        "generation_phase_voltage_ll": "voltage_ll",
+    })
+    if phases:
+        roles["phases"] = [
+            binding_id for phase in phases for binding_id in (phase.get("bindings") or {}).values()
+        ]
+    if generation_meter_phases:
+        roles["generation_meter_phases"] = [
+            binding_id for phase in generation_meter_phases for binding_id in (phase.get("bindings") or {}).values()
+        ]
+
     if not roles:
         raise ValueError("no_semantically_safe_input")
-    return bindings, {"asset_id": asset_id, "asset_type": "grid_connection", "bindings": roles, "phases": phases, "builder_id": builder_id, "integration_domain": integration, "normalization_status": "READY" if "net_power" in roles and not issues else "DEGRADED"}, issues
-
+    return bindings, {
+        "asset_id": asset_id,
+        "asset_type": "grid_connection",
+        "bindings": roles,
+        "phases": phases,
+        "generation_meter_phases": generation_meter_phases,
+        "builder_id": builder_id,
+        "integration_domain": integration,
+        "normalization_status": "READY" if "net_power" in roles and not issues else "DEGRADED",
+    }, issues
 
 def _accept_solar(build_input: dict[str, Any], previous: dict[str, dict[str, Any]]) -> tuple[list[AcceptedSourceBinding], dict[str, Any], list[str]]:
     inputs, issues = _safe_inputs(build_input, "solar_production")

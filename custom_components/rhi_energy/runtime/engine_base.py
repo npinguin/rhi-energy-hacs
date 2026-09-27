@@ -761,13 +761,14 @@ class EnergyRuntime:
         battery_charge_power, battery_discharge_power = split_battery_power(
             facts.get("battery.power_kw")
         )
-        home = derive_home_consumption(
+        measured_home_power = number(facts.get("home_consumption.measured_power_kw")); home = derive_home_consumption(
             consumption["power_kw"],
             flexible_power,
             facts.get("battery.power_kw"),
         )
-        home_power = home["power_kw"]
-        if home_power is None and home.get("health") == "DEGRADED":
+        # Selected direct home-consumption measurement is authoritative; balance remains a cross-check.
+        home_power = measured_home_power if measured_home_power is not None else home["power_kw"]
+        if measured_home_power is None and home_power is None and home.get("health") == "DEGRADED":
             runtime_issues.append(
                 f"consumption_split_inconsistent:{home.get('reason')}"
             )

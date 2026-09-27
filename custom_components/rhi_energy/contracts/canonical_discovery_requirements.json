@@ -1,8 +1,8 @@
 {
   "contract_id": "RHI_DOMAIN_DISCOVERY_REQUIREMENTS_V1",
   "source_authority": "governance/DOMAIN_MODEL.json#foundation_publication",
-  "generated_from_model_version": "1.3.7",
-  "release": "E0.15.67",
+  "generated_from_model_version": "1.4.0",
+  "release": "E0.15.68",
   "runtime_code_generation": false,
   "foundation_role": "technical_discovery_and_selection_only",
   "adapter_match_rules": "integration_specific_and_non_authoritative",
@@ -32,6 +32,96 @@
         "grid_phase_power": {
           "canonical_properties": [
             "grid_phase.power_kw"
+          ],
+          "semantic_required": false
+        },
+        "grid_import_power": {
+          "canonical_properties": [
+            "grid.measured_import_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "grid_export_power": {
+          "canonical_properties": [
+            "grid.measured_export_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "home_consumption_power": {
+          "canonical_properties": [
+            "home_consumption.measured_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "home_consumption_average_power": {
+          "canonical_properties": [
+            "home_consumption.average_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "site_consumption_meter_power": {
+          "canonical_properties": [
+            "metering.site_consumption_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "solar_generation_meter_power": {
+          "canonical_properties": [
+            "metering.solar_generation_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "solar_generation_direct_power": {
+          "canonical_properties": [
+            "metering.solar_generation_direct_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "grid_frequency": {
+          "canonical_properties": [
+            "grid.frequency_hz"
+          ],
+          "semantic_required": false
+        },
+        "grid_phase_current": {
+          "canonical_properties": [
+            "grid_phase.current_a"
+          ],
+          "semantic_required": false
+        },
+        "grid_phase_voltage_ln": {
+          "canonical_properties": [
+            "grid_phase.voltage_ln_v"
+          ],
+          "semantic_required": false
+        },
+        "grid_phase_voltage_ll": {
+          "canonical_properties": [
+            "grid_phase.voltage_ll_v"
+          ],
+          "semantic_required": false
+        },
+        "generation_phase_power": {
+          "canonical_properties": [
+            "generation_phase.power_kw"
+          ],
+          "semantic_required": false
+        },
+        "generation_phase_current": {
+          "canonical_properties": [
+            "generation_phase.current_a"
+          ],
+          "semantic_required": false
+        },
+        "generation_phase_voltage_ln": {
+          "canonical_properties": [
+            "generation_phase.voltage_ln_v"
+          ],
+          "semantic_required": false
+        },
+        "generation_phase_voltage_ll": {
+          "canonical_properties": [
+            "generation_phase.voltage_ll_v"
           ],
           "semantic_required": false
         }
@@ -260,6 +350,42 @@
             "solar_phase.voltage_ll_v"
           ],
           "semantic_required": false
+        },
+        "solar_tracker_a_power": {
+          "canonical_properties": [
+            "solar.tracker_a_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "solar_tracker_b_power": {
+          "canonical_properties": [
+            "solar.tracker_b_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "solar_tracker_a_current": {
+          "canonical_properties": [
+            "solar.tracker_a_current_a"
+          ],
+          "semantic_required": false
+        },
+        "solar_tracker_b_current": {
+          "canonical_properties": [
+            "solar.tracker_b_current_a"
+          ],
+          "semantic_required": false
+        },
+        "solar_generation_meter_energy": {
+          "canonical_properties": [
+            "solar.generation_meter_energy_total_kwh"
+          ],
+          "semantic_required": false
+        },
+        "inverter_power_limit": {
+          "canonical_properties": [
+            "solar.inverter_power_limit_kw"
+          ],
+          "semantic_required": false
         }
       }
     },
@@ -425,6 +551,150 @@
         "storage_command_mode_write": {
           "canonical_properties": [
             "battery.storage_command_mode"
+          ],
+          "semantic_required": false
+        },
+        "battery_user_soc": {
+          "canonical_properties": [
+            "battery.user_soc_pct"
+          ],
+          "semantic_required": false
+        },
+        "battery_cycle_count": {
+          "canonical_properties": [
+            "battery.cycle_count"
+          ],
+          "semantic_required": false
+        },
+        "battery_module_count": {
+          "canonical_properties": [
+            "battery.module_count"
+          ],
+          "semantic_required": false
+        },
+        "battery_total_capacity": {
+          "canonical_properties": [
+            "battery.total_capacity_kwh"
+          ],
+          "semantic_required": false
+        },
+        "battery_remaining_total": {
+          "canonical_properties": [
+            "battery.remaining_total_kwh"
+          ],
+          "semantic_required": false
+        },
+        "battery_module_capacity": {
+          "canonical_properties": [
+            "battery.module_capacity_kwh"
+          ],
+          "semantic_required": false
+        },
+        "battery_measured_charge_power": {
+          "canonical_properties": [
+            "battery.measured_charge_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "battery_measured_discharge_power": {
+          "canonical_properties": [
+            "battery.measured_discharge_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "battery_dc_power": {
+          "canonical_properties": [
+            "battery.dc_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "battery_backup_buffer": {
+          "canonical_properties": [
+            "battery.backup_buffer_pct"
+          ],
+          "semantic_required": false
+        },
+        "battery_care_status": {
+          "canonical_properties": [
+            "battery.care_status"
+          ],
+          "semantic_required": false
+        },
+        "battery_operating_mode": {
+          "canonical_properties": [
+            "battery.operating_mode"
+          ],
+          "semantic_required": false
+        },
+        "battery_system_status": {
+          "canonical_properties": [
+            "battery.system_status"
+          ],
+          "semantic_required": false
+        },
+        "battery_read_api_status": {
+          "canonical_properties": [
+            "battery.read_api_status"
+          ],
+          "semantic_required": false
+        },
+        "battery_write_api_status": {
+          "canonical_properties": [
+            "battery.write_api_status"
+          ],
+          "semantic_required": false
+        },
+        "battery_tou_max_power": {
+          "canonical_properties": [
+            "battery.tou_max_power_setting"
+          ],
+          "semantic_required": false
+        },
+        "battery_inverter_max_temperature": {
+          "canonical_properties": [
+            "battery.inverter_max_temperature_c"
+          ],
+          "semantic_required": false
+        },
+        "battery_pv_channel_1_voltage": {
+          "canonical_properties": [
+            "battery.pv_channel_1_voltage_v"
+          ],
+          "semantic_required": false
+        },
+        "battery_pv_channel_1_current": {
+          "canonical_properties": [
+            "battery.pv_channel_1_current_a"
+          ],
+          "semantic_required": false
+        },
+        "battery_pv_channel_1_power": {
+          "canonical_properties": [
+            "battery.pv_channel_1_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "battery_pv_channel_2_voltage": {
+          "canonical_properties": [
+            "battery.pv_channel_2_voltage_v"
+          ],
+          "semantic_required": false
+        },
+        "battery_pv_channel_2_current": {
+          "canonical_properties": [
+            "battery.pv_channel_2_current_a"
+          ],
+          "semantic_required": false
+        },
+        "battery_pv_channel_2_power": {
+          "canonical_properties": [
+            "battery.pv_channel_2_power_kw"
+          ],
+          "semantic_required": false
+        },
+        "battery_min_temperature": {
+          "canonical_properties": [
+            "battery.min_temperature_c"
           ],
           "semantic_required": false
         }

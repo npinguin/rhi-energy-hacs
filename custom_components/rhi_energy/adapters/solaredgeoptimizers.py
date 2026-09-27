@@ -41,7 +41,7 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
     expected = rules.get(input_id)
     if expected is None:
         return True
-    if input_id == "panel_voltage" and "voltage_average_" in token:
+    if input_id == "panel_voltage" and ("voltage_average_" in token or "optimizer_voltage_" in token):
         return False
     if input_id == "optimizer_current" and "current_average_" in token:
         return False

@@ -118,7 +118,7 @@ def _build_domain_assets(
             str(role)
             for provider in grid_providers
             for role in (provider.get("bindings") or {})
-            if role != "phases"
+            if role not in {"phases", "generation_meter_phases"}
         })
         for role in all_role_names:
             candidates = sorted({
@@ -149,17 +149,40 @@ def _build_domain_assets(
             builder = str(provider.get("builder_id") or "")
             integration = str(provider.get("integration_domain") or "")
             for index, phase in enumerate(provider.get("phases") or [], start=1):
-                binding = str(phase.get("binding") or "")
-                if not binding or binding in seen_phase_bindings:
+                phase_bindings = {
+                    str(role): str(binding_id)
+                    for role, binding_id in (phase.get("bindings") or {}).items()
+                    if binding_id
+                }
+                if not phase_bindings and phase.get("binding"):
+                    phase_bindings = {"power": str(phase.get("binding"))}
+                unique_bindings = set(phase_bindings.values())
+                if not unique_bindings or unique_bindings <= seen_phase_bindings:
                     continue
-                seen_phase_bindings.add(binding)
+                seen_phase_bindings.update(unique_bindings)
                 pid = str(phase.get("asset_id") or f"grid_phase_{len(seen_phase_bindings)}")
                 out.append(_asset(
-                    pid, "grid_phase", f"Grid Phase {index}",
+                    pid, "grid_phase", f"Grid Phase {phase.get('phase') or index}",
                     builder_id=builder, integration_domain=integration,
                     parent_asset_id="grid_connection",
                     normalization_status="READY",
-                    properties=_properties("grid_phase", pid, {"power": binding}, binding_index),
+                    properties=_properties("grid_phase", pid, phase_bindings, binding_index),
+                ))
+            for index, phase in enumerate(provider.get("generation_meter_phases") or [], start=1):
+                phase_bindings = {
+                    str(role): str(binding_id)
+                    for role, binding_id in (phase.get("bindings") or {}).items()
+                    if binding_id
+                }
+                if not phase_bindings:
+                    continue
+                pid = str(phase.get("asset_id") or f"generation_meter_phase_{index}")
+                out.append(_asset(
+                    pid, "generation_meter_phase", f"Generation Meter Phase {phase.get('phase') or index}",
+                    builder_id=builder, integration_domain=integration,
+                    parent_asset_id="grid_connection",
+                    normalization_status="READY",
+                    properties=_properties("generation_meter_phase", pid, phase_bindings, binding_index),
                 ))
 
     # Supporting singleton/provider concepts remain source-backed objects. They are

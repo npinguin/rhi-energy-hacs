@@ -27,6 +27,10 @@ def _producer_kind(row: dict[str, Any], *, configuration: bool = False) -> str |
         return "DERIVED"
     if row.get("binding_id") or row.get("binding_ids"):
         return "SOURCE"
+    status = str(resolution.get("resolution_kind") or resolution.get("status") or row.get("availability") or "")
+    reason = str(resolution.get("reason_code") or row.get("reason_code") or "")
+    if status in {"UNSUPPORTED", "UNSUPPORTED_BY_SOURCE"} or reason in {"UNSUPPORTED_BY_SOURCE", "REQUIRED_BINDING_MISSING"}:
+        return "UNSUPPORTED"
     return None
 
 

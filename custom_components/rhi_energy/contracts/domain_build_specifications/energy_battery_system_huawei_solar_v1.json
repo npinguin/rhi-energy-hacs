@@ -141,6 +141,42 @@
                 "value": "_storage_rated_capacity"
               }
             ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_capacity_provider",
+            "source_kind": "configured_product_capability",
+            "all_of": [
+              {
+                "field": "source_identity.capability_key",
+                "operator": "contains",
+                "value": "capacity"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_capacity_api",
+            "source_kind": "integration_api",
+            "all_of": [
+              {
+                "field": "source_identity.api_capability_id",
+                "operator": "contains",
+                "value": "capacity"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_capacity_provider",
+            "source_kind": "config_entry_provider",
+            "all_of": [
+              {
+                "field": "source_identity.provider_key",
+                "operator": "contains",
+                "value": "capacity"
+              }
+            ]
           }
         ]
       },

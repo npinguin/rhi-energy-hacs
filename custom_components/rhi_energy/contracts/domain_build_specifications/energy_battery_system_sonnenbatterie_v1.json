@@ -1,0 +1,1097 @@
+{
+  "kind": "domain_build_specification",
+  "contract_version": "1.2.0",
+  "publisher": "rhi_energy",
+  "domain_id": "energy",
+  "builder_id": "energy.battery_system.sonnenbatterie.v1",
+  "builder_version": "1.1.0",
+  "concept": {
+    "concept_id": "battery_system",
+    "display_name": "Home Battery System",
+    "description": "Represents a stationary home battery system including power, state of charge and capacity.",
+    "selection_guidance": "Select all integrations and devices that expose the home battery system and its authoritative measurements."
+  },
+  "supported_sources": [
+    {
+      "integration_domain": "sonnenbatterie"
+    }
+  ],
+  "candidate_requirements": {
+    "topology": {
+      "candidate_scope": "config_entry",
+      "grouping": "same_device",
+      "minimum_groups": 0,
+      "maximum_groups": 1
+    },
+    "normalized_inputs": [
+      {
+        "input_id": "battery_unit_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_unit_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_battery_inout"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_measured_charge_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_measured_charge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_battery_input"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_measured_discharge_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_measured_discharge_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_battery_output"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_unit_soc",
+        "technical_capabilities": {
+          "any_of": [
+            "percentage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_unit_soc",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_charge_real"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_user_soc",
+        "technical_capabilities": {
+          "any_of": [
+            "percentage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_user_soc",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_charge_user"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_capacity",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": true,
+        "cardinality": "exactly_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_capacity",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_total_capacity_usable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_total_capacity",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_total_capacity",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_total_capacity_real"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_available_energy",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_available_energy",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_remaining_capacity_usable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_remaining_total",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_remaining_total",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_remaining_capacity_real"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_module_capacity",
+        "technical_capabilities": {
+          "any_of": [
+            "energy_capacity",
+            "energy_counter"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_module_capacity",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_module_capacity"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_module_count",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_module_count",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_module_count"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_state_of_health",
+        "technical_capabilities": {
+          "any_of": [
+            "percentage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_state_of_health",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_system_health"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_cycle_count",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_cycle_count",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_system_cycles"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_dc_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_dc_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_system_ipv"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_dc_voltage",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_dc_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_system_upv"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_dc_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_dc_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_system_ppv"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_min_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_min_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_minimum_cell_temperature"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_max_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_max_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_maximum_cell_temperature"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_inverter_max_temperature",
+        "technical_capabilities": {
+          "any_of": [
+            "temperature_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_inverter_max_temperature",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_tmax"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_backup_buffer",
+        "technical_capabilities": {
+          "any_of": [
+            "percentage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_backup_buffer",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_backup_buffer"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_care_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_care_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_care"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_operating_mode",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_operating_mode",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_operating_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_state_sonnenbatterie"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_system_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_system_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_systemstatus"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_read_api_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_read_api_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_read_api"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_write_api_status",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_write_api_status",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_write_api"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_tou_max_power",
+        "technical_capabilities": {
+          "any_of": [
+            "state_observation"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_tou_max_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_tou_max_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_pv_channel_1_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_pv_channel_1_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_inverter_ipv"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_pv_channel_1_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_pv_channel_1_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_inverter_ppv"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_pv_channel_1_voltage",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_pv_channel_1_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_inverter_upv"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_pv_channel_2_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_pv_channel_2_current",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_inverter_ipv2"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_pv_channel_2_power",
+        "technical_capabilities": {
+          "any_of": [
+            "power_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_pv_channel_2_power",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_inverter_ppv2"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "battery_pv_channel_2_voltage",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "battery_pv_channel_2_voltage",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_inverter_upv2"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "reserve_write_surface",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "reserve_write_surface",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_battery_reserve"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_charge_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "storage_charge_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_number_charge"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_discharge_limit_write",
+        "technical_capabilities": {
+          "any_of": [
+            "number_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "storage_discharge_limit_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_number_discharge"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "storage_control_mode_write",
+        "technical_capabilities": {
+          "any_of": [
+            "select_write_surface"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_one_per_group",
+        "integration_matches": [
+          {
+            "integration_domain": "sonnenbatterie",
+            "raw_capability_id": "storage_control_mode_write",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_select_operating_mode"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "declared_domain_outputs": {
+    "possible_asset_types": [
+      "battery_system",
+      "battery_unit"
+    ],
+    "possible_facts": [
+      "battery.power_kw",
+      "battery.measured_charge_power_kw",
+      "battery.measured_discharge_power_kw",
+      "battery.soc_pct",
+      "battery.user_soc_pct",
+      "battery.capacity_kwh",
+      "battery.total_capacity_kwh",
+      "battery.available_energy_kwh",
+      "battery.remaining_total_kwh",
+      "battery.module_capacity_kwh",
+      "battery.module_count",
+      "battery.state_of_health_pct",
+      "battery.cycle_count",
+      "battery.dc_current_a",
+      "battery.dc_voltage_v",
+      "battery.dc_power_kw",
+      "battery.min_temperature_c",
+      "battery.max_temperature_c",
+      "battery.inverter_max_temperature_c",
+      "battery.backup_buffer_pct",
+      "battery.care_status",
+      "battery.operating_mode",
+      "battery.status",
+      "battery.system_status",
+      "battery.read_api_status",
+      "battery.write_api_status",
+      "battery.tou_max_power_setting",
+      "battery.pv_channel_1_current_a",
+      "battery.pv_channel_1_power_kw",
+      "battery.pv_channel_1_voltage_v",
+      "battery.pv_channel_2_current_a",
+      "battery.pv_channel_2_power_kw",
+      "battery.pv_channel_2_voltage_v"
+    ],
+    "possible_editable_properties": [
+      "battery.reserve_soc_pct",
+      "battery.charge_limit_kw",
+      "battery.discharge_limit_kw",
+      "battery.storage_control_mode"
+    ],
+    "possible_commands": []
+  },
+  "build_policy": {
+    "auto_prepare_when_unambiguous": true,
+    "review_when_multiple_equal_matches": true,
+    "block_when_required_input_missing": true
+  },
+  "safety": {
+    "creates_binding": false,
+    "creates_runtime_truth": false,
+    "creates_public_contract": false,
+    "executes_commands": false
+  },
+  "domain_presentation": {
+    "display_name": "Energy",
+    "description": "Configures technical sources used to build the Energy domain model.",
+    "selection_guidance": "Select the integrations and devices that provide authoritative Energy measurements, forecasts, prices and controllable energy assets."
+  }
+}
