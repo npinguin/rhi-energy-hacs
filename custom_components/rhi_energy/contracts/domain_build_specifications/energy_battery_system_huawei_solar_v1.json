@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.battery_system.huawei_solar.v1",
-  "builder_version": "1.1.0",
+  "builder_version": "1.2.0",
   "concept": {
     "concept_id": "battery_system",
     "display_name": "Home Battery System",
@@ -83,6 +83,18 @@
         "required": true,
         "cardinality": "zero_or_more",
         "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "battery_unit_soc",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_storage_state_of_capacity"
+              }
+            ]
+          },
           {
             "integration_domain": "huawei_solar",
             "raw_capability_id": "battery_unit_soc",

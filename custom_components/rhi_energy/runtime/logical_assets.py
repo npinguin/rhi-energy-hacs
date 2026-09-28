@@ -66,7 +66,7 @@ def _build_domain_assets(
         # A site-level control is only projected when exactly one accepted provider
         # owns that role. Runtime never picks a controller opportunistically.
         system_roles: dict[str, Any] = {}
-        for role in ("reserve",):
+        for role in ("power", "soc", "capacity", "status", "reserve"):
             candidates = [
                 (provider.get("bindings") or {}).get(role) or provider.get(f"{role}_binding")
                 for provider in battery_providers
