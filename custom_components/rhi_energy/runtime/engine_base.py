@@ -455,10 +455,11 @@ class EnergyRuntime:
             child_capacity = complete_numeric_sum(cvals, expected_count=len(units))
             child_available = complete_numeric_sum(avals, expected_count=len(units))
             facts[f"{sid}.power_kw"] = direct_power if direct_power is not None else child_power
-            facts[f"{sid}.capacity_kwh"] = direct_capacity if direct_capacity is not None else child_capacity
+            facts[f"{sid}.capacity_kwh"] = child_capacity if child_capacity is not None else direct_capacity
             capacity = facts[f"{sid}.capacity_kwh"]
             aggregate_soc = aggregate_battery_soc(child_capacity, child_available, socvals)
-            facts[f"{sid}.soc_pct"] = direct_soc if direct_soc is not None else aggregate_soc
+            # Complete child-energy evidence wins; direct controller SoC is fallback only.
+            facts[f"{sid}.soc_pct"] = aggregate_soc if aggregate_soc is not None else direct_soc
             facts[f"{sid}.available_kwh"] = (
                 child_available
                 if child_available is not None
@@ -466,6 +467,8 @@ class EnergyRuntime:
                 if isinstance(capacity, (int, float)) and isinstance(facts[f"{sid}.soc_pct"], (int, float))
                 else None
             )
+            if aggregate_soc is not None and isinstance(direct_soc, (int, float)) and abs(float(direct_soc) - float(aggregate_soc)) > 1.0:
+                issues.append(f"battery_system:{sid}:direct_soc_disagrees_with_child_energy")
             facts[f"{sid}.status"] = (
                 direct_status
                 if direct_status is not None
