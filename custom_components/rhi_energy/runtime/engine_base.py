@@ -28,7 +28,6 @@ from .canonical_semantics import (
     grid_flow_direction,
     intelligence,
     number,
-    optional_physical_input,
     overview_snapshot,
     split_battery_power,
 )
@@ -40,6 +39,7 @@ from .logical_assets import apply_runtime_values
 from .incremental import build_entity_targets, update_optimizer_entity
 from .grid_power import apply_grid_power_facts
 from .producers import mobility_entity_ids, read_mobility_energy_assets
+from .presence import experience_presence, physical_input
 from .solar_accounting import aggregate_solar_system
 
 _LOGGER = logging.getLogger(__name__)
@@ -95,11 +95,8 @@ def _present(value: Any) -> bool:
     return not (isinstance(value, str) and value.strip().lower() in _UNKNOWN_STATES)
 
 def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        str(row.get("property_key")): row
-        for row in (asset.get("properties") or [])
-        if isinstance(row, dict) and row.get("property_key")
-    }
+    rows = asset.get("properties") or []
+    return {str(row.get("property_key")): row for row in rows if isinstance(row, dict) and row.get("property_key")}
 class EnergyRuntime:
     def __init__(self, hass: HomeAssistant, store) -> None:
         self.hass = hass
@@ -587,10 +584,6 @@ class EnergyRuntime:
             facts["pricing.source_id"] = facts.get("price_source.source_id")
             facts["pricing.source_integration"] = facts.get("price_source.source_integration")
 
-    def _physical_input(self, concept: str, fact_key: str, facts: dict[str, Any]) -> float | None:
-        absent = set((self.model or {}).get("explicitly_absent_concepts") or [])
-        return optional_physical_input(facts.get(fact_key), concept_absent=concept in absent)
-
     @staticmethod
     def _layer_health(rows: list[dict[str, Any]]) -> str:
         states = {str(row.get("status") or "INCOMPLETE") for row in rows if isinstance(row, dict)}
@@ -738,9 +731,9 @@ class EnergyRuntime:
         self._canonicalize(domain_assets, facts, runtime_issues)
 
         consumption = derive_consumption(
-            self._physical_input("solar_production", "solar.power_kw", facts),
-            self._physical_input("grid_connection", "grid.net_power_kw", facts),
-            self._physical_input("battery_system", "battery.power_kw", facts),
+            physical_input(self.model, "solar_production", "solar.power_kw", facts, domain_assets),
+            physical_input(self.model, "grid_connection", "grid.net_power_kw", facts, domain_assets),
+            physical_input(self.model, "battery_system", "battery.power_kw", facts, domain_assets),
         )
         # Physical balance yields Site Consumption. Home Consumption is the
         # residual after the complete Mobility-owned flexible-load publication.
@@ -756,13 +749,17 @@ class EnergyRuntime:
             connections,
             producer_available=producer_available,
         )
-        battery_charge_power, battery_discharge_power = split_battery_power(
-            facts.get("battery.power_kw")
+        battery_power_for_balance = physical_input(
+            self.model, "battery_system", "battery.power_kw", facts, domain_assets
         )
-        measured_home_power = number(facts.get("home_consumption.measured_power_kw")); home = derive_home_consumption(
+        battery_charge_power, battery_discharge_power = split_battery_power(
+            battery_power_for_balance
+        )
+        measured_home_power = number(facts.get("home_consumption.measured_power_kw"))
+        home = derive_home_consumption(
             consumption["power_kw"],
             flexible_power,
-            facts.get("battery.power_kw"),
+            battery_power_for_balance,
         )
         # Selected direct home-consumption measurement is authoritative; balance remains a cross-check.
         home_power = measured_home_power if measured_home_power is not None else home["power_kw"]
@@ -882,6 +879,9 @@ class EnergyRuntime:
             "dependency_diagnostics": deepcopy(self.model.get("dependency_diagnostics") or {}),
             "runtime_issues": runtime_issues,
             "degraded_logical_assets": degraded_assets[:40],
+            "experience_presence": experience_presence(
+                self.model, domain_assets, flexible, connections
+            ),
         }
         # Runtime telemetry updates values on already materialized entities only.
         # Topology/entity projection is activated exclusively by activate_model().

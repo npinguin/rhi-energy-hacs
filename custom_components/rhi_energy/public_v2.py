@@ -954,6 +954,13 @@ def build_public_contract_v2(
         "retrospective": retrospective_projection,
         "intelligence": deepcopy(source.get("intelligence") or {}),
         "overview": deepcopy(source.get("overview") or {}),
+        "experience": {
+            "presence": deepcopy(source.get("experience_presence") or {}),
+            "semantics": (
+                "structural_presence_is_independent_of_runtime_availability;"
+                "absent_optional_capabilities_are_hidden_from_product_ux"
+            ),
+        },
         "commands": commands,
         "activity": activity,
         "value_accounting": {
