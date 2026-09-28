@@ -97,9 +97,11 @@ def _public_operation(operation: dict[str, Any] | None) -> dict[str, Any]:
 def _decorate_objects(
     objects: list[dict[str, Any]],
     property_operations: dict[str, dict[str, Any]] | None = None,
+    appearance_preferences: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     decorated: list[dict[str, Any]] = []
     operation_rows = property_operations or {}
+    appearance_rows = appearance_preferences or {}
     for raw in objects:
         if not isinstance(raw, dict):
             continue
@@ -116,11 +118,53 @@ def _decorate_objects(
             set(asset.get("capabilities") or [])
             | set(context.get("profile_capabilities") or [])
         )
-        asset["visual_ref"] = resolve_visual_ref(
+        source_visual_ref = resolve_visual_ref(
             asset_type,
             asset.get("visual_ref"),
             context.get("profile_visual_ref"),
         )
+        asset_id = str(asset.get("asset_id") or "")
+        source_domain = str(asset.get("source_domain") or "").strip().lower()
+        producer_owned = (
+            source_domain == "mobility"
+            or asset_type in {"vehicle", "charger", "flexible_load"}
+            or str(source_visual_ref or "").startswith("mobility.")
+        )
+        configured_visual_ref = str(
+            ((appearance_rows.get(asset_id) or {}).get("visual_ref")) or ""
+        ).strip()
+        valid_configured_visual_ref = (
+            configured_visual_ref
+            if (
+                not producer_owned
+                and configured_visual_ref.startswith(f"energy.logical.{asset_type}.")
+            )
+            else ""
+        )
+        asset["visual_ref"] = valid_configured_visual_ref or source_visual_ref
+        appearance_property_id = f"appearance:{asset_id}:visual_ref"
+        appearance_operation = _public_operation(operation_rows.get(appearance_property_id))
+        asset["appearance"] = {
+            "owner_domain": "rhi_energy",
+            "editable": not producer_owned,
+            "configured_visual_ref": valid_configured_visual_ref or None,
+            "effective_visual_ref": asset["visual_ref"],
+            "profile_visual_ref": context.get("profile_visual_ref"),
+            "source_visual_ref": source_visual_ref,
+            "write": (
+                {
+                    "supported": True,
+                    "operation_id": "energy.property.write",
+                    "service": "rhi_energy.write_property",
+                    "data": {"property_id": appearance_property_id},
+                    "value_parameter": "value",
+                    "readback_property": appearance_property_id,
+                }
+                if not producer_owned and asset_id
+                else {"supported": False}
+            ),
+            "operation": appearance_operation,
+        }
         asset["property_publication"] = _publication(asset)
         provenance_rows: list[dict[str, Any]] = []
         for property_row in asset.get("properties") or []:
@@ -724,11 +768,12 @@ def build_public_contract_v2(
     concepts = model.get("concepts") or {}
     source["battery_reserve_write_supported"] = _battery_reserve_write_supported(concepts)
     property_operations = deepcopy(store_data.get("property_operation_state") or {})
+    settings = deepcopy(store_data.get("settings") or {})
     objects = _decorate_objects(
         deepcopy(source.get("logical_assets") or []),
         property_operations,
+        deepcopy(settings.get("appearance") or {}),
     )
-    settings = deepcopy(store_data.get("settings") or {})
     pricing_rows = _apply_configuration_operation_state(
         pricing_properties(source.get("facts") or {}, settings),
         property_operations,

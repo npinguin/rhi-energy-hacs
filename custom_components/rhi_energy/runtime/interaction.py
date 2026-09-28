@@ -370,7 +370,53 @@ class EnergyInteractionEngine:
             "pricing.import_vat_pct": "import_vat_pct",
             "pricing.export_fee_eur_kwh": "export_fee_eur_kwh",
         }
-        if property_id.startswith("logical:"):
+        if property_id.startswith("appearance:") and property_id.endswith(":visual_ref"):
+            asset_id = property_id[len("appearance:") : -len(":visual_ref")]
+            logical_asset = next(
+                (
+                    row for row in self.runtime.snapshot.get("logical_assets") or []
+                    if str(row.get("asset_id") or "") == asset_id
+                ),
+                None,
+            )
+            asset_type = str(
+                (logical_asset or {}).get("asset_type")
+                or (logical_asset or {}).get("object_class")
+                or ""
+            ).strip().lower()
+            source_domain = str((logical_asset or {}).get("source_domain") or "").strip().lower()
+            current_ref = str((logical_asset or {}).get("visual_ref") or "").strip()
+            producer_owned = (
+                source_domain == "mobility"
+                or asset_type in {"vehicle", "charger", "flexible_load"}
+                or current_ref.startswith("mobility.")
+            )
+            requested_ref = str(value or "").strip()
+            valid_ref = (
+                not requested_ref
+                or requested_ref.startswith(f"energy.logical.{asset_type}.")
+            )
+            if logical_asset is None or not asset_id:
+                result["reason"] = "appearance_asset_not_found"
+            elif producer_owned:
+                result["reason"] = "appearance_owned_by_producer_domain"
+            elif not asset_type or not valid_ref:
+                result["reason"] = "appearance_visual_ref_not_allowed_for_asset_type"
+            else:
+                appearance = settings.setdefault("appearance", {})
+                if requested_ref:
+                    appearance.setdefault(asset_id, {})["visual_ref"] = requested_ref
+                    readback_value = requested_ref
+                else:
+                    appearance.pop(asset_id, None)
+                    readback_value = None
+                result.update(
+                    status="CONFIRMED",
+                    reason="persisted_energy_asset_appearance",
+                    readback_value=readback_value,
+                    target_asset_id=asset_id,
+                )
+        elif property_id.startswith("logical:"):
             try:
                 result = await self._write_logical_property(property_id, value)
             except Exception as exc:
