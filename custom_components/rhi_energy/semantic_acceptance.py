@@ -21,7 +21,7 @@ import re
 from typing import Any
 
 try:
-    from .adapters import get_battery_unit_key_resolver, get_candidate_filter, get_market_role_resolver, get_inverter_identity_resolver
+    from .adapters import get_battery_unit_key_resolver, get_candidate_filter, get_market_role_resolver, get_inverter_identity_resolver, get_inverter_serial_resolver
     from .models import AcceptedSourceBinding, EnergyDomainModel
     from .runtime.logical_assets import build_logical_assets
     from .semantic import input_definitions, source_object_key
@@ -46,6 +46,12 @@ except ImportError:  # Direct runpy/static unit-test execution without package c
         return _adapter_function(str(integration or ""), "market_role", lambda candidate: (candidate.get("semantic_metadata") or {}).get("market_role"))
     def get_inverter_identity_resolver(integration):
         return _adapter_function(str(integration or ""), "inverter_identity", lambda _row: None)
+    def get_inverter_serial_resolver(integration):
+        serial = _adapter_function(str(integration or ""), "inverter_serial", None)
+        if callable(serial):
+            return serial
+        identity = get_inverter_identity_resolver(integration)
+        return lambda row: (identity(row) or (None, None))[1]
     AcceptedSourceBinding = dict  # type: ignore[assignment,misc]
     EnergyDomainModel = dict  # type: ignore[assignment,misc]
 
@@ -1105,33 +1111,44 @@ def _materialize_structural_relations(concepts: dict[str, Any]) -> None:
     # identity and realtime truth; optimizer cloud contributes delayed topology.
     # Matching is fail-closed on stable hardware model + normalized serial only.
     master_by_identity: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    master_by_serial: dict[str, list[dict[str, Any]]] = {}
     for provider in solar_providers:
         integration = str(provider.get("integration_domain") or "")
         if integration != "solaredge_modbus_multi":
             continue
-        resolver = get_inverter_identity_resolver(integration)
+        identity_resolver = get_inverter_identity_resolver(integration)
+        serial_resolver = get_inverter_serial_resolver(integration)
         for inverter in provider.get("inverters") or []:
-            identity = resolver(inverter)
+            identity = identity_resolver(inverter)
             if identity:
                 master_by_identity.setdefault(identity, []).append(inverter)
+            serial = serial_resolver(inverter)
+            if serial:
+                master_by_serial.setdefault(str(serial), []).append(inverter)
 
     for provider in ((concepts.get("solar_optimizer") or {}).get("providers") or []):
         integration = str(provider.get("integration_domain") or "")
         if integration != "solaredgeoptimizers":
             continue
-        resolver = get_inverter_identity_resolver(integration)
+        identity_resolver = get_inverter_identity_resolver(integration)
+        serial_resolver = get_inverter_serial_resolver(integration)
         for zone in provider.get("zones") or []:
-            identity = resolver(zone)
-            if not identity:
-                continue
-            matches = master_by_identity.get(identity) or []
+            identity = identity_resolver(zone)
+            serial = serial_resolver(zone)
+            matches = master_by_identity.get(identity) or [] if identity else []
+            resolution = "hardware_model_and_normalized_serial"
+            if not matches and serial:
+                matches = master_by_serial.get(str(serial)) or []
+                resolution = "exact_normalized_serial"
             if len(matches) == 1:
                 zone["master_inverter_asset_id"] = str(matches[0].get("asset_id") or "")
-                zone["master_linkage_resolution"] = "hardware_model_and_normalized_serial"
+                zone["master_linkage_resolution"] = resolution
                 zone["slave_topology_only"] = True
             elif len(matches) > 1:
-                zone["master_linkage_resolution"] = "ambiguous_master_identity"
-            else:
+                zone["master_linkage_resolution"] = (
+                    "ambiguous_master_identity" if identity else "ambiguous_master_serial"
+                )
+            elif identity or serial:
                 zone["master_linkage_resolution"] = "master_not_found"
 
 

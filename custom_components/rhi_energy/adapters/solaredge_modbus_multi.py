@@ -118,13 +118,19 @@ def normalize(role: str, value: Any, context: dict[str, Any]) -> Any:
 _SERIAL = re.compile(r"(?:^|_)([0-9A-F]{8})(?:_|$)", re.IGNORECASE)
 
 
+def inverter_serial(row: dict[str, Any]) -> str | None:
+    """Return exact normalized Modbus inverter serial from stable unique-id evidence."""
+    for value in (row.get("source_unique_id"), row.get("unique_id")):
+        match = _SERIAL.search(str(value or ""))
+        if match:
+            return match.group(1).upper()
+    return None
+
+
 def inverter_identity(row: dict[str, Any]) -> tuple[str, str] | None:
     """Return stable Modbus inverter hardware + serial identity."""
     model = str(row.get("model") or row.get("device_model") or "").strip().upper()
     if not model:
         return None
-    for value in (row.get("source_unique_id"), row.get("unique_id")):
-        match = _SERIAL.search(str(value or ""))
-        if match:
-            return model, match.group(1).upper()
-    return None
+    serial = inverter_serial(row)
+    return (model, serial) if serial else None

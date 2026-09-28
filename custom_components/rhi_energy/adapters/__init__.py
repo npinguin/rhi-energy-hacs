@@ -20,12 +20,11 @@ MarketRoleResolver = Callable[[dict[str, Any]], str | None]
 TopologyKeyResolver = Callable[[dict[str, Any]], str | None]
 BatteryUnitKeyResolver = Callable[[dict[str, Any]], str | None]
 InverterIdentityResolver = Callable[[dict[str, Any]], tuple[str, str] | None]
+InverterSerialResolver = Callable[[dict[str, Any]], str | None]
 _MODULE_CACHE: dict[str, Any | None] = {}
-
 
 def _neutral(_role: str, value: Any, _context: dict[str, Any]) -> Any:
     return value
-
 
 def _module(integration_domain: str | None):
     domain = str(integration_domain or "").strip().lower()
@@ -43,7 +42,6 @@ def _module(integration_domain: str | None):
     _MODULE_CACHE[domain] = module
     return module
 
-
 def get_normalizer(integration_domain: str | None) -> Normalizer:
     module = _module(integration_domain)
     if module is None:
@@ -53,11 +51,9 @@ def get_normalizer(integration_domain: str | None) -> Normalizer:
         raise RuntimeError(f"energy_adapter_invalid:{integration_domain}:normalize_missing")
     return normalizer
 
-
 def get_candidate_filter(integration_domain: str | None) -> CandidateFilter:
     predicate = getattr(_module(integration_domain), "accept_candidate", None)
     return predicate if callable(predicate) else lambda _input_id, _candidate: True
-
 
 def get_market_role_resolver(integration_domain: str | None) -> MarketRoleResolver:
     resolver = getattr(_module(integration_domain), "market_role", None)
@@ -67,20 +63,26 @@ def get_market_role_resolver(integration_domain: str | None) -> MarketRoleResolv
         else None
     )
 
-
 def get_topology_key_resolver(integration_domain: str | None) -> TopologyKeyResolver:
     """Return adapter-owned stable topology-key extraction, never display-name inference."""
     resolver = getattr(_module(integration_domain), "topology_key", None)
     return resolver if callable(resolver) else lambda _row: None
-
 
 def get_battery_unit_key_resolver(integration_domain: str | None) -> BatteryUnitKeyResolver:
     """Return a stable physical battery-unit key from Foundation-published evidence."""
     resolver = getattr(_module(integration_domain), "battery_unit_key", None)
     return resolver if callable(resolver) else lambda _candidate: None
 
-
 def get_inverter_identity_resolver(integration_domain: str | None) -> InverterIdentityResolver:
     """Return provider-specific stable inverter identity as (hardware_model, serial)."""
     resolver = getattr(_module(integration_domain), "inverter_identity", None)
     return resolver if callable(resolver) else lambda _row: None
+
+def get_inverter_serial_resolver(integration_domain: str | None) -> InverterSerialResolver:
+    """Return provider-specific normalized inverter serial identity only."""
+    module = _module(integration_domain)
+    resolver = getattr(module, "inverter_serial", None)
+    identity = getattr(module, "inverter_identity", None)
+    return resolver if callable(resolver) else (
+        (lambda row: (identity(row) or (None, None))[1]) if callable(identity) else (lambda _row: None)
+    )
