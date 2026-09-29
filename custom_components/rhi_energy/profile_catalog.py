@@ -1,8 +1,8 @@
 """Energy-owned local product profile catalog.
 
-This deliberately mirrors Mobility's profile pattern: packaged profiles are immutable
-product knowledge, exact structured identity may resolve a profile, and runtime truth
-never comes from the catalog.
+Packaged profiles contain reusable, evidence-backed product knowledge only. Runtime
+state, site/customer context and artwork paths are forbidden. Product resolution is
+exact and uses structured identity; integration domains are never product identity.
 """
 from __future__ import annotations
 
@@ -45,32 +45,51 @@ class EnergyProfileCatalog:
         return " ".join(str(value).strip().casefold().replace("-", " ").split())
 
     def resolve_profile(self, profile_type: str, identity: dict[str, Any]) -> dict[str, Any] | None:
-        """Resolve only one exact structured product identity.
+        """Resolve one exact structured product identity or remain unresolved.
 
-        Missing identity stays unresolved. Integration/domain labels, display names and
-        fuzzy text are never product identity.
+        Brand and model are mandatory. Optional discriminators are compared only when
+        the packaged profile declares them; if declared, runtime identity must supply
+        the same value. This supports exact SKU/part-number resolution without making
+        model_year artificially mandatory.
         """
-        keys = ("brand", "model", "variant", "model_year")
         wanted = {
-            "brand": self._identity_token(identity.get("brand")),
+            "brand": self._identity_token(identity.get("brand") or identity.get("manufacturer")),
             "model": self._identity_token(identity.get("model")),
             "variant": self._identity_token(identity.get("variant")),
+            "sku": self._identity_token(identity.get("sku")),
+            "manufacturer_part_number": self._identity_token(
+                identity.get("manufacturer_part_number") or identity.get("part_number")
+            ),
             "model_year": str(identity.get("model_year") or "").strip(),
         }
-        if not all(wanted.values()):
+        if not wanted["brand"] or not wanted["model"]:
             return None
+
         matches: list[dict[str, Any]] = []
         for row in self.profiles_for_type(profile_type):
             if row.get("auto_resolve") is False:
                 continue
-            candidate = {
-                "brand": self._identity_token(row.get("brand")),
-                "model": self._identity_token(row.get("model")),
-                "variant": self._identity_token(row.get("variant")),
-                "model_year": str(row.get("model_year") or "").strip(),
-            }
-            if all(candidate[key] == wanted[key] for key in keys):
+
+            candidate_brand = self._identity_token(row.get("brand") or row.get("manufacturer"))
+            candidate_model = self._identity_token(row.get("model"))
+            if candidate_brand != wanted["brand"] or candidate_model != wanted["model"]:
+                continue
+
+            matched = True
+            for key in ("variant", "sku", "manufacturer_part_number", "model_year"):
+                candidate = (
+                    str(row.get(key) or "").strip()
+                    if key == "model_year"
+                    else self._identity_token(row.get(key))
+                )
+                if not candidate:
+                    continue
+                if wanted[key] != candidate:
+                    matched = False
+                    break
+            if matched:
                 matches.append(row)
+
         return matches[0] if len(matches) == 1 else None
 
 
@@ -88,12 +107,15 @@ class EnergyProfileCatalogProvider:
             "brand": profile.get("brand"),
             "model": profile.get("model"),
             "variant": profile.get("variant"),
+            "sku": profile.get("sku"),
+            "manufacturer_part_number": profile.get("manufacturer_part_number"),
             "model_year": profile.get("model_year"),
         }
         excluded = {
             "profile_id", "profile_type", "brand", "manufacturer", "vendor", "model",
-            "variant", "model_year", "display_name", "short_name", "visual_ref",
-            "auto_resolve", "catalog_role", "evidence", "capabilities",
+            "variant", "sku", "manufacturer_part_number", "model_year", "display_name",
+            "short_name", "visual_ref", "auto_resolve", "catalog_role", "evidence",
+            "capabilities",
         }
         technical = {
             key: value
