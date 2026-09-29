@@ -639,15 +639,16 @@ class EnergyRuntime:
             row["status"] = "READY" if ready else "INCOMPLETE"
             if ready: row.pop("reason", None)
             else: row["reason"] = "runtime_evidence_incomplete"
+        planning_inputs_ready = producer_available and all(row.get("planning_input_ready") is True for row in flexible if str(row.get("participation_state") or "participating").lower() == "participating" and row.get("infrastructure_only", False) is not True)
         planning_ready = {
             "planning_model": d0_ready and d1_ready,
             "planning_asset": all(facts.get(key) is not None for key in ("battery.capacity_kwh", "battery.available_kwh")),
             "planning_pricing": facts.get("pricing.import_price_current_eur_kwh") is not None,
             "constraint_set": bool(settings.get("strategy")),
-            "energy_need": producer_available,
+            "energy_need": planning_inputs_ready,
             "allocation_set": d0_ready,
             "baseline_energy_plan": d0_ready and d1_ready,
-            "flexible_load_plan": producer_available and d0_ready and d1_ready,
+            "flexible_load_plan": d0_ready and d1_ready and planning_inputs_ready,
         }
         for row in planning:
             aid = str(row.get("asset_id") or "")

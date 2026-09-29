@@ -811,6 +811,12 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
     if battery_policy in {"never", "avoid"} and usable_battery is not None:
         usable_battery = 0.0
 
+    incomplete_assets = [
+        asset for asset in flexible_assets
+        if str(asset.get("participation_state") or "participating").strip().lower() == "participating"
+        and asset.get("infrastructure_only", False) is not True
+        and asset.get("planning_input_ready") is not True
+    ]
     active_assets = sorted(
         [
             asset for asset in flexible_assets
@@ -1194,6 +1200,19 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
     flexible_plan = {
         "contract": "energy_flexible_plan_v1",
         "participating_asset_count": len(active_assets),
+        "incomplete_asset_count": len(incomplete_assets),
+        "incomplete_inputs": [
+            {
+                "asset_id": str(asset.get("asset_id") or ""),
+                "display_name": asset.get("display_name"),
+                "blockers": list(asset.get("planning_blockers") or ["planning_input_incomplete"]),
+                "current_soc_pct": asset.get("current_soc_pct"),
+                "target_soc_pct": asset.get("target_soc_pct"),
+                "ready_by": asset.get("ready_by"),
+                "max_power_kw": asset.get("max_power_kw"),
+            }
+            for asset in incomplete_assets
+        ],
         "participating_asset_ids": [str(asset.get("asset_id")) for asset in active_assets if asset.get("asset_id")],
         "known_need_kwh": round(sum(original_need.values()), 4),
         "unresolved_need_kwh": unresolved,
@@ -1216,7 +1235,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         "flexible_plan": flexible_plan,
         "unresolved_flexible_need_kwh": unresolved,
         "battery_ledger": {"initial_usable_kwh": usable_battery, "after_d0_kwh": battery_after_d0, "after_d1_kwh": battery_after_d1},
-        "health": "OK" if d0["quality"]["availability"] == AVAILABLE else "DEGRADED",
+        "health": "OK" if d0["quality"]["availability"] == AVAILABLE and not incomplete_assets else "DEGRADED",
         "reason": "deterministic_chronological_capacity_price_policy_aware_plan",
         "execution_policy": deepcopy(control_policy),
     }
