@@ -94,6 +94,22 @@ def _public_operation(operation: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _property_presentation_family(property_key: str, row: dict[str, Any]) -> str:
+    """Classify canonical properties once in the backend for consistent UX grouping."""
+    key = str(property_key or "").strip().lower()
+    if row.get("control_capability") is True or row.get("write_supported") is True:
+        return "control"
+    if any(token in key for token in ("power", "energy", "soc", "capacity", "current_a", "voltage", "flow")):
+        return "energy"
+    if any(token in key for token in ("target", "reserve", "policy", "mode", "deadline", "ready_by", "limit", "profile")):
+        return "configuration"
+    if any(token in key for token in ("source", "connection", "integration", "device", "availability", "health")):
+        return "source_connectivity"
+    if any(token in key for token in ("reason", "diagnostic", "revision", "binding", "provenance")):
+        return "diagnostics"
+    return "summary"
+
+
 def _decorate_objects(
     objects: list[dict[str, Any]],
     property_operations: dict[str, dict[str, Any]] | None = None,
@@ -168,6 +184,12 @@ def _decorate_objects(
         asset["property_publication"] = _publication(asset)
         provenance_rows: list[dict[str, Any]] = []
         for property_row in asset.get("properties") or []:
+            property_key = str(property_row.get("property_key") or "")
+            property_row["presentation"] = {
+                "family": _property_presentation_family(property_key, property_row),
+                "primary": bool(property_row.get("required") is True or property_row.get("control_capability") is True),
+                "technical": _property_presentation_family(property_key, property_row) == "diagnostics",
+            }
             resolution = property_row.get("resolution") or {}
             for evidence in resolution.get("provenance") or []:
                 if isinstance(evidence, dict) and evidence not in provenance_rows:

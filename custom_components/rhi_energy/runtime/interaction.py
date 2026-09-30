@@ -1081,6 +1081,9 @@ class EnergyInteractionEngine:
                 asset,
             )
             if decision["action"] == "stop":
+                producer = self._resolve_producer(asset_id, "stop")
+                if producer is None or not self._row_ready(producer):
+                    continue
                 result = await self.invoke_command("energy.command.stop_flexible_load", asset_id, {})
                 if result.get("status") in {PENDING, "CONFIRMED"}:
                     protected.add(asset_id)
@@ -1118,23 +1121,30 @@ class EnergyInteractionEngine:
             # load must not consume flexible energy in this bucket.
             if held or allocation is None:
                 if running:
-                    result = await self.invoke_command(
-                        "energy.command.stop_flexible_load", asset_id, {}
-                    )
-                    if result.get("status") in {PENDING, "CONFIRMED"}:
-                        self._last_auto[asset_id] = now
+                    producer = self._resolve_producer(asset_id, "stop")
+                    if producer is not None and self._row_ready(producer):
+                        result = await self.invoke_command(
+                            "energy.command.stop_flexible_load", asset_id, {}
+                        )
+                        if result.get("status") in {PENDING, "CONFIRMED"}:
+                            self._last_auto[asset_id] = now
                 continue
 
             target = number(allocation.get("planned_power_kw"))
             if target is None or target <= 0:
                 if running:
-                    await self.invoke_command(
-                        "energy.command.stop_flexible_load", asset_id, {}
-                    )
+                    producer = self._resolve_producer(asset_id, "stop")
+                    if producer is not None and self._row_ready(producer):
+                        await self.invoke_command(
+                            "energy.command.stop_flexible_load", asset_id, {}
+                        )
                 continue
 
             current_request = number(asset.get("requested_power_kw"))
             if current_request is None or abs(current_request - target) > 0.11:
+                producer = self._resolve_producer(asset_id, "adjust")
+                if producer is None or not self._row_ready(producer):
+                    continue
                 power_result = await self.invoke_command(
                     "energy.command.set_flexible_load_power",
                     asset_id,
@@ -1146,6 +1156,9 @@ class EnergyInteractionEngine:
                     continue
 
             if not running:
+                producer = self._resolve_producer(asset_id, "start")
+                if producer is None or not self._row_ready(producer):
+                    continue
                 start_result = await self.invoke_command(
                     "energy.command.start_flexible_load", asset_id, {}
                 )

@@ -1197,6 +1197,58 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             for horizon in (d0, d1)
         },
     }
+    def asset_scheduled_kwh(horizon: dict[str, Any], asset_id: str) -> float | None:
+        values = [
+            number(allocation.get("planned_energy_kwh"))
+            for bucket in horizon.get("buckets") or []
+            for allocation in bucket.get("asset_allocations") or []
+            if str(allocation.get("asset_id") or "") == asset_id
+        ]
+        values = [value for value in values if value is not None]
+        return round(sum(values), 4) if values else 0.0
+
+    planning_asset_status = []
+    for asset in flexible_assets:
+        if asset.get("infrastructure_only", False) is True:
+            continue
+        aid = str(asset.get("asset_id") or "")
+        if not aid:
+            continue
+        participating = str(asset.get("participation_state") or "participating").strip().lower() == "participating"
+        ready = asset.get("planning_input_ready") is True
+        eligible = bool(participating and ready)
+        known_need = number(asset.get("energy_to_target_kwh")) if ready else None
+        d0_scheduled = asset_scheduled_kwh(d0, aid) if eligible else None
+        d1_scheduled = asset_scheduled_kwh(d1, aid) if eligible else None
+        still_to_plan = (
+            round(max(0.0, known_need - (d0_scheduled or 0.0) - (d1_scheduled or 0.0)), 4)
+            if known_need is not None and eligible
+            else None
+        )
+        blockers = list(asset.get("planning_blockers") or [])
+        if not participating and not blockers:
+            blockers = ["participation_disabled"]
+        if eligible:
+            user_status = "Planning ready"
+        elif not participating:
+            user_status = "Not participating"
+        else:
+            user_status = "Planning inputs incomplete"
+        planning_asset_status.append({
+            "asset_id": aid,
+            "display_name": asset.get("display_name"),
+            "visible": asset.get("visible", True),
+            "planning_eligible": eligible,
+            "planning_input_ready": ready,
+            "planning_status": "READY" if eligible else "INCOMPLETE",
+            "user_status": user_status,
+            "blockers": blockers,
+            "energy_need_kwh": known_need,
+            "planned_today_kwh": d0_scheduled,
+            "planned_tomorrow_kwh": d1_scheduled,
+            "still_to_plan_kwh": still_to_plan,
+        })
+
     flexible_plan = {
         "contract": "energy_flexible_plan_v1",
         "participating_asset_count": len(active_assets),
@@ -1214,6 +1266,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             for asset in incomplete_assets
         ],
         "participating_asset_ids": [str(asset.get("asset_id")) for asset in active_assets if asset.get("asset_id")],
+        "assets": planning_asset_status,
         "known_need_kwh": round(sum(original_need.values()), 4),
         "unresolved_need_kwh": unresolved,
         "horizons": {

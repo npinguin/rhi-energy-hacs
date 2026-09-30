@@ -740,7 +740,7 @@ class EnergyRuntime:
         # residual after the complete Mobility-owned flexible-load publication.
         facts["site_consumption.power_kw"] = consumption["power_kw"]
         consumers, connections, producer_availability, producer_metadata = self._producer_assets()
-        flexible = normalize_mobility_consumers(consumers)
+        flexible = normalize_mobility_consumers(consumers, connections)
         producer_available = bool(producer_availability.get("mobility"))
         attributed_flexible_power = flexible_power_total(
             flexible,
