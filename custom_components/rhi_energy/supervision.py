@@ -189,6 +189,43 @@ class EnergyDomainSupervision:
         mobility_available = bool(runtime_snapshot.get("mobility_publication_available"))
         mobility_expected = _mobility_runtime_expected(self.hass)
 
+        builder_assessments = getattr(manager, "builder_assessments", {}) or {}
+        builder_issue_rows = [
+            str(issue)
+            for assessment in builder_assessments.values()
+            if isinstance(assessment, dict)
+            for issue in (assessment.get("issues") or [])
+            if issue
+        ]
+
+        logical_assets = [
+            row for row in (runtime_snapshot.get("logical_assets") or [])
+            if isinstance(row, dict) and row.get("asset_id")
+        ]
+        logical_by_id = {str(row["asset_id"]): row for row in logical_assets}
+        def _has_inverter_ancestor(row: dict[str, Any]) -> bool:
+            seen: set[str] = set()
+            current = row
+            while isinstance(current, dict):
+                parent_id = str(current.get("parent_asset_id") or "")
+                if not parent_id or parent_id in seen:
+                    return False
+                seen.add(parent_id)
+                parent = logical_by_id.get(parent_id)
+                if parent is None:
+                    return False
+                if str(parent.get("object_class") or "") == "solar_inverter":
+                    return True
+                current = parent
+            return False
+
+        unresolved_solar_hierarchy = [
+            str(row.get("asset_id"))
+            for row in logical_assets
+            if str(row.get("object_class") or "") in {"solar_zone", "solar_optimizer"}
+            and not _has_inverter_ancestor(row)
+        ]
+
         issues: list[dict[str, Any]] = []
         if configuration_status != "OK":
             issues.append(_issue(
@@ -225,6 +262,18 @@ class EnergyDomainSupervision:
                 blocking=runtime_status in {"BLOCKED", "STALE"},
                 severity="ERROR" if runtime_status in {"BLOCKED", "STALE"} else "WARNING",
                 scope=["EnergyRuntime"],
+            ))
+        if builder_issue_rows:
+            issues.append(_issue(
+                "energy:build:selected_input_assessment", "BINDING",
+                "SELECTED_INPUT_ASSESSMENT_ISSUES", blocking=False,
+                severity="WARNING", scope=["EnergyDomainModel"],
+            ))
+        if unresolved_solar_hierarchy:
+            issues.append(_issue(
+                "energy:topology:solar_inverter_hierarchy", "TOPOLOGY",
+                "SOLAR_INVERTER_PARENT_UNRESOLVED", blocking=False,
+                severity="WARNING", scope=unresolved_solar_hierarchy[:12],
             ))
         if compatibility_presence_status != "OK":
             issues.append(_issue(

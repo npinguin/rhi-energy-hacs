@@ -203,6 +203,50 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
             None,
         ))
     ]
+    asset_by_id = {
+        str(asset.get("asset_id")): asset
+        for asset in assets
+        if asset.get("asset_id")
+    }
+
+    def authoritative_inverter_ancestor(asset: dict) -> str | None:
+        """Return the canonical solar_inverter ancestor or fail closed."""
+        seen: set[str] = set()
+        current = asset
+        while isinstance(current, dict):
+            parent_id = str(current.get("parent_asset_id") or "")
+            if not parent_id or parent_id in seen:
+                return None
+            seen.add(parent_id)
+            parent = asset_by_id.get(parent_id)
+            if parent is None:
+                return None
+            if str(parent.get("object_class") or "") == "solar_inverter":
+                return parent_id
+            current = parent
+        return None
+
+    optimizer_hierarchy_rows = [
+        asset
+        for asset in assets
+        if str(asset.get("object_class") or "") in {"solar_zone", "solar_optimizer"}
+    ]
+    authoritative_parent_rows = [
+        {
+            "asset_id": str(asset.get("asset_id") or ""),
+            "object_class": asset.get("object_class"),
+            "authoritative_inverter_asset_id": authoritative_inverter_ancestor(asset),
+            "parent_asset_id": asset.get("parent_asset_id"),
+            "topology_evidence": asset.get("topology_evidence"),
+        }
+        for asset in optimizer_hierarchy_rows
+    ]
+    authoritative_parented = [
+        row for row in authoritative_parent_rows if row["authoritative_inverter_asset_id"]
+    ]
+    unresolved_authoritative_parent = [
+        row for row in authoritative_parent_rows if not row["authoritative_inverter_asset_id"]
+    ]
     canonical_device_ids = {
         device.id for device in canonical_by_asset.values() if device is not None
     }
@@ -276,6 +320,14 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
             round(len(optimizer_zone_parented) / len(optimizer_rows) * 100, 1)
             if optimizer_rows else 100.0
         ),
+        "authoritative_inverter_scope_count": len(authoritative_parent_rows),
+        "authoritative_inverter_parented_count": len(authoritative_parented),
+        "unresolved_inverter_parent_count": len(unresolved_authoritative_parent),
+        "authoritative_inverter_coverage_pct": (
+            round(len(authoritative_parented) / len(authoritative_parent_rows) * 100, 1)
+            if authoritative_parent_rows else 100.0
+        ),
+        "unresolved_inverter_parent_rows": unresolved_authoritative_parent[:40],
         "source_device_count": len(seen_sources),
         "source_reparented_to_canonical_count": len(source_reparented_to_canonical),
         "source_reparented_to_canonical_ids": source_reparented_to_canonical[:20],

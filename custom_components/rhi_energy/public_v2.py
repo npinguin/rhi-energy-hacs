@@ -332,13 +332,31 @@ def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
             "source_refs": deepcopy(raw.get("source_refs") or []),
             "buckets": deepcopy(raw.get("buckets") or []),
         }
+    flexible_plan = deepcopy(plan.get("flexible_plan") or {})
+    assets = [
+        deepcopy(row)
+        for row in flexible_plan.get("assets") or []
+        if isinstance(row, dict) and row.get("asset_id")
+    ]
+    for row in assets:
+        row["D0"] = {
+            "planned_kwh": row.get("planned_today_kwh"),
+            "still_after_horizon_kwh": row.get("still_after_today_kwh"),
+        }
+        row["D1"] = {
+            "planned_kwh": row.get("planned_tomorrow_kwh"),
+            "still_after_horizon_kwh": row.get("still_to_plan_kwh"),
+        }
     return {
         "plan_id": plan.get("plan_id"),
         "generated_at": plan.get("generated_at"),
         "health": plan.get("health") or "UNKNOWN",
         "reason": plan.get("reason"),
         "baseline_plan": deepcopy(plan.get("baseline_plan") or {}),
-        "flexible_plan": deepcopy(plan.get("flexible_plan") or {}),
+        "flexible_plan": flexible_plan,
+        "assets": assets,
+        "participant_count": len(assets),
+        "eligible_participant_count": sum(row.get("planning_eligible") is True for row in assets),
         "battery_ledger": deepcopy(plan.get("battery_ledger") or {}),
         "execution_policy": deepcopy(plan.get("execution_policy") or {}),
         "horizons": horizons,
@@ -741,8 +759,118 @@ def _apply_configuration_operation_state(
         operation = deepcopy(property_operations.get(property_id) or {})
         public_operation = _public_operation(operation)
         row["operation_state"] = public_operation["status"]
+        row["write_state"] = public_operation["status"]
+        row["write_status"] = public_operation["status"]
+        row["readback_value"] = deepcopy(public_operation.get("readback_value"))
         row["operation"] = public_operation
     return out
+
+
+def _strategy_profile_projection(
+    configured_rows: list[dict[str, Any]],
+    effective_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Publish domain-owned Settings groups; UX selects a group but never invents one."""
+    labels = {
+        "home": "Home Intelligence",
+        "battery": "Home Battery",
+        "solar": "Solar",
+        "grid": "Grid",
+        "flexible_loads": "Flexible Loads",
+        "resilience": "Resilience",
+    }
+    effective_by_group: dict[str, list[dict[str, Any]]] = {}
+    for row in effective_rows:
+        group = str(row.get("group") or row.get("asset_id") or "home")
+        effective_by_group.setdefault(group, []).append(deepcopy(row))
+    groups: dict[str, dict[str, Any]] = {}
+    for row in configured_rows:
+        group = str(row.get("group") or row.get("asset_id") or "home")
+        profile = groups.setdefault(group, {
+            "profile_id": group,
+            "display_name": labels.get(group, group.replace("_", " ").title()),
+            "description": f"Configure {labels.get(group, group.replace('_', ' ')).lower()} policy.",
+            "configured_properties": [],
+            "effective_properties": deepcopy(effective_by_group.get(group) or []),
+        })
+        profile["configured_properties"].append(deepcopy(row))
+    return [groups[key] for key in ("home", "battery", "solar", "grid", "flexible_loads", "resilience") if key in groups]
+
+
+def _settings_participation_projection(source: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project canonical control/planning relationships without frontend inference."""
+    logical = [row for row in source.get("logical_assets") or [] if isinstance(row, dict)]
+    by_id = {str(row.get("asset_id")): row for row in logical if row.get("asset_id")}
+    roots: list[dict[str, Any]] = []
+
+    battery_systems = [
+        row for row in logical if str(row.get("object_class") or "") == "battery_system"
+    ]
+    batteries = [row for row in logical if str(row.get("object_class") or "") == "battery"]
+    for system in battery_systems:
+        sid = str(system.get("asset_id") or "")
+        children = [
+            {
+                "asset_id": str(row.get("asset_id")),
+                "display_name": row.get("display_name"),
+                "asset_type": "battery",
+                "relationship_type": "contains",
+            }
+            for row in batteries
+            if str(row.get("parent_asset_id") or "") == sid
+        ]
+        roots.append({
+            "asset_id": sid,
+            "display_name": system.get("display_name") or "Home Battery",
+            "asset_type": "battery_system",
+            "participation_role": "storage",
+            "children": children,
+        })
+
+    flexible_by_id = {
+        str(row.get("asset_id")): row
+        for row in source.get("flexible_assets") or []
+        if isinstance(row, dict) and row.get("asset_id")
+    }
+    for connection in source.get("connections") or []:
+        if not isinstance(connection, dict):
+            continue
+        charger_id = str(connection.get("asset_id") or connection.get("source_asset_id") or "")
+        if not charger_id:
+            continue
+        child_id = str(
+            connection.get("connected_asset_id")
+            or connection.get("connected_consumer_id")
+            or connection.get("target_asset_id")
+            or ""
+        )
+        child = flexible_by_id.get(child_id) or by_id.get(child_id) or {}
+        display_name = (
+            connection.get("display_name")
+            or connection.get("charger_display_name")
+            or connection.get("physical_connection_display_name")
+            or connection.get("effective_connection_display_name")
+            or charger_id
+        )
+        roots.append({
+            "asset_id": charger_id,
+            "display_name": display_name,
+            "asset_type": "charger",
+            "participation_role": "flexible_connection",
+            "connection_state": connection.get("connection_state") or connection.get("state"),
+            "children": (
+                [{
+                    "asset_id": child_id,
+                    "display_name": child.get("display_name") or connection.get("connected_asset_display_name") or child_id,
+                    "asset_type": str(child.get("asset_type") or child.get("ux_asset_type") or "vehicle"),
+                    "relationship_type": str(connection.get("relationship_type") or "connected_to"),
+                    "planning_eligible": child.get("planning_eligible"),
+                    "planning_input_ready": child.get("planning_input_ready"),
+                }]
+                if child_id else []
+            ),
+        })
+    return roots
 
 
 def _decorate_commands(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -915,6 +1043,11 @@ def build_public_contract_v2(
         "reason": canonical_configuration["strategy"]["effective_reason"],
         "runtime_overrides": deepcopy(canonical_configuration["strategy"]["runtime_overrides"]),
     }
+    canonical_configuration["strategy"]["profiles"] = _strategy_profile_projection(
+        strategy_rows,
+        canonical_configuration["strategy"]["effective_properties"],
+    )
+    canonical_configuration["strategy"]["participating_assets"] = _settings_participation_projection(source)
     coverage = canonical_coverage(objects, canonical_configuration)
     commands = _decorate_commands(command_rows)
     activity = [deepcopy(row) for row in (store_data.get("activity") or []) if isinstance(row, dict)][-100:]

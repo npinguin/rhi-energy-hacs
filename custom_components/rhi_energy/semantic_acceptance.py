@@ -1112,6 +1112,7 @@ def _materialize_structural_relations(concepts: dict[str, Any]) -> None:
     # Matching is fail-closed on stable hardware model + normalized serial only.
     master_by_identity: dict[tuple[str, str], list[dict[str, Any]]] = {}
     master_by_serial: dict[str, list[dict[str, Any]]] = {}
+    master_by_model: dict[str, list[dict[str, Any]]] = {}
     for provider in solar_providers:
         integration = str(provider.get("integration_domain") or "")
         if integration != "solaredge_modbus_multi":
@@ -1125,6 +1126,9 @@ def _materialize_structural_relations(concepts: dict[str, Any]) -> None:
             serial = serial_resolver(inverter)
             if serial:
                 master_by_serial.setdefault(str(serial), []).append(inverter)
+            model = str(inverter.get("model") or inverter.get("device_model") or "").strip().upper()
+            if model:
+                master_by_model.setdefault(model, []).append(inverter)
 
     for provider in ((concepts.get("solar_optimizer") or {}).get("providers") or []):
         integration = str(provider.get("integration_domain") or "")
@@ -1140,6 +1144,20 @@ def _materialize_structural_relations(concepts: dict[str, Any]) -> None:
             if not matches and serial:
                 matches = master_by_serial.get(str(serial)) or []
                 resolution = "exact_normalized_serial"
+            # Some SolarEdge Optimizers versions expose the exact hardware model
+            # on their inverter node but no hardware serial. A model-only link is
+            # authoritative only when the exact model is unique across the accepted
+            # local inverter set. Duplicate models remain unresolved; ordering,
+            # display names and topology indexes are never used as evidence.
+            if not matches and not serial:
+                model = str(zone.get("model") or zone.get("device_model") or "").strip().upper()
+                model_matches = master_by_model.get(model) or [] if model else []
+                if len(model_matches) == 1:
+                    matches = model_matches
+                    resolution = "unique_exact_hardware_model"
+                elif len(model_matches) > 1:
+                    zone["master_linkage_resolution"] = "ambiguous_exact_hardware_model"
+                    matches = []
             if len(matches) == 1:
                 zone["master_inverter_asset_id"] = str(matches[0].get("asset_id") or "")
                 zone["master_linkage_resolution"] = resolution
@@ -1150,6 +1168,8 @@ def _materialize_structural_relations(concepts: dict[str, Any]) -> None:
                 )
             elif identity or serial:
                 zone["master_linkage_resolution"] = "master_not_found"
+            elif not zone.get("master_linkage_resolution"):
+                zone["master_linkage_resolution"] = "insufficient_authoritative_inverter_identity"
 
 
 def accept_energy_selected_inputs(

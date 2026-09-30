@@ -1220,6 +1220,11 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         known_need = number(asset.get("energy_to_target_kwh")) if ready else None
         d0_scheduled = asset_scheduled_kwh(d0, aid) if eligible else None
         d1_scheduled = asset_scheduled_kwh(d1, aid) if eligible else None
+        still_after_today = (
+            round(max(0.0, known_need - (d0_scheduled or 0.0)), 4)
+            if known_need is not None and eligible
+            else None
+        )
         still_to_plan = (
             round(max(0.0, known_need - (d0_scheduled or 0.0) - (d1_scheduled or 0.0)), 4)
             if known_need is not None and eligible
@@ -1246,6 +1251,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             "energy_need_kwh": known_need,
             "planned_today_kwh": d0_scheduled,
             "planned_tomorrow_kwh": d1_scheduled,
+            "still_after_today_kwh": still_after_today,
             "still_to_plan_kwh": still_to_plan,
         })
 
