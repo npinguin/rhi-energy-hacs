@@ -272,12 +272,20 @@ def _flexible_projection(snapshot: dict[str, Any], command_rows: list[dict[str, 
         aid = str(asset.get("asset_id"))
         rows = command_by_target.get(aid, [])
         adjust = next((x for x in rows if x.get("command_id") == "energy.command.set_flexible_load_power"), None)
+        producer_command_refs = deepcopy(asset.get("producer_command_refs") or asset.get("command_refs") or {})
+        managed_command_refs = {str(r.get("role")): r.get("command_instance_id") for r in rows}
         asset.update(
             {
                 "energy_asset_class": asset.get("energy_asset_class") or ("vehicle" if str(asset.get("source_domain") or "").lower() == "mobility" else "generic_flexible_load"),
                 "planning_hold": bool(holds.get(aid)),
                 "command_readiness": AVAILABLE if any(r.get("availability") == AVAILABLE for r in rows) else UNAVAILABLE,
-                "command_refs": {str(r.get("role")): r.get("command_instance_id") for r in rows},
+                # Compatibility keeps Energy wrapper command instances here; the exact
+                # producer-owned references remain first-class and are never overwritten.
+                "command_refs": managed_command_refs,
+                "managed_command_refs": managed_command_refs,
+                "producer_command_refs": producer_command_refs,
+                "producer_command_resolution": deepcopy(asset.get("command_resolution") or {}),
+                "producer_command_support": deepcopy(asset.get("command_support") or {}),
             }
         )
         assets.append(asset)
@@ -445,23 +453,76 @@ def _asset_row(
 
 
 def _connection_projection(snapshot: dict[str, Any]) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    """Project Mobility-owned connection truth without relationship inference."""
+    """Project Mobility-owned connection truth without relationship or identity inference."""
     connections=[]; properties=[]; known_power=[]
     for raw in snapshot.get("connections") or []:
-        if not isinstance(raw,dict): continue
+        if not isinstance(raw,dict):
+            continue
         asset_id=str(raw.get("asset_id") or raw.get("connection_asset_id") or "")
-        if not asset_id: continue
+        if not asset_id:
+            continue
         power=number(raw.get("power_kw"))
-        if power is not None: known_power.append(power)
-        connection_state=raw.get("connection_state"); operating_state=raw.get("operating_state"); flow=raw.get("energy_flow_direction")
+        if power is not None:
+            known_power.append(power)
+        connection_state=raw.get("connection_state")
+        operating_state=raw.get("operating_state")
+        flow=raw.get("energy_flow_direction")
+        connected_asset_id=raw.get("connected_asset_id") or None
+        connected_asset_display_name=raw.get("connected_asset_display_name") or None
+        assigned_asset_id=raw.get("assigned_asset_id") or None
+        assigned_asset_display_name=raw.get("assigned_asset_display_name") or None
         ux_visible=connection_state in {"connected","asset_connected"} or (power is not None and abs(power)>0.05)
-        connections.append({"connection_asset_id":asset_id,"asset_id":asset_id,"display_name":raw.get("display_name") or asset_id.replace("_"," ").title(),"visual_ref":raw.get("visual_ref"),"connected_asset_id":raw.get("connected_asset_id") or "","connection_state":connection_state or "unknown","operating_state":operating_state or "unknown","energy_flow_direction":flow or "unknown","power_kw":power,"health":str(raw.get("health") or "UNKNOWN"),"ux_visible":ux_visible,"ux_role":"charging_connection","source_owner":"sensor.mobility_energy_asset_publication"})
-        for key,value,unit in (("power_kw",power,"kW"),("connection_state",connection_state,None),("operating_state",operating_state,None),("connected_asset_id",raw.get("connected_asset_id"),None),("energy_flow_direction",flow,None)):
-            properties.append(prop(asset_id,f"{asset_id}.{key}",value,unit,source_type="producer_publication",quality="authoritative",reason_code="mobility_publication_value" if value is not None else "mobility_publication_value_unavailable"))
+        display_name=raw.get("display_name") or "EV Charger"
+        connections.append({
+            "connection_asset_id":asset_id,
+            "asset_id":asset_id,
+            "display_name":display_name,
+            "visual_ref":raw.get("visual_ref"),
+            "assigned_asset_id":assigned_asset_id,
+            "assigned_asset_display_name":assigned_asset_display_name,
+            "connected_asset_id":connected_asset_id,
+            "connected_asset_display_name":connected_asset_display_name,
+            "connected_identity_proven":raw.get("connected_identity_proven") is True,
+            "relationship_status":raw.get("relationship_status"),
+            "relationship_reason":raw.get("relationship_reason"),
+            "connection_state":connection_state or "unknown",
+            "operating_state":operating_state or "unknown",
+            "energy_flow_direction":flow or "unknown",
+            "power_kw":power,
+            "health":str(raw.get("health") or "UNKNOWN"),
+            "ux_visible":ux_visible,
+            "ux_role":"charging_connection",
+            "source_owner":"sensor.rhi_mobility_energy_v2",
+        })
+        for key,value,unit in (
+            ("power_kw",power,"kW"),
+            ("connection_state",connection_state,None),
+            ("operating_state",operating_state,None),
+            ("connected_asset_id",connected_asset_id,None),
+            ("connected_asset_display_name",connected_asset_display_name,None),
+            ("assigned_asset_id",assigned_asset_id,None),
+            ("assigned_asset_display_name",assigned_asset_display_name,None),
+            ("energy_flow_direction",flow,None),
+        ):
+            properties.append(prop(
+                asset_id,
+                f"{asset_id}.{key}",
+                value,
+                unit,
+                source_type="producer_publication",
+                quality="authoritative",
+                reason_code="mobility_publication_value" if value is not None else "mobility_publication_value_unavailable",
+            ))
     metadata=((snapshot.get("producer_publication_metadata") or {}).get("mobility") or {})
     observed_at=metadata.get("observed_at") or metadata.get("updated_at") or metadata.get("source_last_updated")
     source_revision=metadata.get("snapshot_revision") or metadata.get("revision") or metadata.get("publication_revision") or metadata.get("source_state")
-    return AVAILABLE if connections else UNAVAILABLE,connections,properties,{"connection_total_power_kw":round(sum(known_power),4) if known_power else None,"snapshot_revision":source_revision,"observed_at":observed_at,"source_contract":metadata.get("contract_id") or metadata.get("contract_version")}
+    total = round(sum(known_power),4) if connections and len(known_power)==len(connections) else None
+    return AVAILABLE if connections else UNAVAILABLE,connections,properties,{
+        "connection_total_power_kw":total,
+        "snapshot_revision":source_revision,
+        "observed_at":observed_at,
+        "source_contract":metadata.get("contract_id") or metadata.get("contract_version"),
+    }
 
 
 def _assets(snapshot: dict[str, Any]) -> list[dict[str, Any]]:

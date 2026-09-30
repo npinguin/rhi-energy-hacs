@@ -207,8 +207,11 @@ def normalize_mobility_consumers(
                 else "unresolved"
             ),
             "assigned_connection_id": assigned_connection_id or None,
+            "assigned_connection_display_name": asset.get("assigned_connection_display_name"),
             "effective_connection_id": str(asset.get("effective_connection_id") or assigned_connection_id or "") or None,
+            "effective_connection_display_name": asset.get("effective_connection_display_name") or asset.get("assigned_connection_display_name"),
             "physical_connection_id": physical_connection_id or None,
+            "physical_connection_display_name": asset.get("physical_connection_display_name"),
             "physical_identity_proven": physical_identity_proven,
             "energy_to_target_kwh": number(first("energy_to_target_kwh", "required_energy_kwh", "energy_need_kwh")),
             "requested_power_kw": number(first("requested_power_kw", "requested_charge_power_kw")),
@@ -234,6 +237,9 @@ def normalize_mobility_consumers(
             "deadline": first("ready_by", "deadline", "target_time", "departure_time"),
             "ready_by": first("ready_by", "deadline", "target_time", "departure_time"),
             "command_refs": command_refs,
+            "producer_command_refs": deepcopy(command_refs),
+            "command_resolution": deepcopy(asset.get("command_resolution") or {}),
+            "command_support": deepcopy(asset.get("command_support") or {}),
             "source_property_resolution": property_evidence,
         }
         # Producer-published consumer identity is product truth even while telemetry,

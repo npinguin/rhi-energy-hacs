@@ -838,7 +838,31 @@ class EnergyInteractionEngine:
                     if producer is None and role not in {"pause", "resume"}
                     else "UNAVAILABLE"
                 )
-                blocked_reason = None if ready else "producer_command_unavailable"
+                blocked_reason = None
+                if not ready:
+                    blocked_reason = (
+                        "producer_command_not_published"
+                        if producer is None
+                        else str(
+                            producer.get("manual_blocked_reason")
+                            or producer.get("blocked_reason")
+                            or producer.get("reason")
+                            or "producer_command_not_ready"
+                        )
+                    )
+                producer_ref = (
+                    deepcopy(producer.get("producer_command_ref"))
+                    if isinstance((producer or {}).get("producer_command_ref"), dict)
+                    else {
+                        "provider_id": (producer or {}).get("provider_id"),
+                        "command_id": (producer or {}).get("producer_command_id") or (producer or {}).get("command_id"),
+                        "command_key": (producer or {}).get("producer_command_key") or (producer or {}).get("command_key"),
+                        "physical_executor_asset_id": (producer or {}).get("physical_executor_asset_id"),
+                        "invoke": deepcopy((producer or {}).get("invoke")) if isinstance((producer or {}).get("invoke"), dict) else None,
+                    }
+                    if producer is not None
+                    else None
+                )
                 label = {
                     "start": "Start charging",
                     "stop": "Stop charging",
@@ -874,6 +898,10 @@ class EnergyInteractionEngine:
                             "source": "producer_contract",
                         },
                         "producer_domain": "mobility" if producer is not None else asset.get("source_domain"),
+                        "producer_command_ref": producer_ref,
+                        "producer_command_id": None if producer_ref is None else producer_ref.get("command_id"),
+                        "producer_command_key": None if producer_ref is None else producer_ref.get("command_key"),
+                        "physical_executor_asset_id": None if producer_ref is None else producer_ref.get("physical_executor_asset_id"),
                         "parameters": {
                             "requested_power_kw": {
                                 "required": True,

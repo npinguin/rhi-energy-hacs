@@ -1247,6 +1247,8 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             "planning_input_ready": ready,
             "planning_status": "READY" if eligible else "INCOMPLETE",
             "user_status": user_status,
+            "reason": None if eligible else (blockers[0] if blockers else "planning_input_incomplete"),
+            "missing_inputs": [] if eligible else list(blockers or ["planning_input_incomplete"]),
             "blockers": blockers,
             "energy_need_kwh": known_need,
             "planned_today_kwh": d0_scheduled,
@@ -1255,10 +1257,13 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             "still_to_plan_kwh": still_to_plan,
         })
 
+    known_need_partial = round(sum(original_need.values()), 4)
+    totals_complete = not incomplete_assets
     flexible_plan = {
         "contract": "energy_flexible_plan_v1",
         "participating_asset_count": len(active_assets),
         "incomplete_asset_count": len(incomplete_assets),
+        "totals_complete": totals_complete,
         "incomplete_inputs": [
             {
                 "asset_id": str(asset.get("asset_id") or ""),
@@ -1273,8 +1278,10 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         ],
         "participating_asset_ids": [str(asset.get("asset_id")) for asset in active_assets if asset.get("asset_id")],
         "assets": planning_asset_status,
-        "known_need_kwh": round(sum(original_need.values()), 4),
-        "unresolved_need_kwh": unresolved,
+        "known_need_kwh": known_need_partial if totals_complete else None,
+        "known_need_partial_kwh": known_need_partial,
+        "unresolved_need_kwh": unresolved if totals_complete else None,
+        "unresolved_need_partial_kwh": unresolved,
         "horizons": {
             horizon["horizon_id"]: {
                 "scheduled_kwh": (horizon.get("demand") or {}).get("flexible_scheduled_kwh"),

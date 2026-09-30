@@ -110,6 +110,29 @@ def _property_presentation_family(property_key: str, row: dict[str, Any]) -> str
     return "summary"
 
 
+def _property_presentation_role(property_key: str, row: dict[str, Any], asset_type: str) -> str:
+    """Publish the intended product depth so UX does not have to guess."""
+    key = str(property_key or "").strip().lower()
+    family = _property_presentation_family(key, row)
+    if row.get("control_capability") is True or row.get("write_supported") is True:
+        return "configuration"
+    if family == "diagnostics" or any(
+        token in key
+        for token in ("source_", "binding", "provenance", "revision", "raw_", "integration", "health_reason")
+    ):
+        return "diagnostics"
+    primary_tokens = (
+        "power_kw", "energy_today", "soc_pct", "available_kwh", "flow_direction",
+        "operating_state", "state", "status", "energy_to_target", "required_energy",
+        "ready_by", "deadline", "net_power",
+    )
+    if any(token in key for token in primary_tokens):
+        return "key"
+    if asset_type in {"battery", "battery_system"} and any(token in key for token in ("capacity_kwh", "reserve_soc")):
+        return "key"
+    return "detail"
+
+
 def _decorate_objects(
     objects: list[dict[str, Any]],
     property_operations: dict[str, dict[str, Any]] | None = None,
@@ -185,10 +208,19 @@ def _decorate_objects(
         provenance_rows: list[dict[str, Any]] = []
         for property_row in asset.get("properties") or []:
             property_key = str(property_row.get("property_key") or "")
+            family = _property_presentation_family(property_key, property_row)
+            role = _property_presentation_role(property_key, property_row, asset_type)
             property_row["presentation"] = {
-                "family": _property_presentation_family(property_key, property_row),
-                "primary": bool(property_row.get("required") is True or property_row.get("control_capability") is True),
-                "technical": _property_presentation_family(property_key, property_row) == "diagnostics",
+                "family": family,
+                "role": role,
+                "surface": {
+                    "key": "key_properties",
+                    "configuration": "configuration",
+                    "detail": "details",
+                    "diagnostics": "diagnostics",
+                }[role],
+                "primary": role == "key",
+                "technical": role == "diagnostics",
             }
             resolution = property_row.get("resolution") or {}
             for evidence in resolution.get("provenance") or []:
@@ -313,17 +345,26 @@ def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
         reason = None if status == "AVAILABLE" else (
             "planning_outcome_incomplete" if raw else "planning_horizon_missing"
         )
+        publish_totals = status == "AVAILABLE"
         horizons[horizon_id] = {
             **raw,
             "horizon_id": str(raw.get("horizon_id") or horizon_id),
-            "required_kwh": required,
-            "planned_kwh": planned,
+            "required_kwh": required if publish_totals else None,
+            "planned_kwh": planned if publish_totals else None,
             "executed_kwh": None,
-            "still_to_plan_kwh": still,
-            "flexible_required_kwh": flexible_required,
-            "flexible_planned_kwh": flexible_planned,
+            "still_to_plan_kwh": still if publish_totals else None,
+            "flexible_required_kwh": flexible_required if publish_totals else None,
+            "flexible_planned_kwh": flexible_planned if publish_totals else None,
             "flexible_executed_kwh": None,
-            "flexible_still_to_plan_kwh": flexible_still,
+            "flexible_still_to_plan_kwh": flexible_still if publish_totals else None,
+            "partial_totals": {
+                "required_kwh": required,
+                "planned_kwh": planned,
+                "still_to_plan_kwh": still,
+                "flexible_required_kwh": flexible_required,
+                "flexible_planned_kwh": flexible_planned,
+                "flexible_still_to_plan_kwh": flexible_still,
+            },
             "status": status,
             "reason": reason,
             "execution_status": "NOT_MEASURED",
@@ -339,13 +380,19 @@ def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
         if isinstance(row, dict) and row.get("asset_id")
     ]
     for row in assets:
+        eligible = row.get("planning_eligible") is True
+        blockers = list(row.get("missing_inputs") or row.get("blockers") or [])
+        if not eligible and not blockers:
+            blockers = ["planning_input_incomplete"]
+        row["missing_inputs"] = [] if eligible else blockers
+        row["reason"] = None if eligible else str(row.get("reason") or blockers[0])
         row["D0"] = {
-            "planned_kwh": row.get("planned_today_kwh"),
-            "still_after_horizon_kwh": row.get("still_after_today_kwh"),
+            "planned_kwh": row.get("planned_today_kwh") if eligible else None,
+            "still_after_horizon_kwh": row.get("still_after_today_kwh") if eligible else None,
         }
         row["D1"] = {
-            "planned_kwh": row.get("planned_tomorrow_kwh"),
-            "still_after_horizon_kwh": row.get("still_to_plan_kwh"),
+            "planned_kwh": row.get("planned_tomorrow_kwh") if eligible else None,
+            "still_after_horizon_kwh": row.get("still_to_plan_kwh") if eligible else None,
         }
     return {
         "plan_id": plan.get("plan_id"),
@@ -357,6 +404,8 @@ def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
         "assets": assets,
         "participant_count": len(assets),
         "eligible_participant_count": sum(row.get("planning_eligible") is True for row in assets),
+        "incomplete_participant_count": sum(row.get("planning_eligible") is not True for row in assets),
+        "totals_complete": flexible_plan.get("totals_complete") is True,
         "battery_ledger": deepcopy(plan.get("battery_ledger") or {}),
         "execution_policy": deepcopy(plan.get("execution_policy") or {}),
         "horizons": horizons,
@@ -770,14 +819,14 @@ def _strategy_profile_projection(
     configured_rows: list[dict[str, Any]],
     effective_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Publish domain-owned Settings groups; UX selects a group but never invents one."""
-    labels = {
-        "home": "Home Intelligence",
-        "battery": "Home Battery",
-        "solar": "Solar",
-        "grid": "Grid",
-        "flexible_loads": "Flexible Loads",
-        "resilience": "Resilience",
+    """Publish domain-owned Settings topics; UX renders them but never invents grouping."""
+    topics = {
+        "home": ("home_priorities", "Home & priorities", 10),
+        "battery": ("battery", "Battery", 20),
+        "flexible_loads": ("ev_charging", "EV charging", 30),
+        "solar": ("solar", "Solar", 40),
+        "grid": ("grid_tariffs", "Grid & tariffs", 50),
+        "resilience": ("home_resilience", "Home & resilience", 60),
     }
     effective_by_group: dict[str, list[dict[str, Any]]] = {}
     for row in effective_rows:
@@ -786,15 +835,49 @@ def _strategy_profile_projection(
     groups: dict[str, dict[str, Any]] = {}
     for row in configured_rows:
         group = str(row.get("group") or row.get("asset_id") or "home")
+        topic_id, topic_label, display_order = topics.get(
+            group,
+            (group, group.replace("_", " ").title(), 90),
+        )
         profile = groups.setdefault(group, {
             "profile_id": group,
-            "display_name": labels.get(group, group.replace("_", " ").title()),
-            "description": f"Configure {labels.get(group, group.replace('_', ' ')).lower()} policy.",
+            "topic_id": topic_id,
+            "topic_label": topic_label,
+            "display_order": display_order,
+            "display_name": topic_label,
+            "description": f"Adjust {topic_label.lower()} settings.",
             "configured_properties": [],
             "effective_properties": deepcopy(effective_by_group.get(group) or []),
         })
         profile["configured_properties"].append(deepcopy(row))
-    return [groups[key] for key in ("home", "battery", "solar", "grid", "flexible_loads", "resilience") if key in groups]
+    return [
+        groups[key]
+        for key in ("home", "battery", "flexible_loads", "solar", "grid", "resilience")
+        if key in groups
+    ]
+
+
+def _strategy_behavior_projection(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Publish read-only longer-term behavior topics from effective Settings truth."""
+    out: list[dict[str, Any]] = []
+    for profile in profiles:
+        effective = [
+            deepcopy(row)
+            for row in profile.get("effective_properties") or []
+            if isinstance(row, dict)
+        ]
+        if not effective:
+            continue
+        out.append({
+            "topic_id": profile.get("topic_id"),
+            "topic_label": profile.get("topic_label") or profile.get("display_name"),
+            "display_order": profile.get("display_order"),
+            "source_profile_id": profile.get("profile_id"),
+            "properties": effective,
+            "read_only": True,
+            "semantics": "effective_settings_interpretation",
+        })
+    return out
 
 
 def _settings_participation_projection(source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1046,6 +1129,9 @@ def build_public_contract_v2(
     canonical_configuration["strategy"]["profiles"] = _strategy_profile_projection(
         strategy_rows,
         canonical_configuration["strategy"]["effective_properties"],
+    )
+    canonical_configuration["strategy"]["behavior_topics"] = _strategy_behavior_projection(
+        canonical_configuration["strategy"]["profiles"]
     )
     canonical_configuration["strategy"]["participating_assets"] = _settings_participation_projection(source)
     coverage = canonical_coverage(objects, canonical_configuration)
