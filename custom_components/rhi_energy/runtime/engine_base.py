@@ -19,6 +19,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 from ..adapters import get_normalizer
 from .callbacks import RuntimeCallbacks, logical_topology
 from .canonical_semantics import (
+    aggregate_battery_power,
     aggregate_battery_soc,
     battery_state_from_power,
     complete_numeric_sum,
@@ -40,6 +41,7 @@ from .incremental import build_entity_targets, update_optimizer_entity
 from .grid_power import apply_grid_power_facts
 from .producers import mobility_entity_ids, read_mobility_energy_assets
 from .presence import experience_presence, physical_input
+from .layer_readiness import evaluate_runtime_layers
 from .solar_accounting import aggregate_solar_system
 
 _LOGGER = logging.getLogger(__name__)
@@ -451,7 +453,18 @@ class EnergyRuntime:
             child_power = complete_numeric_sum(pvals, expected_count=len(units))
             child_capacity = complete_numeric_sum(cvals, expected_count=len(units))
             child_available = complete_numeric_sum(avals, expected_count=len(units))
-            facts[f"{sid}.power_kw"] = direct_power if direct_power is not None else child_power
+            facts[f"{sid}.power_kw"] = aggregate_battery_power(
+                pvals, direct_power, unit_count=len(units)
+            )
+            if (
+                units
+                and child_power is not None
+                and isinstance(direct_power, (int, float))
+                and abs(float(direct_power) - float(child_power)) > 0.10
+            ):
+                issues.append(
+                    f"battery_system:{sid}:direct_power_disagrees_with_child_power"
+                )
             facts[f"{sid}.capacity_kwh"] = child_capacity if child_capacity is not None else direct_capacity
             capacity = facts[f"{sid}.capacity_kwh"]
             aggregate_soc = aggregate_battery_soc(child_capacity, child_available, socvals)
@@ -584,15 +597,6 @@ class EnergyRuntime:
             facts["pricing.source_id"] = facts.get("price_source.source_id")
             facts["pricing.source_integration"] = facts.get("price_source.source_integration")
 
-    @staticmethod
-    def _layer_health(rows: list[dict[str, Any]]) -> str:
-        states = {str(row.get("status") or "INCOMPLETE") for row in rows if isinstance(row, dict)}
-        if states and states == {"READY"}:
-            return "OK"
-        if "READY" in states:
-            return "DEGRADED"
-        return "INCOMPLETE"
-
     def _evaluate_runtime_layers(
         self,
         facts: dict[str, Any],
@@ -602,88 +606,14 @@ class EnergyRuntime:
         plan: dict[str, Any],
         intel: dict[str, Any],
         settings: dict[str, Any],
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, str]]:
-        """Evaluate fixed layer topology from canonical runtime evidence only."""
-        systems = deepcopy((self.model or {}).get("system_assets") or [])
-        planning = deepcopy((self.model or {}).get("planning_assets") or [])
-        intelligence_rows = deepcopy((self.model or {}).get("intelligence_assets") or [])
-        meter_today = (((self.store.data.get("metering") or {}).get("periods") or {}).get("today") or {})
-        d0 = (plan.get("planning_horizons") or {}).get("D0") or {}
-        d1 = (plan.get("planning_horizons") or {}).get("D1") or {}
-        d0_ready = ((d0.get("quality") or {}).get("availability") == "AVAILABLE")
-        d1_ready = ((d1.get("quality") or {}).get("availability") == "AVAILABLE")
-        active_flexible = [
-            row for row in flexible
-            if str(row.get("lifecycle_status") or row.get("lifecycle_state") or "active").lower() not in {"disabled", "inactive"}
-            and str(row.get("participation_state") or "participating").lower() == "participating"
-            and row.get("planning_input_ready", True) is not False
-            and row.get("infrastructure_only", False) is not True
-        ]
-        flex_ready = producer_available and all(row.get("power_kw") is not None for row in active_flexible)
-        system_ready = {
-            "battery_system": all(facts.get(key) is not None for key in ("battery.power_kw", "battery.soc_pct", "battery.capacity_kwh", "battery.available_kwh")),
-            "solar_production_system": facts.get("solar.power_kw") is not None,
-            "site_energy_balance": facts.get("site_consumption.power_kw") is not None,
-            "home_consumption": facts.get("home_consumption.power_kw") is not None,
-            "solar_forecast_system": facts.get("forecast.solar_today_kwh") is not None,
-            "pricing_system": facts.get("pricing.import_price_current_eur_kwh") is not None,
-            "flexible_load_system": flex_ready,
-            "connection_system": producer_available,
-            "metering_system": str(meter_today.get("quality") or "UNKNOWN") == "OK",
-            "strategy_system": bool(settings.get("strategy")),
-            "value_accounting_system": str(meter_today.get("quality") or "UNKNOWN") == "OK" and facts.get("pricing.import_price_current_eur_kwh") is not None,
-            "grid_system": facts.get("grid.net_power_kw") is not None and facts.get("site_consumption.power_kw") is not None,
-        }
-        for row in systems:
-            ready = bool(system_ready.get(str(row.get("concept_id") or ""), False))
-            row["status"] = "READY" if ready else "INCOMPLETE"
-            if ready: row.pop("reason", None)
-            else: row["reason"] = "runtime_evidence_incomplete"
-        planning_inputs_ready = producer_available and all(row.get("planning_input_ready") is True for row in flexible if str(row.get("participation_state") or "participating").lower() == "participating" and row.get("infrastructure_only", False) is not True)
-        planning_ready = {
-            "planning_model": d0_ready and d1_ready,
-            "planning_asset": all(facts.get(key) is not None for key in ("battery.capacity_kwh", "battery.available_kwh")),
-            "planning_pricing": facts.get("pricing.import_price_current_eur_kwh") is not None,
-            "constraint_set": bool(settings.get("strategy")),
-            "energy_need": planning_inputs_ready,
-            "allocation_set": d0_ready,
-            "baseline_energy_plan": d0_ready and d1_ready,
-            "flexible_load_plan": d0_ready and d1_ready and planning_inputs_ready,
-        }
-        for row in planning:
-            aid = str(row.get("asset_id") or "")
-            concept = str(row.get("concept_id") or "")
-            ready = planning_ready.get(concept, False)
-            if concept == "planning_horizon": ready = d0_ready if aid.endswith("D0") else d1_ready if aid.endswith("D1") else False
-            elif concept == "planning_supply": ready = facts.get("forecast.solar_today_kwh") is not None if aid.endswith("solar") else facts.get("site_consumption.power_kw") is not None
-            elif concept == "planning_demand": ready = flex_ready if aid.endswith("flexible") else facts.get("home_consumption.power_kw") is not None
-            row["status"] = "READY" if bool(ready) else "INCOMPLETE"
-            if ready: row.pop("reason", None)
-            else: row["reason"] = "runtime_evidence_incomplete"
-        intel_ready = {
-            "operational_plan": d0_ready,
-            "energy_outlook": d0_ready,
-            "cost_outlook": d0_ready and facts.get("pricing.import_price_current_eur_kwh") is not None,
-            "resilience_state": facts.get("battery.available_kwh") is not None,
-            "optimization_opportunity": intel.get("availability") == "AVAILABLE",
-            "energy_intelligence": intel.get("availability") == "AVAILABLE",
-            "planning_experience": d0_ready and intel.get("availability") == "AVAILABLE",
-            "energy_retrospective": str(meter_today.get("quality") or "UNKNOWN") == "OK",
-        }
-        for row in intelligence_rows:
-            ready = bool(intel_ready.get(str(row.get("concept_id") or ""), False))
-            row["status"] = "READY" if ready else "INCOMPLETE"
-            if ready: row.pop("reason", None)
-            else: row["reason"] = "runtime_evidence_incomplete"
-        runtime_logical = [row for row in logical_assets if row.get("runtime_truth")]
-        logical_states = {str(row.get("health") or "UNKNOWN") for row in runtime_logical}
-        logical_health = (
-            "OK" if runtime_logical and logical_states == {"OK"}
-            else "DEGRADED" if any(state == "OK" for state in logical_states)
-            else "INCOMPLETE"
+    ):
+        """Keep the runtime-layer boundary stable while delegating pure evaluation."""
+        # Safety invariant is enforced by the evaluator:
+        # row.get("planning_input_ready") is True for participating flexible demand.
+        return evaluate_runtime_layers(
+            self.model, self.store.data.get("metering") or {}, facts, flexible,
+            logical_assets, producer_available, plan, intel, settings,
         )
-        health = {"logical": logical_health, "system": self._layer_health(systems), "planning": self._layer_health(planning), "intelligence": self._layer_health(intelligence_rows)}
-        return systems, planning, intelligence_rows, health
 
     @staticmethod
     def _battery_units(logical_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:

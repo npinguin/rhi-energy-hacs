@@ -40,6 +40,25 @@ def complete_numeric_sum(values: Iterable[Any], *, expected_count: int) -> float
     return round(sum(float(value) for value in rows if value is not None), 6)
 
 
+def aggregate_battery_power(
+    unit_power_values: Iterable[Any],
+    direct_power: Any,
+    *,
+    unit_count: int,
+) -> float | None:
+    """Resolve canonical battery-system power without masking incomplete child truth.
+
+    When physical battery units exist, the canonical site battery is their complete
+    normalized sum. A controller/system-level power value is diagnostic evidence only
+    and must not override or fill gaps in child truth. Direct power is used only when
+    the system has no materialized child units.
+    """
+    child_power = complete_numeric_sum(unit_power_values, expected_count=unit_count)
+    if unit_count > 0:
+        return child_power
+    return number(direct_power)
+
+
 def aggregate_battery_soc(
     capacity_kwh: Any,
     available_kwh: Any,

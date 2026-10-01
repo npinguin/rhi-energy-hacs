@@ -3,7 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from .canonical_semantics import optional_physical_input
+try:
+    from .canonical_semantics import optional_physical_input
+except ImportError:  # direct runpy tests
+    from pathlib import Path as _Path
+    import runpy as _runpy
+    optional_physical_input = _runpy.run_path(
+        str(_Path(__file__).with_name("canonical_semantics.py"))
+    )["optional_physical_input"]
 
 _OBJECT_CLASSES = {
     "battery_system": {"battery", "battery_system"},
