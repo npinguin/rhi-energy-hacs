@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.solar_production.huawei_solar.v1",
-  "builder_version": "1.0.0",
+  "builder_version": "1.1.0",
   "concept": {
     "concept_id": "solar_production",
     "display_name": "Solar Production",
@@ -46,7 +46,7 @@
               {
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
-                "value": "_active_power"
+                "value": "_input_power"
               }
             ]
           }

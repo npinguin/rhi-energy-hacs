@@ -25,13 +25,31 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
     return unique_id.startswith("sonnenbatterie.")
 
 
+def normalization_semantics(role: str) -> dict[str, str]:
+    """Describe sonnen source semantics proven by directional runtime evidence."""
+    if role == "battery.power_kw":
+        return {
+            "source_semantics": "signed battery in/out power",
+            "source_sign_convention": "positive=discharge, negative=charge",
+            "canonical_sign_convention": "positive=discharge, negative=charge",
+            "transform": "identity",
+        }
+    if role == "grid.net_power_kw":
+        return {
+            "source_semantics": "signed grid in/out power",
+            "source_sign_convention": "positive=import, negative=export",
+            "canonical_sign_convention": "positive=import, negative=export",
+            "transform": "identity",
+        }
+    return {"transform": "identity"}
+
+
 def normalize(role: str, value: Any, _context: dict[str, Any]) -> Any:
     if value is None:
         return None
-    # RHI canonical stationary-battery power is positive while discharging and
-    # negative while charging. Runtime qualification verifies the sonnen sign.
+    # House qualification shows state_battery_inout is already positive while
+    # discharging: measured_charge=0, measured_discharge>0 and status=discharging.
+    # Do not invert it a second time.
     if role == "battery.power_kw":
-        return -float(value)
-    # RHI grid net power is positive import / negative export; passthrough until
-    # House-4 runtime qualification verifies the provider sign convention.
+        return float(value)
     return value

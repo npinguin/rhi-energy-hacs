@@ -62,12 +62,44 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
     if input_id == "solar_reactive_power":
         return unique_id.endswith("_reactive_power") and not grid_accumulator
 
-    if input_id in {"solar_power", "solar_ac_power"}:
+    if input_id == "solar_power":
+        # Huawei hybrid inverter active power is AC inverter flow and may include
+        # storage/grid contribution. Canonical PV production must use the explicit
+        # DC/PV input-power source instead.
+        return unique_id.endswith("_input_power") and not unique_id.endswith("_total_dc_input_power")
+
+    if input_id == "solar_ac_power":
         return unique_id.endswith("_active_power")
 
     return True
 
 
+def normalization_semantics(role: str) -> dict[str, str]:
+    """Describe Huawei source semantics before values enter the canonical model."""
+    if role == "battery.power_kw":
+        return {
+            "source_semantics": "signed storage-unit power",
+            "source_sign_convention": "positive=discharge, negative=charge",
+            "canonical_sign_convention": "positive=discharge, negative=charge",
+            "transform": "identity",
+        }
+    if role == "solar.power_kw":
+        return {
+            "source_semantics": "PV/DC inverter input power",
+            "source_sign_convention": "non-negative generation",
+            "canonical_sign_convention": "non-negative generation",
+            "transform": "identity",
+        }
+    if role == "solar.ac_power_kw":
+        return {
+            "source_semantics": "inverter AC active power; not canonical PV production",
+            "source_sign_convention": "provider-native AC flow",
+            "canonical_sign_convention": "diagnostic inverter AC flow",
+            "transform": "identity",
+        }
+    return {"transform": "identity"}
+
+
 def normalize(role: str, value: Any, _context: dict[str, Any]) -> Any:
-    """Huawei measurements already follow Energy's canonical sign conventions."""
+    """Normalize Huawei source values after provider-specific role selection."""
     return value

@@ -140,6 +140,11 @@ def _logical_asset_row(asset):
             "current_entity_id": prop.get("current_entity_id"),
             "unique_id": prop.get("unique_id"),
             "issues": [str(v) for v in (prop.get("issues") or [])][:8],
+            "editable": prop.get("editable"),
+            "write_supported": prop.get("write_supported"),
+            "control_reason": prop.get("control_reason"),
+            "normalization_semantics": deepcopy(prop.get("normalization_semantics") or {}),
+            "normalization_trace": deepcopy(prop.get("normalization_trace") or {}),
             "resolution": deepcopy(prop.get("resolution") or {}),
         })
     return {

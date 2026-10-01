@@ -95,6 +95,32 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
     return True
 
 
+def normalization_semantics(role: str) -> dict[str, str]:
+    """Describe SolarEdge Modbus Multi provider-to-canonical power semantics."""
+    if role == "battery.power_kw":
+        return {
+            "source_semantics": "signed battery DC power",
+            "source_sign_convention": "positive=charge, negative=discharge",
+            "canonical_sign_convention": "positive=discharge, negative=charge",
+            "transform": "negate",
+        }
+    if role == "grid.net_power_kw":
+        return {
+            "source_semantics": "signed site meter power",
+            "source_sign_convention": "positive=export, negative=import",
+            "canonical_sign_convention": "positive=import, negative=export",
+            "transform": "negate",
+        }
+    if role == "solar.power_kw":
+        return {
+            "source_semantics": "inverter DC power requiring linked-battery correction when storage is topology-proven",
+            "source_sign_convention": "non-negative inverter DC flow",
+            "canonical_sign_convention": "non-negative PV production",
+            "transform": "linked_battery_correction",
+        }
+    return {"transform": "identity"}
+
+
 def normalize(role: str, value: Any, context: dict[str, Any]) -> Any:
     if value is None:
         return None

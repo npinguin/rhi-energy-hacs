@@ -41,7 +41,6 @@ def _module(integration_domain: str | None):
         module = None
     _MODULE_CACHE[domain] = module
     return module
-
 def get_normalizer(integration_domain: str | None) -> Normalizer:
     module = _module(integration_domain)
     if module is None:
@@ -50,11 +49,15 @@ def get_normalizer(integration_domain: str | None) -> Normalizer:
     if not callable(normalizer):
         raise RuntimeError(f"energy_adapter_invalid:{integration_domain}:normalize_missing")
     return normalizer
-
+def get_normalization_semantics(integration_domain: str | None, role: str) -> dict[str, Any]:
+    """Return explicit provider-to-canonical semantics for diagnostics."""
+    module = _module(integration_domain)
+    resolver = getattr(module, "normalization_semantics", None) if module else None
+    semantics = resolver(role) if callable(resolver) else {"transform": "identity"}
+    return {"integration_domain": str(integration_domain or ""), "canonical_role": str(role), **dict(semantics or {})}
 def get_candidate_filter(integration_domain: str | None) -> CandidateFilter:
     predicate = getattr(_module(integration_domain), "accept_candidate", None)
     return predicate if callable(predicate) else lambda _input_id, _candidate: True
-
 def get_market_role_resolver(integration_domain: str | None) -> MarketRoleResolver:
     resolver = getattr(_module(integration_domain), "market_role", None)
     return resolver if callable(resolver) else lambda candidate: (
@@ -62,22 +65,18 @@ def get_market_role_resolver(integration_domain: str | None) -> MarketRoleResolv
         if (candidate.get("semantic_metadata") or {}).get("market_role") in {"import", "export"}
         else None
     )
-
 def get_topology_key_resolver(integration_domain: str | None) -> TopologyKeyResolver:
     """Return adapter-owned stable topology-key extraction, never display-name inference."""
     resolver = getattr(_module(integration_domain), "topology_key", None)
     return resolver if callable(resolver) else lambda _row: None
-
 def get_battery_unit_key_resolver(integration_domain: str | None) -> BatteryUnitKeyResolver:
     """Return a stable physical battery-unit key from Foundation-published evidence."""
     resolver = getattr(_module(integration_domain), "battery_unit_key", None)
     return resolver if callable(resolver) else lambda _candidate: None
-
 def get_inverter_identity_resolver(integration_domain: str | None) -> InverterIdentityResolver:
     """Return provider-specific stable inverter identity as (hardware_model, serial)."""
     resolver = getattr(_module(integration_domain), "inverter_identity", None)
     return resolver if callable(resolver) else lambda _row: None
-
 def get_inverter_serial_resolver(integration_domain: str | None) -> InverterSerialResolver:
     """Return provider-specific normalized inverter serial identity only."""
     module = _module(integration_domain)

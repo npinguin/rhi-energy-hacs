@@ -16,7 +16,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from ..adapters import get_normalizer
+from ..adapters import get_normalization_semantics, get_normalizer
 from .callbacks import RuntimeCallbacks, logical_topology
 from .canonical_semantics import (
     aggregate_battery_power,
@@ -350,7 +350,11 @@ class EnergyRuntime:
                 "readback_property": key,
             }
         value = dark_zero(self.hass, key, value)
-        normalizer = get_normalizer(asset.get("integration_domain"))
+        integration_domain = asset.get("integration_domain")
+        normalizer = get_normalizer(integration_domain)
+        prop["normalization_semantics"] = get_normalization_semantics(
+            integration_domain, key
+        )
         context = {"asset": asset, "property": prop, "binding_ids": binding_ids, "attributes": contexts}
         if key == "solar.power_kw" and asset.get("object_class") == "solar_inverter":
             linked_ids = [
@@ -369,7 +373,13 @@ class EnergyRuntime:
                     if linked_ids
                     else None
                 )
-        return normalizer(key, value, context)
+        normalized = normalizer(key, value, context)
+        prop["normalization_trace"] = {
+            "source_value": value,
+            "canonical_value": normalized,
+            "transform": (prop.get("normalization_semantics") or {}).get("transform", "identity"),
+        }
+        return normalized
 
     def _populate_direct_facts(
         self,
@@ -427,6 +437,29 @@ class EnergyRuntime:
             if asset.get("object_class") == "grid_connection":
                 apply_grid_power_facts(props, facts)
             if asset.get("object_class") == "battery":
+                # Directional battery measurements are an independent semantic
+                # witness for signed net power. When both are available they must
+                # agree with the provider-normalized canonical sign convention.
+                power_prop = props.get("battery.power_kw") or {}
+                charge_prop = props.get("battery.measured_charge_power_kw") or {}
+                discharge_prop = props.get("battery.measured_discharge_power_kw") or {}
+                power_key = str(power_prop.get("fact_key") or "")
+                charge_key = str(charge_prop.get("fact_key") or "")
+                discharge_key = str(discharge_prop.get("fact_key") or "")
+                signed_power = number(facts.get(power_key)) if power_key else None
+                measured_charge = number(facts.get(charge_key)) if charge_key else None
+                measured_discharge = number(facts.get(discharge_key)) if discharge_key else None
+                if measured_charge is not None and measured_discharge is not None:
+                    directional_power = round(measured_discharge - measured_charge, 6)
+                    if signed_power is None or abs(float(signed_power) - directional_power) > 0.10:
+                        if signed_power is not None:
+                            issues.append(
+                                f"battery:{aid}:signed_power_disagrees_with_directional_power"
+                            )
+                        # Explicit charge/discharge channels have unambiguous direction
+                        # and therefore win over contradictory signed source evidence.
+                        if power_key:
+                            facts[power_key] = directional_power
                 capacity = facts.get((props.get("battery.capacity_kwh") or {}).get("fact_key"))
                 soc = facts.get((props.get("battery.soc_pct") or {}).get("fact_key"))
                 if "battery.available_kwh" in props:
