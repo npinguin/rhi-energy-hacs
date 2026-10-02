@@ -274,6 +274,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unregister_domain_supervision(hass, supervision)
     for key in (
         "button_projection",
+        "logical_action_button_projection",
         "number_projection",
         "logical_number_projection",
         "select_projection",

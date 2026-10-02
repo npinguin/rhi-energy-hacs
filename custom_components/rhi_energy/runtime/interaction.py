@@ -198,6 +198,68 @@ class EnergyInteractionEngine:
         )
         return asset, prop, binding
 
+    def logical_action_ready(self, property_id: str) -> bool:
+        """Return whether one canonical stateless source action is invokable now."""
+        _asset, prop, binding = self._logical_control(property_id)
+        if not prop or not binding:
+            return False
+        if str(prop.get("kind") or "") != "action" or str(prop.get("platform") or "") != "button":
+            return False
+        if str((binding.get("technical_capability") or {}).get("capability_class") or "") != "button_write_surface":
+            return False
+        entity_id = str((binding.get("source_identity") or {}).get("current_entity_id") or "")
+        state = self.hass.states.get(entity_id) if entity_id else None
+        return bool(
+            entity_id.startswith("button.")
+            and state is not None
+            and str(state.state).strip().lower() != "unavailable"
+        )
+
+    async def invoke_logical_action(self, property_id: str) -> dict[str, Any]:
+        """Invoke one exact accepted stateless action on its canonical Energy asset.
+
+        Confirmation means Home Assistant accepted the source action invocation.  It
+        deliberately does not claim a physical state transition because button
+        surfaces do not provide authoritative stateful readback.
+        """
+        result = {
+            "property_id": property_id,
+            "status": "REJECTED",
+            "reason": "logical_action_unavailable",
+            "feedback_confirmed": False,
+        }
+        asset, prop, binding = self._logical_control(property_id)
+        if not asset or not prop or not binding:
+            return result
+        if str(prop.get("kind") or "") != "action" or str(prop.get("platform") or "") != "button":
+            result["reason"] = "not_a_stateless_action"
+            return result
+        if str((binding.get("technical_capability") or {}).get("capability_class") or "") != "button_write_surface":
+            result["reason"] = "authoritative_button_surface_missing"
+            return result
+        source = binding.get("source_identity") or {}
+        entity_id = str(source.get("current_entity_id") or "")
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if (
+            not entity_id.startswith("button.")
+            or state is None
+            or str(state.state).strip().lower() == "unavailable"
+        ):
+            result["reason"] = "authoritative_button_surface_unavailable"
+            return result
+        await self.hass.services.async_call(
+            "button", "press", {"entity_id": entity_id}, blocking=True
+        )
+        result.update(
+            status="CONFIRMED",
+            reason="source_action_invocation_confirmed_no_physical_readback",
+            target_asset_id=asset.get("asset_id"),
+            source_platform="button",
+            source_entity_id=entity_id,
+            feedback_confirmed=False,
+        )
+        return result
+
     @staticmethod
     def _source_write_value(prop: dict[str, Any], binding: dict[str, Any], value: Any) -> Any:
         kind = str(prop.get("kind") or "")
@@ -660,6 +722,20 @@ class EnergyInteractionEngine:
                         expected_state="running" if role == "start" else "idle" if role == "stop" else None,
                         expected_requested_power_kw=payload.get("requested_power_kw"),
                     )
+            elif command_id == "energy.command.invoke_asset_action":
+                property_id = str(parameters.get("property_id") or "")
+                action = await self.invoke_logical_action(property_id)
+                row.update(
+                    status=action.get("status") or "REJECTED",
+                    dispatch_state=(
+                        "SOURCE_ACTION_INVOKED"
+                        if action.get("status") == "CONFIRMED"
+                        else "NOT_DISPATCHED"
+                    ),
+                    reason=action.get("reason") or "source_action_failed",
+                    feedback_confirmed=False,
+                    source_entity_id=action.get("source_entity_id"),
+                )
             elif command_id == "energy.command.execute_plan":
                 outcome = await self._execute_plan("manual")
                 row.update(
@@ -936,6 +1012,62 @@ class EnergyInteractionEngine:
                         },
                         "execution_status": last.get("status") or "IDLE",
                         "authoritative_readback_ref": "energy:contract:flexible_plan",
+                    }
+                )
+        # Provider-specific stateless actions are normalized into canonical
+        # Energy asset actions.  The UX consumes these command rows and never needs
+        # to know the source integration or source entity.
+        for asset in self.runtime.snapshot.get("logical_assets") or []:
+            asset_id = str(asset.get("asset_id") or "")
+            if not asset_id:
+                continue
+            for prop in asset.get("properties") or []:
+                property_key = str(prop.get("property_key") or "")
+                if (
+                    str(prop.get("platform") or "") != "button"
+                    or str(prop.get("kind") or "") != "action"
+                    or not property_key
+                ):
+                    continue
+                property_id = f"logical:{asset_id}:{property_key}"
+                ready = self.logical_action_ready(property_id)
+                rows.append(
+                    {
+                        "command_instance_id": f"energy.command.invoke_asset_action.{asset_id}.{property_key}",
+                        "command_id": "energy.command.invoke_asset_action",
+                        "owner": "energy",
+                        "command_owner": "energy",
+                        "target_asset_id": asset_id,
+                        "role": property_key,
+                        "label": str(prop.get("display_name") or property_key),
+                        "action_kind": "command",
+                        "supported": True,
+                        "availability": AVAILABLE if ready else "UNAVAILABLE",
+                        "state": "available" if ready else "unavailable",
+                        "visible": True,
+                        "ux_visible": True,
+                        "enabled": ready,
+                        "ux_enabled": ready,
+                        "blocked_reason": None if ready else "source_action_not_ready",
+                        "parameters": {
+                            "property_id": {"value": property_id, "required": True}
+                        },
+                        "requires_confirmation": False,
+                        "invoke": {
+                            "operation_id": "energy.command.execute",
+                            "service": "rhi_energy.invoke_command",
+                            "data": {
+                                "command_id": "energy.command.invoke_asset_action",
+                                "target_asset_id": asset_id,
+                                "parameters": {"property_id": property_id},
+                            },
+                        },
+                        "readback": {
+                            "state": "idle",
+                            "feedback_confirmed": False,
+                            "readback_kind": "stateless_source_action",
+                        },
+                        "authoritative_readback_ref": None,
                     }
                 )
         for period in ("today", "week", "month", "year"):

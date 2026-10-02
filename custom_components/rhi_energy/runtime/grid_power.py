@@ -16,8 +16,8 @@ except ImportError:  # direct runpy tests
 def apply_grid_power_facts(
     props: dict[str, dict[str, Any]],
     facts: dict[str, Any],
-) -> None:
-    """Materialize canonical net/import/export from either supported source shape."""
+) -> dict[str, Any]:
+    """Materialize canonical net/import/export and return reconciliation evidence."""
     net_key = str((props.get("grid.net_power_kw") or {}).get("fact_key") or "")
     import_key = str((props.get("grid.measured_import_power_kw") or {}).get("fact_key") or "")
     export_key = str((props.get("grid.measured_export_power_kw") or {}).get("fact_key") or "")
@@ -32,3 +32,4 @@ def apply_grid_power_facts(
         facts[str(props["grid_import.power_kw"].get("fact_key"))] = normalized["import_power_kw"]
     if "grid_export.power_kw" in props:
         facts[str(props["grid_export.power_kw"].get("fact_key"))] = normalized["export_power_kw"]
+    return normalized

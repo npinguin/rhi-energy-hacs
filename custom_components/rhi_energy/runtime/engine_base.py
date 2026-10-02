@@ -417,6 +417,8 @@ class EnergyRuntime:
                     if not (source_entities & dirty_entity_ids):
                         continue
                 fact_key = str(prop.get("fact_key") or "")
+                if not fact_key or str(prop.get("kind") or "") == "action":
+                    continue
                 try:
                     facts[fact_key] = self._read_property(asset, prop, facts)
                 except Exception as exc:
@@ -435,7 +437,11 @@ class EnergyRuntime:
             props = _properties(asset)
             aid = str(asset.get("asset_id") or "")
             if asset.get("object_class") == "grid_connection":
-                apply_grid_power_facts(props, facts)
+                grid_result = apply_grid_power_facts(props, facts)
+                if grid_result.get("conflict") is True:
+                    issues.append(
+                        f"grid:{aid}:signed_power_disagrees_with_directional_power"
+                    )
             if asset.get("object_class") == "battery":
                 # Directional battery measurements are an independent semantic
                 # witness for signed net power. When both are available they must
@@ -727,6 +733,18 @@ class EnergyRuntime:
         )
         # Selected direct home-consumption measurement is authoritative; balance remains a cross-check.
         home_power = measured_home_power if measured_home_power is not None else home["power_kw"]
+        consumption_split_evidence = {
+            "site_consumption_kw": consumption.get("power_kw"),
+            "physical_flexible_connection_power_kw": flexible_power,
+            "attributed_flexible_power_kw": attributed_flexible_power,
+            "battery_charge_power_kw": battery_charge_power,
+            "raw_home_residual_kw": home.get("raw_residual_kw"),
+            "derived_home_consumption_kw": home.get("power_kw"),
+            "measured_home_consumption_kw": measured_home_power,
+            "effective_home_consumption_kw": home_power,
+            "health": home.get("health"),
+            "reason": home.get("reason"),
+        }
         if measured_home_power is None and home_power is None and home.get("health") == "DEGRADED":
             runtime_issues.append(
                 f"consumption_split_inconsistent:{home.get('reason')}"
@@ -842,6 +860,7 @@ class EnergyRuntime:
             "model_fingerprint": self.model.get("model_fingerprint"),
             "dependency_diagnostics": deepcopy(self.model.get("dependency_diagnostics") or {}),
             "runtime_issues": runtime_issues,
+            "consumption_split_evidence": consumption_split_evidence,
             "degraded_logical_assets": degraded_assets[:40],
             "experience_presence": experience_presence(
                 self.model, domain_assets, flexible, connections

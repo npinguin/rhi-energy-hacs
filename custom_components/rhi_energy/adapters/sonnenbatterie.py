@@ -37,9 +37,9 @@ def normalization_semantics(role: str) -> dict[str, str]:
     if role == "grid.net_power_kw":
         return {
             "source_semantics": "signed grid in/out power",
-            "source_sign_convention": "positive=import, negative=export",
+            "source_sign_convention": "positive=export, negative=import",
             "canonical_sign_convention": "positive=import, negative=export",
-            "transform": "identity",
+            "transform": "negate",
         }
     return {"transform": "identity"}
 
@@ -52,4 +52,8 @@ def normalize(role: str, value: Any, _context: dict[str, Any]) -> Any:
     # Do not invert it a second time.
     if role == "battery.power_kw":
         return float(value)
+    if role == "grid.net_power_kw":
+        # Qualified Sonnen evidence: state_grid_inout is negative while the
+        # directional grid-in channel is positive and grid-out is zero.
+        return -float(value)
     return value

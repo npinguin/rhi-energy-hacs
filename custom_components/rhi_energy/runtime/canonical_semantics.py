@@ -196,13 +196,49 @@ def normalize_grid_power(
     net_power_kw: Any,
     import_power_kw: Any,
     export_power_kw: Any,
+    *,
+    conflict_tolerance_kw: float = 0.10,
 ) -> dict[str, Any]:
-    """Normalize one signed source or one complete directional pair.
+    """Normalize signed and directional grid evidence into one canonical boundary truth.
 
     Canonical convention: positive net power is import; negative net power is export.
-    The source configuration never needs all three inputs.
+    A complete directional pair is an independent direction witness.  When it
+    contradicts signed net evidence beyond tolerance, the unambiguous import/export
+    pair wins and the conflict is surfaced to runtime health instead of being hidden.
     """
     net = number(net_power_kw)
+    imported = number(import_power_kw)
+    exported = number(export_power_kw)
+    pair_valid = (
+        imported is not None
+        and exported is not None
+        and imported >= 0
+        and exported >= 0
+    )
+    directional_net = (
+        round(float(imported) - float(exported), 6) if pair_valid else None
+    )
+
+    if net is not None and directional_net is not None:
+        residual = round(float(net) - float(directional_net), 6)
+        if abs(residual) > conflict_tolerance_kw:
+            return {
+                "net_power_kw": directional_net,
+                "import_power_kw": round(float(imported), 6),
+                "export_power_kw": round(float(exported), 6),
+                "source_mode": "directional_pair_overrode_conflicting_signed_net",
+                "conflict": True,
+                "residual_kw": residual,
+            }
+        return {
+            "net_power_kw": round(net, 6),
+            "import_power_kw": round(max(net, 0.0), 6),
+            "export_power_kw": round(max(-net, 0.0), 6),
+            "source_mode": "signed_net_verified_by_directional_pair",
+            "conflict": False,
+            "residual_kw": residual,
+        }
+
     if net is not None:
         return {
             "net_power_kw": round(net, 6),
@@ -211,9 +247,7 @@ def normalize_grid_power(
             "source_mode": "signed_net",
         }
 
-    imported = number(import_power_kw)
-    exported = number(export_power_kw)
-    if imported is None or exported is None or imported < 0 or exported < 0:
+    if not pair_valid:
         return {
             "net_power_kw": None,
             "import_power_kw": None,
@@ -221,12 +255,11 @@ def normalize_grid_power(
             "source_mode": "incomplete",
         }
     return {
-        "net_power_kw": round(imported - exported, 6),
-        "import_power_kw": round(imported, 6),
-        "export_power_kw": round(exported, 6),
+        "net_power_kw": directional_net,
+        "import_power_kw": round(float(imported), 6),
+        "export_power_kw": round(float(exported), 6),
         "source_mode": "directional_pair",
     }
-
 
 def grid_flow_direction(net_power_kw: float | None, *, deadband_kw: float = 0.05) -> str | None:
     """Return canonical site-boundary direction; positive grid power is import."""

@@ -1134,7 +1134,11 @@ def build_public_contract_v2(
         canonical_configuration["strategy"]["profiles"]
     )
     canonical_configuration["strategy"]["participating_assets"] = _settings_participation_projection(source)
-    coverage = canonical_coverage(objects, canonical_configuration)
+    coverage = canonical_coverage(
+        objects,
+        canonical_configuration,
+        model.get("accepted_bindings") or [],
+    )
     commands = _decorate_commands(command_rows)
     activity = [deepcopy(row) for row in (store_data.get("activity") or []) if isinstance(row, dict)][-100:]
     metering_periods = deepcopy(((store_data.get("metering") or {}).get("periods") or {}))

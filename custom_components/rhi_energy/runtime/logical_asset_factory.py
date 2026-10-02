@@ -72,12 +72,39 @@ def _asset(
     }
     return enrich_asset(asset)
 def _role_binding(
-    roles: dict[str, Any], role: str | None, binding_index: dict[str, dict[str, Any]]
+    roles: dict[str, Any],
+    role: str | None,
+    binding_index: dict[str, dict[str, Any]],
+    *,
+    asset_id: str | None = None,
+    many: bool = False,
 ) -> tuple[dict[str, Any] | None, list[str]]:
+    """Resolve one semantic role from the accepted-binding authority.
+
+    Provider acceptors normally also maintain a convenience role map.  That map is
+    not an independent truth source: if an AcceptedSourceBinding exists for the exact
+    canonical asset/role, the logical model must not silently drop it merely because
+    the convenience map omitted it.  Multi-valued roles use the canonical suffixed
+    role ids emitted by semantic acceptance.
+    """
     if not role:
         return None, []
     value = roles.get(role)
-    ids = [str(item) for item in (value if isinstance(value, list) else [value] if value else []) if item]
+    ids = [
+        str(item)
+        for item in (value if isinstance(value, list) else [value] if value else [])
+        if item
+    ]
+    if asset_id:
+        exact = f"energy:{asset_id}:{role}"
+        if exact in binding_index and exact not in ids:
+            ids.append(exact)
+        if many:
+            ids.extend(
+                binding_id
+                for binding_id in sorted(binding_index)
+                if binding_id.startswith(f"{exact}_") and binding_id not in ids
+            )
     existing = [binding_index[binding_id] for binding_id in ids if binding_id in binding_index]
     return (existing[0] if existing else None), [str(row.get("binding_id")) for row in existing]
 def _properties(
@@ -91,7 +118,13 @@ def _properties(
     rows: list[LogicalProperty] = []
     for spec in property_definitions(object_class):
         role = str(spec.get("role") or "") or None
-        binding, binding_ids = _role_binding(roles, role, binding_index)
+        binding, binding_ids = _role_binding(
+            roles,
+            role,
+            binding_index,
+            asset_id=asset_id,
+            many=bool(spec.get("many")),
+        )
         derived_from_bound = bool(spec.get("derived") and role and roles.get(role))
         supported = bool(binding_ids or derived_from_bound or (role and aggregate_roles and role in aggregate_roles))
         # Optional capabilities that a concrete asset does not publish are not

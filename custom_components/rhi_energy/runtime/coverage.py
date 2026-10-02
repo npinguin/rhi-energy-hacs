@@ -37,6 +37,7 @@ def _producer_kind(row: dict[str, Any], *, configuration: bool = False) -> str |
 def canonical_coverage(
     objects: list[dict[str, Any]],
     configuration: dict[str, Any],
+    accepted_bindings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
 
@@ -99,6 +100,25 @@ def canonical_coverage(
             if sum(other["property_id"] == row["property_id"] for other in rows) > 1
         }
     )
+    published_binding_ids = sorted({
+        str(binding_id)
+        for asset in objects
+        for prop in (asset.get("properties") or [])
+        if isinstance(prop, dict)
+        for binding_id in (
+            list(prop.get("binding_ids") or [])
+            + ([prop.get("binding_id")] if prop.get("binding_id") else [])
+        )
+        if binding_id
+    })
+    accepted_binding_ids = sorted({
+        str(binding.get("binding_id"))
+        for binding in (accepted_bindings or [])
+        if isinstance(binding, dict) and binding.get("binding_id")
+    })
+    unpublished_accepted_binding_ids = sorted(
+        set(accepted_binding_ids) - set(published_binding_ids)
+    )
     return {
         "contract_id": "ENERGY_CANONICAL_COVERAGE_V1",
         "property_count": len(rows),
@@ -108,6 +128,17 @@ def canonical_coverage(
         "unexplained_resolution_property_ids": sorted(unexplained),
         "writable_without_readback_property_ids": sorted(write_without_readback),
         "duplicate_property_ids": duplicate_ids,
-        "complete": not (unowned or unclassified or unexplained or write_without_readback or duplicate_ids),
+        "accepted_binding_count": len(accepted_binding_ids),
+        "published_binding_count": len(published_binding_ids),
+        "unpublished_accepted_binding_ids": unpublished_accepted_binding_ids,
+        "source_to_canonical_complete": not unpublished_accepted_binding_ids,
+        "complete": not (
+            unowned
+            or unclassified
+            or unexplained
+            or write_without_readback
+            or duplicate_ids
+            or unpublished_accepted_binding_ids
+        ),
         "rows": rows,
     }
