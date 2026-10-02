@@ -188,6 +188,18 @@ class EnergyDomainSupervision:
         )
         mobility_available = bool(runtime_snapshot.get("mobility_publication_available"))
         mobility_expected = _mobility_runtime_expected(self.hass)
+        canonical_coverage = (
+            canonical_public_v2.get("coverage")
+            if isinstance(canonical_public_v2, dict)
+            else {}
+        ) or {}
+        canonical_coverage_status = (
+            "OK"
+            if canonical_coverage.get("complete") is True
+            else "BLOCKED"
+            if canonical_public_v2
+            else "UNKNOWN"
+        )
 
         builder_assessments = getattr(manager, "builder_assessments", {}) or {}
         builder_issue_rows = [
@@ -263,6 +275,20 @@ class EnergyDomainSupervision:
                 severity="ERROR" if runtime_status in {"BLOCKED", "STALE"} else "WARNING",
                 scope=["EnergyRuntime"],
             ))
+        if canonical_coverage_status != "OK":
+            scope = (
+                canonical_coverage.get("unpublished_accepted_binding_ids")
+                or canonical_coverage.get("unclassified_property_ids")
+                or canonical_coverage.get("unexplained_resolution_property_ids")
+                or ["RHI_ENERGY_PUBLIC_CONTRACT_V2"]
+            )
+            issues.append(_issue(
+                "energy:contract:canonical_coverage", "CONTRACT",
+                "CANONICAL_PRODUCT_COVERAGE_INCOMPLETE",
+                blocking=True,
+                severity="ERROR",
+                scope=[str(value) for value in scope[:12]],
+            ))
         if builder_issue_rows:
             issues.append(_issue(
                 "energy:build:selected_input_assessment", "BINDING",
@@ -301,6 +327,7 @@ class EnergyDomainSupervision:
             contract_status,
             build_status,
             runtime_status,
+            canonical_coverage_status,
         ]
         overall = max(canonical_statuses, key=lambda value: _PRIORITY[value])
         if all(value == "OK" for value in canonical_statuses):

@@ -39,6 +39,22 @@ def ha_projection_metadata(asset: dict[str, Any]) -> dict[str, Any]:
     """Return explicit HA materialisation metadata for one canonical node."""
     object_class = str(asset.get("object_class") or asset.get("asset_type") or "")
     policy = HA_MATERIALIZATION_POLICY.get(object_class)
+    if "ha_materialization" in asset:
+        # Object-level projection policy can only narrow HA presentation. It does
+        # not remove the object from canonical semantic/public truth.
+        base = dict(policy or {})
+        base["ha_materialization"] = bool(asset.get("ha_materialization"))
+        base["topology_kind"] = str(
+            asset.get("topology_kind")
+            or base.get("topology_kind")
+            or ("via_device" if base["ha_materialization"] else "presentation_only")
+        )
+        base["materialization_reason"] = str(
+            asset.get("materialization_reason")
+            or base.get("materialization_reason")
+            or "explicit_object_projection_policy"
+        )
+        return base
     if policy is not None:
         return dict(policy)
     # Unknown future semantic objects fail closed: they remain in canonical truth

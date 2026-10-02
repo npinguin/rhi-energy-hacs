@@ -71,6 +71,29 @@ def _asset(
         "visual_ref": visual_ref,
     }
     return enrich_asset(asset)
+
+def binding_role_candidates(
+    providers: list[dict[str, Any]],
+    role: str,
+) -> list[str]:
+    """Return exact accepted binding ids for one composed semantic role."""
+    values: list[str] = []
+    for provider in providers:
+        raw = (provider.get("bindings") or {}).get(role)
+        if isinstance(raw, list):
+            values.extend(str(value) for value in raw if value)
+        elif raw:
+            values.append(str(raw))
+    return list(dict.fromkeys(values))
+
+
+def suppress_duplicate_ha_materialization(asset: LogicalAsset) -> None:
+    """Keep semantic/public truth while suppressing only duplicate HA DeviceInfo."""
+    asset["ha_materialization"] = False
+    asset["topology_kind"] = "presentation_only"
+    asset["materialization_reason"] = "semantic_source_retained_without_duplicate_ha_device"
+    asset["projection_role"] = "non_materialized_semantic_source"
+
 def _role_binding(
     roles: dict[str, Any],
     role: str | None,

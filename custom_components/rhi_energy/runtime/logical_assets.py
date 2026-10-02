@@ -13,7 +13,7 @@ try:
     from ..models import LogicalAsset, LogicalProperty
     from ..semantic import property_definitions
     from .asset_profiles import binding_device_ids, binding_index as build_binding_index, identity, solar_panel_asset
-    from .logical_asset_factory import _asset, _properties, _selection, solar_source_asset
+    from .logical_asset_factory import _asset, _properties, _selection, binding_role_candidates, solar_source_asset, suppress_duplicate_ha_materialization
     from .optimizer_topology import optimizer_descriptors
     from .resolution import compatibility_availability, resolve_property
 except ImportError:  # direct runpy tests
@@ -31,6 +31,8 @@ except ImportError:  # direct runpy tests
     _properties = _factory["_properties"]
     _selection = _factory["_selection"]
     solar_source_asset = _factory["solar_source_asset"]
+    binding_role_candidates = _factory["binding_role_candidates"]
+    suppress_duplicate_ha_materialization = _factory["suppress_duplicate_ha_materialization"]
     optimizer_descriptors = _runpy.run_path(str(_root / "runtime" / "optimizer_topology.py"))["optimizer_descriptors"]
     property_definitions = _semantic["property_definitions"]
     _resolution = _runpy.run_path(str(_root / "runtime" / "resolution.py"))
@@ -122,11 +124,7 @@ def _build_domain_assets(
             if role not in {"phases", "generation_meter_phases"}
         })
         for role in all_role_names:
-            candidates = [
-                str((provider.get("bindings") or {}).get(role))
-                for provider in grid_providers
-                if (provider.get("bindings") or {}).get(role)
-            ]
+            candidates = binding_role_candidates(grid_providers, role)
             if candidates:
                 grid_roles[role] = candidates[0] if len(candidates) == 1 else candidates
         grid_asset = _asset(
@@ -327,9 +325,7 @@ def _build_domain_assets(
         for descriptor in optimizer_descriptors(provider, master_parent_asset_id=optimizer_master_parent):
             row, object_class = descriptor["row"], str(descriptor["object_class"])
             aid = str(row.get("asset_id") or "")
-            if descriptor.get("suppress_projection"):
-                continue
-            out.append(_asset(
+            asset = _asset(
                 aid, object_class, str(descriptor["display_name"]), builder_id=builder,
                 integration_domain=integration, normalization_status=health,
                 parent_asset_id=descriptor.get("parent_asset_id"),
@@ -337,7 +333,10 @@ def _build_domain_assets(
                 device_registry_id=str(row.get("device_registry_id") or "") or None,
                 via_device_registry_id=str(row.get("via_device_registry_id") or "") or None,
                 identity=identity(row), properties=_properties(object_class, aid, row.get("bindings") or {}, binding_index),
-            ))
+            )
+            if descriptor.get("suppress_projection"):
+                suppress_duplicate_ha_materialization(asset)
+            out.append(asset)
             if descriptor.get("panel_binding"):
                 panel_binding = str(descriptor["panel_binding"])
                 out.append(solar_panel_asset(

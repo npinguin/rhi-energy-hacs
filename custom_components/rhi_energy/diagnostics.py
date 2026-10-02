@@ -459,6 +459,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "compatibility_backend_release": LEGACY_BACKEND_RELEASE,
             "public_contract": LEGACY_CONTRACT_VERSION,
             "known_accepted_technical_debt": 0,
+            "known_accepted_feature_debt": 0,
         },
         "setup_performance": deepcopy(state.get("setup_performance") or {}),
         "logical_projection": deepcopy((state.get("store").data.get("logical_projection") if state.get("store") else {}) or {}),
