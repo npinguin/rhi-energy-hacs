@@ -38,6 +38,7 @@ def canonical_coverage(
     objects: list[dict[str, Any]],
     configuration: dict[str, Any],
     accepted_bindings: list[dict[str, Any]] | None = None,
+    semantic_paths: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
 
@@ -119,6 +120,17 @@ def canonical_coverage(
     unpublished_accepted_binding_ids = sorted(
         set(accepted_binding_ids) - set(published_binding_ids)
     )
+    semantic_path_rows = semantic_paths or {}
+    semantic_conflict_fact_ids = sorted({
+        str(fact_id)
+        for fact_id, path in semantic_path_rows.items()
+        if isinstance(path, dict) and path.get("conflicts")
+    })
+    semantic_unowned_fact_ids = sorted({
+        str(fact_id)
+        for fact_id, path in semantic_path_rows.items()
+        if isinstance(path, dict) and not path.get("semantic_owner")
+    })
     return {
         "contract_id": "ENERGY_CANONICAL_COVERAGE_V1",
         "property_count": len(rows),
@@ -132,6 +144,10 @@ def canonical_coverage(
         "published_binding_count": len(published_binding_ids),
         "unpublished_accepted_binding_ids": unpublished_accepted_binding_ids,
         "source_to_canonical_complete": not unpublished_accepted_binding_ids,
+        "semantic_path_count": len(semantic_path_rows),
+        "semantic_conflict_fact_ids": semantic_conflict_fact_ids,
+        "semantic_unowned_fact_ids": semantic_unowned_fact_ids,
+        "semantic_path_complete": not semantic_conflict_fact_ids and not semantic_unowned_fact_ids,
         "complete": not (
             unowned
             or unclassified
@@ -139,6 +155,8 @@ def canonical_coverage(
             or write_without_readback
             or duplicate_ids
             or unpublished_accepted_binding_ids
+            or semantic_conflict_fact_ids
+            or semantic_unowned_fact_ids
         ),
         "rows": rows,
     }

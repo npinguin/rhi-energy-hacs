@@ -156,6 +156,7 @@ class EnergyDomainSupervision:
         product_states = {}
         projection_payloads: dict[str, dict[str, Any]] = {}
         canonical_public_v2: dict[str, Any] = {}
+        compatibility_source: dict[str, Any] = {}
         if projector is not None and hasattr(projector, "get"):
             projection_payloads = {
                 entity_id.removeprefix("sensor."): projector.get(entity_id.removeprefix("sensor."))
@@ -168,13 +169,13 @@ class EnergyDomainSupervision:
                 ).upper()
                 for entity_id in LEGACY_PUBLIC_ENTITIES
             }
-            if hasattr(projector, "get_parity_source"):
-                canonical_public_v2 = projector.get_parity_source() or {}
-            elif hasattr(projector, "get_v2"):
+            if hasattr(projector, "get_v2"):
                 canonical_public_v2 = projector.get_v2() or {}
+            if hasattr(projector, "get_parity_source"):
+                compatibility_source = projector.get_parity_source() or {}
         canonical_parity_issues = (
-            projection_consistency_issues(projection_payloads, canonical_public_v2)
-            if projection_payloads and canonical_public_v2
+            projection_consistency_issues(projection_payloads, compatibility_source)
+            if projection_payloads and compatibility_source
             else {}
         )
         # Functional availability is an installation/runtime concern, not V1/V2 parity.

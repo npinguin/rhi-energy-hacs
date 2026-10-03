@@ -1,4 +1,4 @@
-"""Robotix Home Intelligence Energy V2 integration — Shared Baseline 1.8.1."""
+"""Robotix Home Intelligence Energy V2 integration — Shared Baseline 1.8.3."""
 from __future__ import annotations
 
 import logging
@@ -94,7 +94,7 @@ def _ensure_publication_provider(hass: HomeAssistant) -> EnergyBuildSpecificatio
         publication_revision=provider.publication_revision,
     )
     if not callable(unsubscribe):
-        # Foundation 1.8.1 source compatibility: its registration API returned None.
+        # Foundation 1.8.3 source compatibility: its registration API returned None.
         def _legacy_unsubscribe() -> None:
             unregister_provider(hass, publisher_domain=DOMAIN)
 
@@ -222,8 +222,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Energy never performs a second explicit Device Registry convergence pass.
         setup_performance["canonical_device_sync_mode"] = "entity_device_info_only"
 
-        # Shared Baseline 1.8.1 supervision is structural, not telemetry-driven.
-        # Foundation 1.8.2 additionally makes provider lifetime generation-safe.
+        # Shared Baseline 1.8.3 supervision is structural, not telemetry-driven.
+        # Foundation 1.8.3 additionally makes provider lifetime generation-safe.
         stage_started = perf_counter()
         state["supervision_unsubscribe"] = register_domain_supervision(hass, supervision)
         setup_performance["supervision_registration_ms"] = round((perf_counter() - stage_started) * 1000, 3)
@@ -305,7 +305,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             async_remove_domain_configuration,
         )
     except (ImportError, AttributeError):
-        # Foundation 1.8.1 has no explicit domain-removal API. Runtime compatibility
+        # Foundation 1.8.3 has no explicit domain-removal API. Runtime compatibility
         # remains intact; stale technical intent can still be removed from Foundation.
         _LOGGER.info("Foundation does not expose domain-scoped Energy removal yet")
         return

@@ -5,10 +5,37 @@ import re
 from typing import Any
 
 
+
+def physical_source_role(candidate: dict[str, Any]) -> str:
+    """Classify SolarEdge physical source role from stable provider identity evidence."""
+    source = candidate.get("source_identity") or {}
+    token = str(
+        source.get("unique_id")
+        or source.get("api_capability_id")
+        or candidate.get("source_unique_id")
+        or ""
+    )
+    if not token:
+        return "unknown"
+    if re.search(r"_(?:B|DERB)[1-4]_", token, re.IGNORECASE):
+        return "battery_unit"
+    if re.search(r"_M\d+_", token, re.IGNORECASE):
+        return "meter"
+    if re.search(r"(?:^|_)i[1-4]_", token, re.IGNORECASE):
+        return "inverter"
+    if _SERIAL.search(token) and re.search(
+        r"_(?:dc_power|dc_voltage|dc_current|ac_power|ac_energy_kwh|ac_current(?:_[abc])?|ac_voltage_(?:[abc]n|ab|bc|ca)|ac_frequency|ac_var|ac_va|ac_pf|temp_sink|last_update_timestamp|version|status|grid_status_on_off|status_vendor|rrcr)$",
+        token,
+        re.IGNORECASE,
+    ):
+        return "inverter"
+    return "unknown"
+
 def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
     """Refine native SolarEdge families after Foundation's mechanical match."""
-    unique_id = str((candidate.get("source_identity") or {}).get("unique_id") or "")
-    if not unique_id:
+    source = candidate.get("source_identity") or {}
+    token = str(source.get("unique_id") or source.get("api_capability_id") or "")
+    if not token:
         return True
 
     exact_suffixes = {
@@ -76,22 +103,22 @@ def accept_candidate(input_id: str, candidate: dict[str, Any]) -> bool:
         "default_power_settings_command": r"bt_default_pwr_settings$",
         "refresh_command": r"_refresh$",
     }
+    role = physical_source_role(candidate)
     if input_id in exact_suffixes:
-        if input_id.startswith("battery_") and "_DERB" in unique_id:
+        if input_id.startswith("battery_") and "_DERB" in token:
             return False
-        return re.search(exact_suffixes[input_id], unique_id) is not None
+        if (
+            input_id.startswith("solar_")
+            or input_id.startswith("inverter_")
+            or input_id in {"phase_current", "phase_voltage_ln", "phase_voltage_ll"}
+        ) and role != "inverter":
+            return False
+        return re.search(exact_suffixes[input_id], token) is not None
 
     if input_id == "solar_power":
-        return (
-            re.search(r"_(?:B|DERB)[1-4]_", unique_id) is None
-            and not unique_id.endswith("_inverted")
-            and unique_id.endswith("_dc_power")
-        )
+        return role == "inverter" and token.endswith("_dc_power")
     if input_id == "inverter_status":
-        return (
-            unique_id.endswith("_status")
-            and re.search(r"_(?:B|DERB)[1-4]_", unique_id) is None
-        )
+        return role == "inverter" and token.endswith("_status")
     return True
 
 

@@ -43,6 +43,7 @@ from .producers import mobility_entity_ids, read_mobility_energy_assets
 from .presence import experience_presence, physical_input
 from .layer_readiness import evaluate_runtime_layers
 from .solar_accounting import aggregate_solar_system
+from .semantic_authority import CanonicalFactStore
 
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
@@ -681,24 +682,29 @@ class EnergyRuntime:
             return
 
         domain_assets = [row for row in (self.model.get("logical_assets") or []) if isinstance(row, dict)]
-        facts: dict[str, Any] = (
-            {}
-            if full_hydration
-            else deepcopy(self.snapshot.get("facts") or {})
+        facts = CanonicalFactStore(
+            {} if full_hydration else deepcopy(self.snapshot.get("facts") or {}),
+            {} if full_hydration else deepcopy(self.snapshot.get("semantic_paths") or {}),
         )
         runtime_issues: list[str] = []
         dirty_entity_ids = None if full_hydration else set(self._dirty_entity_ids)
-        self._populate_direct_facts(
-            domain_assets,
-            facts,
-            runtime_issues,
-            include_high_cardinality=full_hydration,
-            dirty_entity_ids=dirty_entity_ids,
-        )
+        with facts.writer("source_materialization"):
+            self._populate_direct_facts(
+                domain_assets,
+                facts,
+                runtime_issues,
+                include_high_cardinality=full_hydration,
+                dirty_entity_ids=dirty_entity_ids,
+            )
         if not full_hydration:
             self._dirty_entity_ids.difference_update(dirty_entity_ids or set())
-        self._aggregate_objects(domain_assets, facts, runtime_issues)
-        self._canonicalize(domain_assets, facts, runtime_issues)
+        with facts.writer("domain_aggregation", resolves_from={"source_materialization"}):
+            self._aggregate_objects(domain_assets, facts, runtime_issues)
+        with facts.writer(
+            "canonical_resolution",
+            resolves_from={"source_materialization", "domain_aggregation"},
+        ):
+            self._canonicalize(domain_assets, facts, runtime_issues)
 
         consumption = derive_consumption(
             physical_input(self.model, "solar_production", "solar.power_kw", facts, domain_assets),
@@ -707,7 +713,8 @@ class EnergyRuntime:
         )
         # Physical balance yields Site Consumption. Home Consumption is the
         # residual after the complete Mobility-owned flexible-load publication.
-        facts["site_consumption.power_kw"] = consumption["power_kw"]
+        with facts.writer("consumption_accounting"):
+            facts["site_consumption.power_kw"] = consumption["power_kw"]
         consumers, connections, producer_availability, producer_metadata = self._producer_assets()
         flexible = normalize_mobility_consumers(consumers, connections)
         producer_available = bool(producer_availability.get("mobility"))
@@ -749,53 +756,60 @@ class EnergyRuntime:
             runtime_issues.append(
                 f"consumption_split_inconsistent:{home.get('reason')}"
             )
-        facts["flexible_loads.power_kw"] = flexible_power
-        facts["flexible_loads.attributed_power_kw"] = attributed_flexible_power
-        facts["home_consumption.power_kw"] = home_power
-        facts["battery_charge.power_kw"] = battery_charge_power
-        facts["battery_discharge.power_kw"] = battery_discharge_power
-        facts["supply.total_power_kw"] = (
-            round(
-                float(facts.get("solar.power_kw") or 0.0)
-                + float(facts.get("grid_import.power_kw") or 0.0)
-                + float(battery_discharge_power or 0.0),
-                6,
-            )
-            if all(
-                value is not None
-                for value in (
-                    facts.get("solar.power_kw"),
-                    facts.get("grid_import.power_kw"),
-                    battery_discharge_power,
+        with facts.writer("consumption_accounting"):
+            facts["flexible_loads.power_kw"] = flexible_power
+            facts["flexible_loads.attributed_power_kw"] = attributed_flexible_power
+            facts["home_consumption.power_kw"] = home_power
+            facts["battery_charge.power_kw"] = battery_charge_power
+            facts["battery_discharge.power_kw"] = battery_discharge_power
+            facts["supply.total_power_kw"] = (
+                round(
+                    float(facts.get("solar.power_kw") or 0.0)
+                    + float(facts.get("grid_import.power_kw") or 0.0)
+                    + float(battery_discharge_power or 0.0),
+                    6,
                 )
-            )
-            else None
-        )
-        facts["consumption.total_power_kw"] = (
-            round(
-                float(home_power)
-                + float(flexible_power)
-                + float(battery_charge_power)
-                + float(facts.get("grid_export.power_kw") or 0.0),
-                6,
-            )
-            if all(
-                value is not None
-                for value in (
-                    home_power,
-                    flexible_power,
-                    battery_charge_power,
-                    facts.get("grid_export.power_kw"),
+                if all(
+                    value is not None
+                    for value in (
+                        facts.get("solar.power_kw"),
+                        facts.get("grid_import.power_kw"),
+                        battery_discharge_power,
+                    )
                 )
+                else None
             )
-            else None
-        )
-        facts["consumption.power_kw"] = consumption["power_kw"]
-        facts["consumption.health"] = (
-            "OK" if consumption["power_kw"] is not None and home_power is not None
-            else "DEGRADED" if consumption["power_kw"] is not None
-            else "UNAVAILABLE"
-        )
+            facts["consumption.total_power_kw"] = (
+                round(
+                    float(home_power)
+                    + float(flexible_power)
+                    + float(battery_charge_power)
+                    + float(facts.get("grid_export.power_kw") or 0.0),
+                    6,
+                )
+                if all(
+                    value is not None
+                    for value in (
+                        home_power,
+                        flexible_power,
+                        battery_charge_power,
+                        facts.get("grid_export.power_kw"),
+                    )
+                )
+                else None
+            )
+            facts["consumption.power_kw"] = consumption["power_kw"]
+            facts["consumption.health"] = (
+                "OK" if consumption["power_kw"] is not None and home_power is not None
+                else "DEGRADED" if consumption["power_kw"] is not None
+                else "UNAVAILABLE"
+            )
+        semantic_conflicts = facts.conflicts
+        if semantic_conflicts:
+            runtime_issues.extend(
+                f"semantic_path_conflict:{row.get('fact_id')}:{row.get('previous_writer')}->{row.get('candidate_writer')}"
+                for row in semantic_conflicts
+            )
         settings = deepcopy(self.store.data.get("settings") or {})
         configured_flexible = settings.get("flexible_loads") or {}
         for asset in flexible:
@@ -860,6 +874,9 @@ class EnergyRuntime:
             "model_fingerprint": self.model.get("model_fingerprint"),
             "dependency_diagnostics": deepcopy(self.model.get("dependency_diagnostics") or {}),
             "runtime_issues": runtime_issues,
+            "semantic_paths": facts.semantic_paths(),
+            "semantic_conflicts": semantic_conflicts,
+            "semantic_path_complete": facts.complete,
             "consumption_split_evidence": consumption_split_evidence,
             "degraded_logical_assets": degraded_assets[:40],
             "experience_presence": experience_presence(

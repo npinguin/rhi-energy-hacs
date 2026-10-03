@@ -4,7 +4,7 @@
   "publisher": "rhi_energy",
   "domain_id": "energy",
   "builder_id": "energy.solar_production.solaredge_modbus_multi.v1",
-  "builder_version": "1.3.1",
+  "builder_version": "1.3.2",
   "concept": {
     "concept_id": "solar_production",
     "display_name": "Solar Production",
@@ -45,68 +45,8 @@
             "all_of": [
               {
                 "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "i1_dc_power"
-              }
-            ]
-          },
-          {
-            "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "solar_power",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "i2_dc_power"
-              }
-            ]
-          },
-          {
-            "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "solar_power",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "i3_dc_power"
-              }
-            ]
-          },
-          {
-            "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "solar_power",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "i4_dc_power"
-              }
-            ]
-          },
-          {
-            "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "solar_power",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "solar_power"
-              }
-            ]
-          },
-          {
-            "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "solar_power",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "pv_power"
+                "operator": "ends_with",
+                "value": "_dc_power"
               }
             ]
           },
