@@ -5,10 +5,8 @@ import hashlib
 import json
 from typing import Any
 
-from .public_contract import PublicContractProjector as BaseProjector, project_all
+from .projection_base import PublicProjectionBase as BaseProjector
 from .public_v2 import build_public_contract_v2, published_v2
-from .public_v2 import compatibility_snapshot
-from .v1_parity import close_v1_projection
 
 
 _VOLATILE_PUBLIC_FIELDS = {"generated_at", "content_fingerprint", "contract_revision"}
@@ -34,7 +32,7 @@ def _fingerprint(payload: dict[str, Any]) -> str:
 
 
 class PublicContractProjector(BaseProjector):
-    """Single owner of canonical V2 + downstream V1 publication.
+    """Single owner of canonical Energy Public V2 publication.
 
     Upstream runtime/store/metering/interaction callbacks can cascade during one
     physical event. request_recompute() collapses those notifications into one event
@@ -51,9 +49,6 @@ class PublicContractProjector(BaseProjector):
         self._projection_count = 0
         self._unchanged_skip_count = 0
 
-    def get_parity_source(self) -> dict:
-        """Return canonical compatibility truth from the same immutable V2 decision."""
-        return deepcopy(getattr(self, "_parity_source", {}))
 
     def projection_diagnostics(self) -> dict[str, Any]:
         return {
@@ -98,19 +93,7 @@ class PublicContractProjector(BaseProjector):
         candidate_public["content_fingerprint"] = fingerprint
         candidate_public["contract_revision"] = self._contract_revision
 
-        compatibility_source = compatibility_snapshot(v2_contract)
-        projected = close_v1_projection(
-            project_all(v2_contract, self.store.data, rows, self.manager),
-            compatibility_source,
-        )
-
         self._v2 = candidate_public
-        self._parity_source = compatibility_source
-        for object_id, payload in projected.items():
-            if payload != self._cache.get(object_id):
-                self._cache[object_id] = payload
-                for callback in tuple(self._callbacks.get(object_id, [])):
-                    callback()
         for callback in tuple(self._callbacks.get("__public_v2__", [])):
             callback()
 

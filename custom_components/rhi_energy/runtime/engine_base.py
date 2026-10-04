@@ -1,21 +1,17 @@
 """Event-driven Energy runtime; Foundation is never in the measurement fast path.
-
 Semantic acceptance owns object identity and accepted source bindings.  Runtime therefore does only four things:
 read accepted HA sources, normalize values, derive bounded Energy aggregates, and expose
 one canonical snapshot. Integration quirks are isolated in ``adapters/``.
 """
 from __future__ import annotations
-
 from copy import deepcopy
 from datetime import UTC, datetime
 import logging
 from typing import Any
 from zoneinfo import ZoneInfo
-
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
-
 from ..adapters import get_normalization_semantics, get_normalizer
 from .callbacks import RuntimeCallbacks, logical_topology
 from .canonical_semantics import (
@@ -44,10 +40,9 @@ from .presence import experience_presence, physical_input
 from .layer_readiness import evaluate_runtime_layers
 from .solar_accounting import aggregate_solar_system
 from .semantic_authority import CanonicalFactStore
-
+from .pilot_readiness import operational_readiness
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
-
 def _unit_to_kw(value: Any, unit: str | None) -> float | None:
     value = number(value)
     if value is None:
@@ -59,7 +54,6 @@ def _unit_to_kw(value: Any, unit: str | None) -> float | None:
     elif unit not in {"kW", None, ""}:
         return None
     return round(value, 6)
-
 def _unit_to_w(value: Any, unit: str | None) -> float | None:
     value = number(value)
     if value is None:
@@ -71,7 +65,6 @@ def _unit_to_w(value: Any, unit: str | None) -> float | None:
     elif unit not in {"W", None, ""}:
         return None
     return round(value, 3)
-
 def _unit_to_kwh(value: Any, unit: str | None) -> float | None:
     value = number(value)
     if value is None:
@@ -83,7 +76,6 @@ def _unit_to_kwh(value: Any, unit: str | None) -> float | None:
     elif unit not in {"kWh", None, ""}:
         return None
     return round(value, 6)
-
 def _price_to_eur_kwh(value: Any, unit: str | None) -> float | None:
     value = number(value)
     if value is None:
@@ -91,12 +83,10 @@ def _price_to_eur_kwh(value: Any, unit: str | None) -> float | None:
     if "mwh" in str(unit or "").lower():
         value /= 1000
     return round(value, 6)
-
 def _present(value: Any) -> bool:
     if value is None:
         return False
     return not (isinstance(value, str) and value.strip().lower() in _UNKNOWN_STATES)
-
 def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows = asset.get("properties") or []
     return {str(row.get("property_key")): row for row in rows if isinstance(row, dict) and row.get("property_key")}
@@ -113,9 +103,12 @@ class EnergyRuntime:
         self._entity_ids_cache: tuple[str, ...] = ()
         self._incremental_entity_targets: dict[str, tuple[tuple[str, str], ...]] = {}
         self._dirty_entity_ids: set[str] = set()
+        # Direct accepted-source observations have their own cache. Canonical/derived
+        # facts are rebuilt from this source authority each recompute and can never
+        # become the accidental persistence layer for source truth.
+        self._source_fact_cache: dict[str, Any] = {}
         self.event_flow = SourceEventCoalescer(hass, self._recompute)
         self._startup_hydration_unsub = None
-
     @staticmethod
     def _empty_snapshot() -> dict[str, Any]:
         return {
@@ -131,31 +124,24 @@ class EnergyRuntime:
             "domain_model_revision": None,
             "runtime_issues": [],
         }
-
     def add_callback(self, cb):
         return self._callback_hub.add(cb)
     def add_asset_callback(self, asset_id: str, cb):
         return self._callback_hub.add_asset(asset_id, cb)
-
     def add_topology_callback(self, cb):
         return self._callback_hub.add_topology(cb)
-
     def _notify_topology_if_changed(self) -> None:
         signature = logical_topology(self.snapshot)
         if signature != self._topology_signature:
             self._topology_signature = signature
             self._callback_hub.notify_topology()
-
     def _notify(self) -> None:
         self._callback_hub.notify_all()
-
     def _notify_assets(self, asset_ids: set[str]) -> None:
         self._callback_hub.notify_assets(asset_ids)
-
     def _binding_index(self) -> dict[str, dict[str, Any]]:
         """Return the structurally prebound lookup; never rebuild it on telemetry."""
         return self._binding_index_cache
-
     def _read(self, binding_id: str | None) -> tuple[Any, str | None, dict[str, Any]]:
         binding = self._binding_index().get(str(binding_id or "")) or {}
         source = binding.get("source_identity") or {}
@@ -167,7 +153,6 @@ class EnergyRuntime:
         if state is None or str(state.state).lower() in _UNKNOWN_STATES:
             return None, fallback_unit, {}
         return state.state, state.attributes.get("unit_of_measurement") or fallback_unit, dict(state.attributes)
-
     def _entity_ids(self) -> list[str]:
         ids = [
             (row.get("source_identity") or {}).get("current_entity_id")
@@ -178,7 +163,6 @@ class EnergyRuntime:
         if needs_sun_tracking((self.model or {}).get("logical_assets", [])):
             ids.append("sun.sun")
         return sorted({str(value) for value in ids if value})
-
     def _hydrate_active_model(self) -> None:
         """Hydrate current sources and only then enable telemetry listeners."""
         if self.model is None:
@@ -190,12 +174,10 @@ class EnergyRuntime:
                 self._unsubscribe = async_track_state_change_event(
                     self.hass, self._entity_ids_cache, self._handle_state_change)
         self._notify_topology_if_changed()
-
     @callback
     def _handle_homeassistant_started(self, _event) -> None:
         self._startup_hydration_unsub = None
         self._hydrate_active_model()
-
     def activate_model(self, model: dict[str, Any] | None) -> None:
         _LOGGER.debug("Activating Energy domain binding model revision=%s", (model or {}).get("domain_model_revision"))
         if callable(self._unsubscribe):
@@ -212,15 +194,14 @@ class EnergyRuntime:
         self._entity_ids_cache = tuple(self._entity_ids()) if model is not None else ()
         self._incremental_entity_targets = build_entity_targets(model)
         self._dirty_entity_ids.clear()
+        self._source_fact_cache.clear()
         if self.hass.is_running:
             self._hydrate_active_model()
         else:
             self._startup_hydration_unsub = self.hass.bus.async_listen_once(
                 EVENT_HOMEASSISTANT_STARTED, self._handle_homeassistant_started)
-
     def _incremental_optimizer_update(self, entity_id: str) -> bool:
         return update_optimizer_entity(self, entity_id)
-
     @callback
     def _handle_state_change(self, event) -> None:
         entity_id = str(event.data.get("entity_id") or "")
@@ -232,7 +213,6 @@ class EnergyRuntime:
         if entity_id:
             self._dirty_entity_ids.add(entity_id)
         self.event_flow.handle(event)
-
     def _producer_assets(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, bool], dict[str, dict[str, Any]]]:
         rows, connections, attrs = read_mobility_energy_assets(self.hass)
         return (
@@ -405,6 +385,11 @@ class EnergyRuntime:
             ):
                 continue
             for prop in asset.get("properties") or []:
+                # Derived properties may reference source bindings as dependencies,
+                # but they are not direct source facts. Materializing them here gave
+                # one property two semantic paths and stale normalization traces.
+                if prop.get("derived"):
+                    continue
                 if not prop.get("binding_id") and not prop.get("binding_ids"):
                     continue
                 if dirty_entity_ids is not None:
@@ -421,10 +406,13 @@ class EnergyRuntime:
                 if not fact_key or str(prop.get("kind") or "") == "action":
                     continue
                 try:
-                    facts[fact_key] = self._read_property(asset, prop, facts)
+                    observed = self._read_property(asset, prop, facts)
+                    self._source_fact_cache[fact_key] = observed
+                    facts[fact_key] = observed
                 except Exception as exc:
                     # A bad adapter/source conversion is isolated to this property.
                     # Other objects continue; diagnostics receive the exact scope.
+                    self._source_fact_cache[fact_key] = None
                     facts[fact_key] = None
                     issues.append(
                         f"property_normalization_failed:{asset.get('asset_id')}:{prop.get('property_key')}:{exc.__class__.__name__}"
@@ -682,8 +670,10 @@ class EnergyRuntime:
             return
 
         domain_assets = [row for row in (self.model.get("logical_assets") or []) if isinstance(row, dict)]
+        if full_hydration:
+            self._source_fact_cache.clear()
         facts = CanonicalFactStore(
-            {} if full_hydration else deepcopy(self.snapshot.get("facts") or {}),
+            deepcopy(self._source_fact_cache),
             {} if full_hydration else deepcopy(self.snapshot.get("semantic_paths") or {}),
         )
         runtime_issues: list[str] = []
@@ -846,7 +836,15 @@ class EnergyRuntime:
         system_assets, planning_assets, intelligence_assets, layer_health = self._evaluate_runtime_layers(
             facts, flexible, logical_assets, producer_available, plan, intel, settings
         )
-        active_assets = [asset for asset in logical_assets if asset.get("runtime_truth")]
+        operational = operational_readiness(
+            logical_assets, facts, runtime_issues, facts.complete
+        )
+        if not operational["complete"]:
+            runtime_issues.append("operational_readiness_blocked")
+        active_assets = [
+            asset for asset in logical_assets
+            if asset.get("runtime_truth") and asset.get("product_projection") is not False
+        ]
         any_available = any(int(asset.get("available_property_count") or 0) > 0 for asset in active_assets)
         degraded_assets = [str(asset.get("asset_id")) for asset in active_assets if asset.get("health") == "DEGRADED"]
         health = "OK" if any_available and not runtime_issues and not self.model.get("issues") and not degraded_assets else "DEGRADED" if any_available or active_assets else "UNKNOWN"
@@ -877,6 +875,7 @@ class EnergyRuntime:
             "semantic_paths": facts.semantic_paths(),
             "semantic_conflicts": semantic_conflicts,
             "semantic_path_complete": facts.complete,
+            "operational_readiness": operational,
             "consumption_split_evidence": consumption_split_evidence,
             "degraded_logical_assets": degraded_assets[:40],
             "experience_presence": experience_presence(

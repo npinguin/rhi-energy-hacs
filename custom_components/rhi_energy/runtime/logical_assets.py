@@ -1,5 +1,4 @@
 """Small logical Energy object projector.
-
 Semantic acceptance already decides which technical candidates are safe and which logical
 objects exist.  This module only turns that accepted object inventory into Home
 Assistant-facing logical properties and applies runtime values.  It deliberately does
@@ -8,7 +7,6 @@ not re-run semantic discovery or integration matching.
 from __future__ import annotations
 from copy import deepcopy
 from typing import Any
-
 try:
     from ..models import LogicalAsset, LogicalProperty
     from ..semantic import property_definitions
@@ -40,8 +38,6 @@ except ImportError:  # direct runpy tests
     resolve_property = _resolution["resolve_property"]
     LogicalAsset = dict  # type: ignore[assignment,misc]
     LogicalProperty = dict  # type: ignore[assignment,misc]
-
-
 def _build_domain_assets(
     build_inputs: dict[str, dict[str, Any]],
     model: dict[str, Any],
@@ -49,8 +45,6 @@ def _build_domain_assets(
     concepts = model.get("concepts") or {}
     binding_index = build_binding_index(model)
     out: list[LogicalAsset] = []
-    # Battery: one canonical site aggregate composed from every accepted physical
-    # Battery object, independent of provider/integration. Providers remain provenance.
     battery_providers = list(((concepts.get("battery_system") or {}).get("providers") or []))
     if battery_providers:
         all_units = [
@@ -188,7 +182,6 @@ def _build_domain_assets(
                     normalization_status="READY",
                     properties=_properties("generation_meter_phase", pid, phase_bindings, binding_index),
                 ))
-
     # Supporting singleton/provider concepts remain source-backed objects. They are
     # not site-composition aggregates and therefore preserve provider provenance.
     for concept, label in (("solar_forecast", "Solar Forecast"), ("price_source", "Energy Price Source")):
@@ -335,7 +328,15 @@ def _build_domain_assets(
                 identity=identity(row), properties=_properties(object_class, aid, row.get("bindings") or {}, binding_index),
             )
             if descriptor.get("suppress_projection"):
+                # Provider topology aliases remain downloadable provenance, but are
+                # not independent product objects. Their children are already
+                # reparented to the authoritative physical inverter hierarchy.
                 suppress_duplicate_ha_materialization(asset)
+                asset["product_projection"] = False
+                asset["runtime_truth"] = False
+                asset["lifecycle_scope"] = "source_provenance"
+            else:
+                asset["product_projection"] = True
             out.append(asset)
             if descriptor.get("panel_binding"):
                 panel_binding = str(descriptor["panel_binding"])

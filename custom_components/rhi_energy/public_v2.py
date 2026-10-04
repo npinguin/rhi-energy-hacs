@@ -1,4 +1,4 @@
-"""Canonical Energy public contract V2 and the V1 compatibility boundary."""
+"""Canonical Energy Public V2 product contract."""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -142,7 +142,7 @@ def _decorate_objects(
     operation_rows = property_operations or {}
     appearance_rows = appearance_preferences or {}
     for raw in objects:
-        if not isinstance(raw, dict):
+        if not isinstance(raw, dict) or raw.get("product_projection") is False:
             continue
         asset = deepcopy(raw)
         asset_type = str(asset.get("asset_type") or asset.get("object_class") or "").strip()
@@ -721,6 +721,8 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
 def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
     for asset in snapshot.get("logical_assets") or []:
+        if not isinstance(asset, dict) or asset.get("product_projection") is False:
+            continue
         source = str(asset.get("parent_asset_id") or "")
         target = str(asset.get("asset_id") or "")
         if source and target:
@@ -732,7 +734,10 @@ def _relationships(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 "relationship_type": "contains",
                 "source_domain": "energy",
             }
-    logical_assets = [item for item in snapshot.get("logical_assets") or [] if isinstance(item, dict)]
+    logical_assets = [
+        item for item in snapshot.get("logical_assets") or []
+        if isinstance(item, dict) and item.get("product_projection") is not False
+    ]
     home_asset = next((item for item in logical_assets if item.get("object_class") == "home_consumption"), None)
     home_id = str((home_asset or {}).get("asset_id") or "home_consumption")
     for asset in logical_assets:
@@ -990,12 +995,7 @@ def build_public_contract_v2(
     command_rows: list[dict[str, Any]],
     model: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build one object-centric contract from resolved runtime truth.
-
-    ``_compatibility`` is an internal lossless envelope used only by the V1 facade.
-    It is stripped from the published V2 payload and prevents the facade from reading
-    mutable runtime state through a second path.
-    """
+    """Build the single authoritative object-centric product contract from canonical runtime truth."""
     source = deepcopy(snapshot)
     source["settings"] = deepcopy(store_data.get("settings") or {})
     concepts = model.get("concepts") or {}
@@ -1234,23 +1234,14 @@ def build_public_contract_v2(
             "intelligence_object_count": len(source.get("intelligence_assets") or model.get("intelligence_assets") or []),
             "dependency_edge_count": len(model.get("dependencies") or []),
         },
-        "_compatibility": source,
     }
 
 
 def published_v2(contract: dict[str, Any]) -> dict[str, Any]:
-    """Return the public payload without the private V1 reconstruction envelope."""
-    return {key: deepcopy(value) for key, value in contract.items() if key != "_compatibility"}
-
-
-def compatibility_snapshot(contract: dict[str, Any]) -> dict[str, Any]:
-    """Return the exact V1 source snapshot carried by one immutable V2 decision."""
+    """Return an immutable copy of the authoritative Public V2 payload."""
     if contract.get("kind") != "rhi_energy_public_contract" or contract.get("contract_version") != PUBLIC_CONTRACT_V2:
         raise ValueError("unsupported_energy_public_contract")
-    source = contract.get("_compatibility")
-    if not isinstance(source, dict):
-        raise ValueError("energy_v2_compatibility_envelope_missing")
-    return deepcopy(source)
+    return deepcopy(contract)
 
 
 def public_v2_sensor_attributes(contract: dict[str, Any]) -> dict[str, Any]:

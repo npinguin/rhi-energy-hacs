@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import EntityCategory
 
 from .canonical_device import canonical_device_info
 from .const import DOMAIN
@@ -53,6 +54,7 @@ class EnergyLogicalActionButton(ButtonEntity):
     """Native HA button for one canonical source-backed stateless Energy action."""
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_should_poll = False
 
     def __init__(self, entry, runtime, interaction, asset_id: str, property_key: str) -> None:

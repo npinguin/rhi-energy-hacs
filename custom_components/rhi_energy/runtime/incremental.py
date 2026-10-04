@@ -91,7 +91,9 @@ def update_optimizer_entity(runtime, entity_id: str) -> bool:
 
         value = runtime._read_property(asset, prop, facts)
         if prop.get("fact_key"):
-            facts[str(prop["fact_key"])] = value
+            fact_key=str(prop["fact_key"])
+            runtime._source_fact_cache[fact_key] = value
+            facts[fact_key] = value
         prop["value"] = value
         resolution = resolve_property(
             prop,

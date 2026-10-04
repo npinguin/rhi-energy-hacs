@@ -7,6 +7,7 @@ from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import EntityCategory
 
 from .canonical_device import canonical_device_info
 from .const import DOMAIN
@@ -98,6 +99,7 @@ class EnergyLogicalNumber(NumberEntity):
     """Native number editor for one stateful canonical property."""
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll = False
     _attr_mode = NumberMode.BOX
 

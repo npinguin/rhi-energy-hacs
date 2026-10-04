@@ -1,7 +1,7 @@
 """Bounded Energy-owned status envelope for Foundation 1.8 supervision.
 
 Foundation receives only shared readiness and issue summaries. Energy properties,
-bindings, planning evidence and V1 projection details remain in Energy diagnostics.
+bindings and planning evidence remain in Energy diagnostics.
 """
 from __future__ import annotations
 
@@ -11,13 +11,10 @@ from typing import Any, Callable
 from .const import (
     DOMAIN,
     DOMAIN_ID,
-    LEGACY_DIAGNOSTIC_ENTITIES,
-    LEGACY_PUBLIC_ENTITIES,
     PUBLICATION_REVISION,
     PUBLIC_V2_ENTITY,
     RELEASE,
 )
-from .v1_parity import projection_consistency_issues
 
 _PRIORITY = {
     "BLOCKED": 60,
@@ -28,24 +25,6 @@ _PRIORITY = {
     "OK": 10,
     "READY": 10,
 }
-
-
-def _public_projection_functional(entity_id: str, projection: dict[str, Any]) -> bool:
-    state = str(projection.get("state") or "UNAVAILABLE").upper()
-    attrs = projection.get("attributes") or {}
-    if state in {"AVAILABLE", "OK", "READY", "COMPLETE"}:
-        return True
-    if entity_id == "sensor.energy_metering_property_index" and state == "PARTIAL":
-        return bool(attrs.get("period_summary_by_id")) and bool(attrs.get("selected_period_summary"))
-    if entity_id == "sensor.energy_pricing_interval_index" and state == "PARTIAL":
-        return bool(attrs.get("coverage_json")) and "interval_rows_json" in attrs
-    if entity_id == "sensor.energy_value_accounting_index" and state in {"CONFIGURATION_REQUIRED", "NOT_EVALUATED"}:
-        return "pricing_complete" in attrs and bool(attrs.get("product_status_json"))
-    if entity_id == "sensor.energy_retrospective_event_index" and state in {
-        "WAITING_FOR_METERING_BASELINE", "INSUFFICIENT_CLOSED_EVIDENCE"
-    }:
-        return bool(attrs.get("product_status_json")) and "events_json" in attrs
-    return False
 
 
 def _status(value: Any, *, configuration: bool = False) -> str:
@@ -144,49 +123,10 @@ class EnergyDomainSupervision:
         contract_status = "OK" if foundation_status == "OK" and canonical_transport_status == "OK" else "BLOCKED"
         build_status = _status(getattr(manager, "build_health", None))
         runtime_status = _status(runtime_snapshot.get("health"))
-        compatibility_entities = (*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES)
-        live_public_count = sum(
-            self.hass.states.get(entity_id) is not None
-            for entity_id in compatibility_entities
-        )
-        compatibility_presence_status = (
-            "OK" if live_public_count == len(compatibility_entities) else "BLOCKED"
-        )
         projector = state.get("public_projector")
-        product_states = {}
-        projection_payloads: dict[str, dict[str, Any]] = {}
         canonical_public_v2: dict[str, Any] = {}
-        compatibility_source: dict[str, Any] = {}
-        if projector is not None and hasattr(projector, "get"):
-            projection_payloads = {
-                entity_id.removeprefix("sensor."): projector.get(entity_id.removeprefix("sensor."))
-                for entity_id in LEGACY_PUBLIC_ENTITIES
-            }
-            product_states = {
-                entity_id: str(
-                    projection_payloads.get(entity_id.removeprefix("sensor."), {}).get("state")
-                    or "UNAVAILABLE"
-                ).upper()
-                for entity_id in LEGACY_PUBLIC_ENTITIES
-            }
-            if hasattr(projector, "get_v2"):
-                canonical_public_v2 = projector.get_v2() or {}
-            if hasattr(projector, "get_parity_source"):
-                compatibility_source = projector.get_parity_source() or {}
-        canonical_parity_issues = (
-            projection_consistency_issues(projection_payloads, compatibility_source)
-            if projection_payloads and compatibility_source
-            else {}
-        )
-        # Functional availability is an installation/runtime concern, not V1/V2 parity.
-        # Compatibility blocks only when the frozen surface is missing or when V1
-        # contradicts canonical V2 truth for an equivalent fact.
-        degraded_public_entities = sorted(canonical_parity_issues)
-        compatibility_functional_status = (
-            compatibility_presence_status if not product_states
-            else "DEGRADED" if canonical_parity_issues
-            else "OK"
-        )
+        if projector is not None and hasattr(projector, "get_v2"):
+            canonical_public_v2 = projector.get_v2() or {}
         mobility_available = bool(runtime_snapshot.get("mobility_publication_available"))
         mobility_expected = _mobility_runtime_expected(self.hass)
         canonical_coverage = (
@@ -302,18 +242,6 @@ class EnergyDomainSupervision:
                 "SOLAR_INVERTER_PARENT_UNRESOLVED", blocking=False,
                 severity="WARNING", scope=unresolved_solar_hierarchy[:12],
             ))
-        if compatibility_presence_status != "OK":
-            issues.append(_issue(
-                "energy:compatibility:v1_contract_presence", "COMPATIBILITY",
-                "V1_FEATURE_PARITY_INCOMPLETE", blocking=False,
-                severity="WARNING", scope=["R1.89.44_CONTRACT"],
-            ))
-        elif compatibility_functional_status != "OK":
-            issues.append(_issue(
-                "energy:compatibility:v1_feature_parity", "COMPATIBILITY",
-                "V1_FEATURE_PARITY_FUNCTIONALLY_INCOMPLETE", blocking=False,
-                severity="WARNING", scope=degraded_public_entities[:12] or ["R1.89.44_CONTRACT"],
-            ))
         if mobility_expected and not mobility_available:
             issues.append(_issue(
                 "energy:dependency:mobility_publication", "DEPENDENCY",
@@ -321,8 +249,7 @@ class EnergyDomainSupervision:
                 severity="WARNING", scope=["sensor.mobility_energy_asset_publication"],
             ))
 
-        # V1 is a temporary downstream compatibility projection. Its presence or
-        # parity may be diagnosed, but it can never govern canonical V2 readiness.
+        # Canonical runtime and Public V2 are the only Energy readiness authorities.
         canonical_statuses = [
             configuration_status,
             contract_status,

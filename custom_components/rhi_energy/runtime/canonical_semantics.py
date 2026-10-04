@@ -1,7 +1,8 @@
-"""Pure product semantics and R1.89.45 public-contract projection helpers.
+"""Canonical Energy product semantics.
 
-This module deliberately has no Home Assistant imports so all product semantics
-can be contract-tested without a running HA instance.
+This module deliberately has no Home Assistant imports so product semantics can
+be contract-tested without a running HA instance. Public V2 is the only product
+contract projection authority.
 """
 from __future__ import annotations
 

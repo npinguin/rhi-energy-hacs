@@ -1,4 +1,4 @@
-"""RHI Energy V2 sensors: public Energy contract plus Shared Baseline 1.8.1 observability."""
+"""RHI Energy V2 sensors: canonical Public V2 plus native Home Assistant surfaces."""
 from __future__ import annotations
 
 import asyncio
@@ -14,8 +14,6 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import (
     DOMAIN,
-    LEGACY_DIAGNOSTIC_ENTITIES,
-    LEGACY_PUBLIC_ENTITIES,
     RELEASE,
     RELEASE_NAME,
     SHARED_BASELINE_CHECKSUM,
@@ -35,7 +33,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     runtime = state["runtime"]
     projector = state["public_projector"]
     entities: list[SensorEntity] = [
-        *(LegacyPublicContractSensor(entry, projector, eid.split(".", 1)[1]) for eid in (*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES)),
         EnergyPublicV2Sensor(entry, projector),
         EnergyV2MetricSensor(entry, projector, "home_consumption_power_kw"),
         EnergyV2MetricSensor(entry, projector, "planning_today_required_kwh"),
@@ -85,27 +82,6 @@ class _EnergySensor(SensorEntity):
             "model": "Energy V2",
             "sw_version": RELEASE,
         }
-
-
-class LegacyPublicContractSensor(_EnergySensor):
-    """Temporary frozen V1 projection over canonical V2/runtime truth."""
-
-    def __init__(self, entry: ConfigEntry, projector, object_id: str) -> None:
-        super().__init__(entry)
-        self._projector = projector
-        self._object_id = object_id
-        self._attr_name = object_id
-        self._attr_suggested_object_id = object_id
-        self._attr_unique_id = f"rhi_energy:compat:{object_id}"
-
-    @property
-    def native_value(self):
-        return self._projector.get(self._object_id).get("state")
-
-    @property
-    def extra_state_attributes(self):
-        return dict(self._projector.get(self._object_id).get("attributes") or {})
-
 
 
 _PLANNING_LAYER_CANONICAL_REFS = {
@@ -160,7 +136,6 @@ class EnergyPlanningLayerSensor(SensorEntity):
             "canonical_source_refs": list(_PLANNING_LAYER_CANONICAL_REFS[self._layer]),
             "domain_model_revision": contract.get("domain_model_revision"),
             "projection_only": True,
-            "v1_dependency": False,
         }
 
     async def async_added_to_hass(self):
@@ -169,7 +144,7 @@ class EnergyPlanningLayerSensor(SensorEntity):
 
 
 class EnergyPublicV2Sensor(_EnergySensor):
-    """Single canonical object graph; legacy entities are a facade over this payload."""
+    """Single canonical Energy Public V2 object graph."""
 
     _attr_name = "RHI Energy Public Contract V2"
     _attr_suggested_object_id = "rhi_energy_public_contract_v2"
@@ -270,7 +245,6 @@ class EnergyV2MetricSensor(SensorEntity):
         return {
             "contract_id": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
             "metric_key": self._key,
-            "v1_dependency": False,
         }
 
     async def async_added_to_hass(self):
@@ -348,14 +322,23 @@ class EnergyReleaseSensor(_DiagnosticSensor):
         store = self._state.get("store")
         evidence = (store.data.get("pilot_evidence") or {}) if store else {}
         target_complete = evidence.get("target_ha_lifecycle_complete") is True
+        operational = (self._state.get("runtime").snapshot.get("operational_readiness") or {}) if self._state.get("runtime") else {}
+        pilot_ready = target_complete and operational.get("complete") is True
         return {
             "release_name": RELEASE_NAME,
             "shared_baseline_id": SHARED_BASELINE_ID,
             "shared_baseline_version": SHARED_BASELINE_VERSION,
             "shared_baseline_checksum": SHARED_BASELINE_CHECKSUM,
             "foundation_compatibility": "capability_based",
-            "release_decision": "PILOT_CANDIDATE" if not target_complete else "PILOT_READY",
-            "reason": "target_home_assistant_runtime_proof_pending" if not target_complete else "target_home_assistant_lifecycle_evidence_complete",
+            "release_decision": "PILOT_READY" if pilot_ready else "TEST_CANDIDATE",
+            "reason": (
+                "target_home_assistant_lifecycle_evidence_complete"
+                if pilot_ready
+                else "operational_runtime_truth_blocked"
+                if operational and operational.get("complete") is not True
+                else "target_home_assistant_runtime_proof_pending"
+            ),
+            "operational_readiness": operational.get("status"),
             "known_accepted_technical_debt": 0,
         }
 

@@ -5,6 +5,7 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import EntityCategory
 
 from .canonical_device import canonical_device_info
 from .const import DOMAIN
@@ -14,6 +15,7 @@ from .v2_configuration import configuration_device_info, configuration_row, edit
 
 class EnergyLogicalSelect(SelectEntity):
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll = False
 
     def __init__(self, hass, entry, runtime, interaction, asset_id: str, property_key: str) -> None:

@@ -11,10 +11,6 @@ from .runtime.canonical_structure import canonical_parent_asset_id, canonical_pr
 
 from .const import (
     DOMAIN,
-    LEGACY_BACKEND_RELEASE,
-    LEGACY_CONTRACT_VERSION,
-    LEGACY_DIAGNOSTIC_ENTITIES,
-    LEGACY_PUBLIC_ENTITIES,
     PUBLIC_V2_ENTITY,
     PUBLIC_V2_UNIQUE_ID,
     RELEASE,
@@ -364,6 +360,44 @@ def _solar_battery_correction_rows(logical_assets):
     return rows[:16]
 
 
+
+def _source_resolution_coherence(logical_assets) -> dict:
+    """Prove that accepted normalized source truth reaches the logical property."""
+    contradictions = []
+    assessed = 0
+    for asset in logical_assets or []:
+        if not isinstance(asset, dict):
+            continue
+        for prop in asset.get("properties") or []:
+            if not isinstance(prop, dict):
+                continue
+            trace = prop.get("normalization_trace") or {}
+            if "canonical_value" not in trace:
+                continue
+            source_value = trace.get("canonical_value")
+            if source_value is None:
+                continue
+            assessed += 1
+            logical_value = prop.get("value")
+            resolution = prop.get("resolution") or {}
+            if logical_value is None or resolution.get("status") != "RESOLVED":
+                contradictions.append({
+                    "asset_id": asset.get("asset_id"),
+                    "object_class": asset.get("object_class"),
+                    "property_key": prop.get("property_key"),
+                    "normalized_value": source_value,
+                    "logical_value": logical_value,
+                    "resolution_status": resolution.get("status"),
+                    "reason_code": resolution.get("reason_code"),
+                    "current_entity_id": prop.get("current_entity_id"),
+                })
+    return {
+        "assessed_normalized_property_count": assessed,
+        "contradiction_count": len(contradictions),
+        "complete": not contradictions,
+        "contradictions": contradictions[:60],
+    }
+
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry):
     state = (hass.data.get(DOMAIN) or {}).get(entry.entry_id) or {}
     manager = state.get("build_manager")
@@ -383,7 +417,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     specifications = tuple(provider.iter_specifications()) if provider else ()
     registry = er.async_get(hass)
     public_surface = []
-    compatibility_entities = (*LEGACY_PUBLIC_ENTITIES, *LEGACY_DIAGNOSTIC_ENTITIES)
     canonical_v2_current_id = registry.async_get_entity_id("sensor", DOMAIN, PUBLIC_V2_UNIQUE_ID)
     canonical_v2_registry_entry = registry.async_get(canonical_v2_current_id) if canonical_v2_current_id else None
     canonical_v2_transport = {
@@ -402,21 +435,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         canonical_v2_transport["live_state_present"],
     ))
     public_surface.append(canonical_v2_transport)
-    for entity_id in compatibility_entities:
-        registry_entry = registry.async_get(entity_id)
-        public_surface.append(
-            {
-                "expected_entity_id": entity_id,
-                "registered": registry_entry is not None,
-                "platform": getattr(registry_entry, "platform", None),
-                "owned_by_energy": (
-                    getattr(registry_entry, "platform", None) == DOMAIN
-                    if registry_entry is not None
-                    else False
-                ),
-                "live_state_present": hass.states.get(entity_id) is not None,
-            }
-        )
+
 
     selected_registry = hass.data.get("rhi_selected_domain_build_input_registry", {}) or {}
     selected_entry = selected_registry.get("energy") if isinstance(selected_registry, dict) else None
@@ -456,8 +475,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "release_name": RELEASE_NAME,
             "shared_baseline_version": SHARED_BASELINE_VERSION,
             "shared_baseline_checksum": SHARED_BASELINE_CHECKSUM,
-            "compatibility_backend_release": LEGACY_BACKEND_RELEASE,
-            "public_contract": LEGACY_CONTRACT_VERSION,
+            "public_contract": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
+            "v1_compatibility": "decommissioned",
             "known_accepted_technical_debt": 0,
             "known_accepted_feature_debt": 0,
         },
@@ -491,6 +510,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "canonical_coverage": deepcopy(
             ((state.get("public_projector").get_v2() if state.get("public_projector") else {}) or {}).get("coverage") or {}
         ),
+        "operational_readiness": deepcopy(snap.get("operational_readiness") or {}),
+        "source_resolution_coherence": _source_resolution_coherence(snap.get("logical_assets") or []),
         "property_operations": {
             "count": len(property_operation_state),
             "pending_count": sum(
@@ -513,10 +534,10 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "public_surface": {
             "canonical_transport": canonical_v2_transport,
             "canonical_transport_ready": canonical_v2_transport["ready"],
-            "expected_entity_count": 1 + len(compatibility_entities),
-            "product_entity_count": 1 + len(LEGACY_PUBLIC_ENTITIES),
-            "diagnostic_entity_count": len(LEGACY_DIAGNOSTIC_ENTITIES),
-            "expected_entity_ids": [PUBLIC_V2_ENTITY, *compatibility_entities],
+            "expected_entity_count": 1,
+            "product_entity_count": 1,
+            "diagnostic_entity_count": 0,
+            "expected_entity_ids": [PUBLIC_V2_ENTITY],
             "registered_entity_count": sum(row["registered"] for row in public_surface),
             "owned_entity_count": sum(row["owned_by_energy"] for row in public_surface),
             "live_state_count": sum(row["live_state_present"] for row in public_surface),
@@ -701,10 +722,10 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "producer_publication_availability": deepcopy(snap.get("producer_publication_availability") or {}),
             "producer_publication_metadata": deepcopy(snap.get("producer_publication_metadata") or {}),
             "runtime_issues": deepcopy(snap.get("runtime_issues") or []),
-            "public_contract_states": {
-                entity_id: (state.get("public_projector").get(entity_id.removeprefix("sensor.")) or {}).get("state")
-                for entity_id in LEGACY_PUBLIC_ENTITIES
-            } if state.get("public_projector") else {},
+            "public_contract_state": (
+                (state.get("public_projector").get_v2() or {}).get("health")
+                if state.get("public_projector") else None
+            ),
             "metering": {
                 "last_update": metering.get("last_update"),
                 "baseload_last_sample_bucket": metering.get("baseload_last_sample_bucket"),

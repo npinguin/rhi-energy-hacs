@@ -5,6 +5,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import EntityCategory
 
 from .canonical_device import canonical_device_info
 from .const import DOMAIN
@@ -13,6 +14,7 @@ from .logical_control import logical_asset, logical_property, supported_controls
 
 class EnergyLogicalSwitch(SwitchEntity):
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll = False
 
     def __init__(self, entry, runtime, interaction, asset_id: str, property_key: str) -> None:
