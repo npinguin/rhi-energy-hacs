@@ -10,8 +10,9 @@ def configuration_rows(contract: dict[str, Any]) -> list[dict[str, Any]]:
     configuration = contract.get("configuration") or {}
     pricing = (configuration.get("pricing") or {}).get("properties") or []
     strategy = (configuration.get("strategy") or {}).get("configured_properties") or []
+    metering = (configuration.get("metering") or {}).get("properties") or []
     return [
-        row for row in [*pricing, *strategy]
+        row for row in [*pricing, *strategy, *metering]
         if isinstance(row, dict) and row.get("property_id") and row.get("editable") is True
     ]
 

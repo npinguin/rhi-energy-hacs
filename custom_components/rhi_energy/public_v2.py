@@ -1139,6 +1139,7 @@ def build_public_contract_v2(
         canonical_configuration,
         model.get("accepted_bindings") or [],
         source.get("semantic_paths") or {},
+        source.get("logical_assets") or [],
     )
     commands = _decorate_commands(command_rows)
     activity = [deepcopy(row) for row in (store_data.get("activity") or []) if isinstance(row, dict)][-100:]

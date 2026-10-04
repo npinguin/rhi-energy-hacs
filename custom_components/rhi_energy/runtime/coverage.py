@@ -39,6 +39,7 @@ def canonical_coverage(
     configuration: dict[str, Any],
     accepted_bindings: list[dict[str, Any]] | None = None,
     semantic_paths: dict[str, Any] | None = None,
+    all_objects: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
 
@@ -112,13 +113,58 @@ def canonical_coverage(
         )
         if binding_id
     })
-    accepted_binding_ids = sorted({
-        str(binding.get("binding_id"))
+    product_asset_ids = {
+        str(asset.get("asset_id"))
+        for asset in objects
+        if isinstance(asset, dict) and asset.get("asset_id")
+    }
+    explicit_non_product_asset_ids = {
+        str(asset.get("asset_id"))
+        for asset in (all_objects or [])
+        if (
+            isinstance(asset, dict)
+            and asset.get("asset_id")
+            and asset.get("product_projection") is False
+        )
+    }
+
+    def _binding_asset_id(binding: dict[str, Any]) -> str:
+        explicit = str(binding.get("asset_id") or "").strip()
+        if explicit:
+            return explicit
+        binding_id = str(binding.get("binding_id") or "")
+        parts = binding_id.split(":", 2)
+        return parts[1] if len(parts) >= 3 and parts[0] == "energy" else ""
+
+    known_asset_ids = {
+        str(asset.get("asset_id"))
+        for asset in (all_objects if all_objects is not None else objects)
+        if isinstance(asset, dict) and asset.get("asset_id")
+    }
+    known_non_product_asset_ids = known_asset_ids - product_asset_ids
+    accepted_rows = [
+        binding
         for binding in (accepted_bindings or [])
         if isinstance(binding, dict) and binding.get("binding_id")
+    ]
+    accepted_binding_ids = sorted(str(binding["binding_id"]) for binding in accepted_rows)
+    product_accepted_binding_ids = sorted({
+        str(binding["binding_id"])
+        for binding in accepted_rows
+        if _binding_asset_id(binding) in product_asset_ids
     })
-    unpublished_accepted_binding_ids = sorted(
-        set(accepted_binding_ids) - set(published_binding_ids)
+    non_product_accepted_binding_ids = sorted({
+        str(binding["binding_id"])
+        for binding in accepted_rows
+        if _binding_asset_id(binding) in known_non_product_asset_ids
+    })
+    orphan_accepted_binding_ids = sorted({
+        str(binding["binding_id"])
+        for binding in accepted_rows
+        if _binding_asset_id(binding) not in known_asset_ids
+    })
+    unpublished_product_binding_ids = sorted(
+        set(product_accepted_binding_ids) - set(published_binding_ids)
     )
     semantic_path_rows = semantic_paths or {}
     semantic_conflict_fact_ids = sorted({
@@ -141,9 +187,15 @@ def canonical_coverage(
         "writable_without_readback_property_ids": sorted(write_without_readback),
         "duplicate_property_ids": duplicate_ids,
         "accepted_binding_count": len(accepted_binding_ids),
+        "product_accepted_binding_count": len(product_accepted_binding_ids),
+        "non_product_accepted_binding_count": len(non_product_accepted_binding_ids),
         "published_binding_count": len(published_binding_ids),
-        "unpublished_accepted_binding_ids": unpublished_accepted_binding_ids,
-        "source_to_canonical_complete": not unpublished_accepted_binding_ids,
+        "unpublished_accepted_binding_ids": sorted(set(unpublished_product_binding_ids) | set(orphan_accepted_binding_ids)),
+        "unpublished_product_binding_ids": unpublished_product_binding_ids,
+        "non_product_accepted_binding_ids": non_product_accepted_binding_ids,
+        "orphan_accepted_binding_ids": orphan_accepted_binding_ids,
+        "source_to_canonical_complete": not unpublished_product_binding_ids and not orphan_accepted_binding_ids,
+        "coverage_semantics": "product coverage blocks only product-projected accepted bindings; non-product provenance/topology bindings remain audited but non-blocking",
         "semantic_path_count": len(semantic_path_rows),
         "semantic_conflict_fact_ids": semantic_conflict_fact_ids,
         "semantic_unowned_fact_ids": semantic_unowned_fact_ids,
@@ -154,7 +206,8 @@ def canonical_coverage(
             or unexplained
             or write_without_readback
             or duplicate_ids
-            or unpublished_accepted_binding_ids
+            or unpublished_product_binding_ids
+            or orphan_accepted_binding_ids
             or semantic_conflict_fact_ids
             or semantic_unowned_fact_ids
         ),
