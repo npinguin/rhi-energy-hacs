@@ -9,5 +9,114 @@
     "abort": {
       "single_instance_allowed": "The Energy Module is already configured. Open the existing Robotix Home Intelligence - Energy Module integration instead of adding a second instance."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Energy settings",
+        "description": "Choose what you want to configure. Technical source selection stays in Foundation; these settings control Energy product behaviour.",
+        "menu_options": {
+          "pricing": "Pricing & tariffs",
+          "strategy": "Strategy & priorities",
+          "metering": "Metering view"
+        }
+      },
+      "pricing": {
+        "title": "Pricing & tariffs",
+        "description": "Configure only the retail components that are not supplied by a live price source. Leaving all tariff components empty keeps valid market-only accounting.",
+        "data": {
+          "market_price_fallback": "Market price fallback",
+          "network_cost": "Network cost",
+          "levies": "Levies",
+          "vat": "VAT",
+          "export_fee": "Export fee"
+        }
+      },
+      "strategy": {
+        "title": "Strategy & priorities",
+        "description": "Choose the part of the Energy strategy you want to configure.",
+        "menu_options": {
+          "home": "Home & priorities",
+          "battery": "Battery",
+          "solar": "Solar",
+          "grid": "Grid",
+          "ev_charging": "EV charging",
+          "resilience": "Resilience"
+        }
+      },
+      "home": {
+        "title": "Home & priorities",
+        "description": "Set how actively Energy may operate and what the home should optimise for.",
+        "data": {
+          "automation_mode": "Automation mode",
+          "primary_objective": "Primary objective"
+        }
+      },
+      "battery": {
+        "title": "Battery strategy",
+        "description": "Configure how the home battery participates in optimisation. Reserve is the minimum state of charge Energy should protect.",
+        "data": {
+          "objective": "Battery objective",
+          "grid_policy": "Use grid energy",
+          "solar_policy": "Use solar energy",
+          "battery_policy": "Battery behaviour",
+          "surplus_policy": "Handle surplus",
+          "reserve_target": "Reserve target"
+        }
+      },
+      "solar": {
+        "title": "Solar strategy",
+        "description": "Configure how solar production should be prioritised and how surplus should be used.",
+        "data": {
+          "objective": "Solar objective",
+          "grid_policy": "Grid policy",
+          "solar_policy": "Solar priority",
+          "battery_policy": "Battery interaction",
+          "surplus_policy": "Surplus policy"
+        }
+      },
+      "grid": {
+        "title": "Grid strategy",
+        "description": "Configure when grid energy may support the home battery and flexible loads.",
+        "data": {
+          "home_battery_policy": "Home battery grid policy",
+          "flexible_load_policy": "Flexible-load grid policy"
+        }
+      },
+      "ev_charging": {
+        "title": "EV charging strategy",
+        "description": "Configure how flexible EV charging should use price, solar, battery and surplus energy.",
+        "data": {
+          "objective": "Charging objective",
+          "grid_policy": "Use grid energy",
+          "solar_policy": "Use solar energy",
+          "battery_policy": "Use home battery",
+          "surplus_policy": "Use surplus"
+        }
+      },
+      "resilience": {
+        "title": "Resilience",
+        "description": "Configure how Energy protects backup capacity and responds when resilience is prioritised.",
+        "data": {
+          "objective": "Resilience objective",
+          "grid_policy": "Grid policy",
+          "battery_policy": "Battery policy"
+        }
+      },
+      "metering": {
+        "title": "Metering view",
+        "description": "Choose the default period used for Energy metering and value views.",
+        "data": {
+          "display_period": "Default period"
+        }
+      }
+    },
+    "error": {
+      "invalid_configuration": "The setting could not be saved. Check the selected values and try again.",
+      "canonical_runtime_unavailable": "Energy runtime is not available. Reload the integration and try again."
+    },
+    "abort": {
+      "canonical_configuration_unavailable": "Energy configuration is not available yet. Wait until the Energy runtime is ready and open Configure again."
+    }
   }
 }

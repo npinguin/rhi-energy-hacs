@@ -1,4 +1,4 @@
-"""Canonical configuration flow for Robotix Home Intelligence Energy."""
+"""Guided canonical configuration flow for Robotix Home Intelligence Energy."""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -13,8 +13,6 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
-    TextSelector,
-    TextSelectorConfig,
 )
 
 from .const import DOMAIN
@@ -24,7 +22,10 @@ from .v2_configuration import configuration_rows
 class RhiEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Create the single Energy module config entry."""
 
-    VERSION = 3
+    # OptionsFlow presentation changed in E0.15.95/E0.15.96, but the persisted
+    # config-entry schema did not. Keep VERSION 2 so existing entries never require
+    # a migration handler for a UI-only change.
+    VERSION = 2
 
     @staticmethod
     def async_get_options_flow(config_entry):
@@ -42,10 +43,55 @@ class RhiEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
-    """Edit canonical Public V2 Energy configuration without a parallel config model."""
+    """Guided product configuration over canonical Public V2 properties."""
 
-    _GROUPS = ("pricing", "strategy", "metering")
-    _target_group: str | None = None
+    _PRICING_FIELDS = {
+        "market_price_fallback": "pricing.spot_eur_kwh",
+        "network_cost": "pricing.import_network_eur_kwh",
+        "levies": "pricing.import_levies_eur_kwh",
+        "vat": "pricing.import_vat_pct",
+        "export_fee": "pricing.export_fee_eur_kwh",
+    }
+    _METERING_FIELDS = {
+        "display_period": "metering.selected_period",
+    }
+    _STRATEGY_FIELDS = {
+        "home": {
+            "automation_mode": "energy.operating_mode",
+            "primary_objective": "home.primary_objective",
+        },
+        "battery": {
+            "objective": "battery.objective",
+            "grid_policy": "battery.grid_policy",
+            "solar_policy": "battery.solar_policy",
+            "battery_policy": "battery.battery_policy",
+            "surplus_policy": "battery.surplus_policy",
+            "reserve_target": "battery.reserve_target_pct",
+        },
+        "solar": {
+            "objective": "solar.surplus_objective",
+            "grid_policy": "solar.grid_policy",
+            "solar_policy": "solar.solar_policy",
+            "battery_policy": "solar.battery_policy",
+            "surplus_policy": "solar.surplus_policy",
+        },
+        "grid": {
+            "home_battery_policy": "grid.home_battery_policy",
+            "flexible_load_policy": "grid.flexible_load_policy",
+        },
+        "ev_charging": {
+            "objective": "flexible_loads.objective",
+            "grid_policy": "flexible_loads.grid_policy",
+            "solar_policy": "flexible_loads.solar_policy",
+            "battery_policy": "flexible_loads.battery_policy",
+            "surplus_policy": "flexible_loads.surplus_policy",
+        },
+        "resilience": {
+            "objective": "resilience.objective",
+            "grid_policy": "resilience.grid_policy",
+            "battery_policy": "resilience.battery_policy",
+        },
+    }
 
     def _state(self) -> dict[str, Any]:
         return (
@@ -60,16 +106,12 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
     def _interaction(self):
         return self._state().get("interaction")
 
-    def _rows(self, group: str) -> list[dict[str, Any]]:
-        rows = configuration_rows(self._contract())
-        if group == "pricing":
-            return [row for row in rows if str(row.get("property_id") or "").startswith("pricing.")]
-        if group == "metering":
-            return [row for row in rows if str(row.get("property_id") or "").startswith("metering.")]
-        return [
-            row for row in rows
-            if not str(row.get("property_id") or "").startswith(("pricing.", "metering."))
-        ]
+    def _row_map(self) -> dict[str, dict[str, Any]]:
+        return {
+            str(row.get("property_id")): row
+            for row in configuration_rows(self._contract())
+            if isinstance(row, dict) and row.get("property_id")
+        }
 
     @staticmethod
     def _selector(row: dict[str, Any]):
@@ -87,13 +129,13 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             ]
             if not options:
                 options = [
-                    SelectOptionDict(value=str(value), label=str(value))
+                    SelectOptionDict(value=str(value), label=str(value).replace("_", " ").title())
                     for value in (constraints.get("allowed") or [])
                 ]
             return SelectSelector(
                 SelectSelectorConfig(options=options, mode=SelectSelectorMode.DROPDOWN)
             )
-        if editor == "number":
+        if editor in {"number", "slider"}:
             return NumberSelector(
                 NumberSelectorConfig(
                     min=constraints.get("min"),
@@ -102,71 +144,139 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
                     unit_of_measurement=row.get("unit"),
                 )
             )
-        if editor == "switch":
-            return bool
-        return TextSelector(TextSelectorConfig())
+        return str
 
-    def _schema(self, rows: list[dict[str, Any]]) -> vol.Schema:
-        fields: dict[Any, Any] = {}
-        for row in rows:
-            property_id = str(row.get("property_id") or "")
-            if not property_id:
+    def _form_schema(self, fields: dict[str, str]) -> vol.Schema:
+        rows = self._row_map()
+        schema: dict[Any, Any] = {}
+        for field_name, property_id in fields.items():
+            row = rows.get(property_id)
+            if not row:
                 continue
             value = row.get("value")
-            marker = (
-                vol.Optional(property_id, description={"suggested_value": value})
+            key = (
+                vol.Optional(field_name, description={"suggested_value": value})
                 if value not in (None, "")
-                else vol.Optional(property_id)
+                else vol.Optional(field_name)
             )
-            fields[marker] = self._selector(row)
-        return vol.Schema(fields)
+            schema[key] = self._selector(row)
+        return vol.Schema(schema)
 
-    async def async_step_init(self, user_input=None):
-        available = [group for group in self._GROUPS if self._rows(group)]
-        if not available:
-            return self.async_abort(reason="canonical_configuration_unavailable")
-        return self.async_show_menu(step_id="init", menu_options=available)
-
-    async def _edit_group(self, group: str, step_id: str, user_input=None):
-        rows = self._rows(group)
-        if not rows:
-            return await self.async_step_init()
-        if user_input is None:
-            self._target_group = group
-            return self.async_show_form(
-                step_id=step_id,
-                data_schema=self._schema(rows),
-                description_placeholders={
-                    "authority": "Values are written through the canonical Energy Public V2 property contract."
-                },
-            )
-
+    async def _write_fields(
+        self,
+        fields: dict[str, str],
+        user_input: dict[str, Any],
+    ) -> None:
+        rows = self._row_map()
         interaction = self._interaction()
         if interaction is None:
-            return self.async_show_form(
-                step_id=step_id,
-                data_schema=self._schema(rows),
-                errors={"base": "canonical_runtime_unavailable"},
-            )
-        current = {str(row.get("property_id")): row.get("value") for row in rows}
+            raise RuntimeError("canonical_runtime_unavailable")
+        for field_name, property_id in fields.items():
+            if field_name not in user_input:
+                continue
+            row = rows.get(property_id)
+            if not row:
+                continue
+            value = user_input[field_name]
+            if value == row.get("value"):
+                continue
+            await interaction.write_property(property_id, value)
+
+    async def _edit(
+        self,
+        *,
+        step_id: str,
+        fields: dict[str, str],
+        user_input,
+        return_step,
+    ):
+        schema = self._form_schema(fields)
+        if not schema.schema:
+            return await return_step()
+        if user_input is None:
+            return self.async_show_form(step_id=step_id, data_schema=schema)
         try:
-            for property_id, value in user_input.items():
-                if property_id not in current or value == current[property_id]:
-                    continue
-                await interaction.write_property(str(property_id), value)
-        except (TypeError, ValueError):
+            await self._write_fields(fields, user_input)
+        except (RuntimeError, TypeError, ValueError):
             return self.async_show_form(
                 step_id=step_id,
-                data_schema=self._schema(rows),
+                data_schema=schema,
                 errors={"base": "invalid_configuration"},
             )
-        return await self.async_step_init()
+        return await return_step()
+
+    async def async_step_init(self, user_input=None):
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["pricing", "strategy", "metering"],
+        )
 
     async def async_step_pricing(self, user_input=None):
-        return await self._edit_group("pricing", "pricing", user_input)
+        return await self._edit(
+            step_id="pricing",
+            fields=self._PRICING_FIELDS,
+            user_input=user_input,
+            return_step=self.async_step_init,
+        )
 
     async def async_step_strategy(self, user_input=None):
-        return await self._edit_group("strategy", "strategy", user_input)
+        return self.async_show_menu(
+            step_id="strategy",
+            menu_options=["home", "battery", "solar", "grid", "ev_charging", "resilience"],
+        )
 
     async def async_step_metering(self, user_input=None):
-        return await self._edit_group("metering", "metering", user_input)
+        return await self._edit(
+            step_id="metering",
+            fields=self._METERING_FIELDS,
+            user_input=user_input,
+            return_step=self.async_step_init,
+        )
+
+    async def async_step_home(self, user_input=None):
+        return await self._edit(
+            step_id="home",
+            fields=self._STRATEGY_FIELDS["home"],
+            user_input=user_input,
+            return_step=self.async_step_strategy,
+        )
+
+    async def async_step_battery(self, user_input=None):
+        return await self._edit(
+            step_id="battery",
+            fields=self._STRATEGY_FIELDS["battery"],
+            user_input=user_input,
+            return_step=self.async_step_strategy,
+        )
+
+    async def async_step_solar(self, user_input=None):
+        return await self._edit(
+            step_id="solar",
+            fields=self._STRATEGY_FIELDS["solar"],
+            user_input=user_input,
+            return_step=self.async_step_strategy,
+        )
+
+    async def async_step_grid(self, user_input=None):
+        return await self._edit(
+            step_id="grid",
+            fields=self._STRATEGY_FIELDS["grid"],
+            user_input=user_input,
+            return_step=self.async_step_strategy,
+        )
+
+    async def async_step_ev_charging(self, user_input=None):
+        return await self._edit(
+            step_id="ev_charging",
+            fields=self._STRATEGY_FIELDS["ev_charging"],
+            user_input=user_input,
+            return_step=self.async_step_strategy,
+        )
+
+    async def async_step_resilience(self, user_input=None):
+        return await self._edit(
+            step_id="resilience",
+            fields=self._STRATEGY_FIELDS["resilience"],
+            user_input=user_input,
+            return_step=self.async_step_strategy,
+        )

@@ -86,7 +86,7 @@ def _ensure_publication_provider(hass: HomeAssistant) -> EnergyBuildSpecificatio
         and isinstance(existing.get("provider"), EnergyBuildSpecificationProvider)
         else EnergyBuildSpecificationProvider.load()
     )
-    register_provider, unregister_provider = _shared_registry_api()
+    register_provider, _unregister_provider = _shared_registry_api()
     unsubscribe = register_provider(
         hass,
         publisher_domain=DOMAIN,
@@ -94,11 +94,7 @@ def _ensure_publication_provider(hass: HomeAssistant) -> EnergyBuildSpecificatio
         publication_revision=provider.publication_revision,
     )
     if not callable(unsubscribe):
-        # Foundation 1.8.3 source compatibility: its registration API returned None.
-        def _legacy_unsubscribe() -> None:
-            unregister_provider(hass, publisher_domain=DOMAIN)
-
-        unsubscribe = _legacy_unsubscribe
+        raise ConfigEntryNotReady("foundation_provider_registration_handle_unavailable")
     domain_state[_PUBLICATION_STATE_KEY] = {
         "provider": provider,
         "diagnostic": provider.diagnostic_record(),
@@ -291,24 +287,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if obj is not None and hasattr(obj, "async_stop"):
             await obj.async_stop()
     await async_unregister_services(hass, state.get("services"))
-    # Provider absence during unload/reload is structural availability only. Foundation
-    # 1.8.2 preserves persisted Energy technical intent; async_setup_entry re-registers
-    # the provider generation before rebuilding the Energy runtime.
+    # Provider absence during unload/reload is structural availability only.
+    # Persisted Energy technical intent remains Foundation-owned and survives reload.
     _unregister_publication_provider(hass)
     return True
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove Foundation-owned Energy technical intent only on genuine entry deletion."""
-    try:
-        from custom_components.rhi_foundation.shared_registry import (
-            async_remove_domain_configuration,
-        )
-    except (ImportError, AttributeError):
-        # Foundation 1.8.3 has no explicit domain-removal API. Runtime compatibility
-        # remains intact; stale technical intent can still be removed from Foundation.
-        _LOGGER.info("Foundation does not expose domain-scoped Energy removal yet")
-        return
+    from custom_components.rhi_foundation.shared_registry import (
+        async_remove_domain_configuration,
+    )
+
     await async_remove_domain_configuration(
         hass,
         domain_id=DOMAIN_ID,
