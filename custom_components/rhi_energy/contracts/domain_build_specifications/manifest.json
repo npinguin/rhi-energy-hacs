@@ -221,6 +221,6 @@
     "executes_commands": false
   },
   "publication_contract": "domain_build_specification_v1.2.0",
-  "shared_baseline_version": "1.8.2",
-  "publication_revision": 27
+  "shared_baseline_version": "1.8.3",
+  "publication_revision": 28
 }

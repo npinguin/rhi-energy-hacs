@@ -22,7 +22,7 @@
         }
       },
       "pricing": {
-        "title": "Pricing & tariffs",
+        "title": "Energy settings › Pricing & tariffs",
         "description": "Configure only the retail components that are not supplied by a live price source. Leaving all tariff components empty keeps valid market-only accounting.",
         "data": {
           "market_price_fallback": "Market price fallback",
@@ -33,7 +33,7 @@
         }
       },
       "strategy": {
-        "title": "Strategy & priorities",
+        "title": "Energy settings › Strategy & priorities",
         "description": "Choose the part of the Energy strategy you want to configure.",
         "menu_options": {
           "home": "Home & priorities",
@@ -45,15 +45,15 @@
         }
       },
       "home": {
-        "title": "Home & priorities",
+        "title": "Energy settings › Strategy › Home & priorities",
         "description": "Set how actively Energy may operate and what the home should optimise for.",
         "data": {
-          "automation_mode": "Automation mode",
-          "primary_objective": "Primary objective"
+          "primary_objective": "Primary objective",
+          "operating_mode": "Operating mode"
         }
       },
       "battery": {
-        "title": "Battery strategy",
+        "title": "Energy settings › Strategy › Battery",
         "description": "Configure how the home battery participates in optimisation. Reserve is the minimum state of charge Energy should protect.",
         "data": {
           "objective": "Battery objective",
@@ -65,7 +65,7 @@
         }
       },
       "solar": {
-        "title": "Solar strategy",
+        "title": "Energy settings › Strategy › Solar",
         "description": "Configure how solar production should be prioritised and how surplus should be used.",
         "data": {
           "objective": "Solar objective",
@@ -76,7 +76,7 @@
         }
       },
       "grid": {
-        "title": "Grid strategy",
+        "title": "Energy settings › Strategy › Grid",
         "description": "Configure when grid energy may support the home battery and flexible loads.",
         "data": {
           "home_battery_policy": "Home battery grid policy",
@@ -84,7 +84,7 @@
         }
       },
       "ev_charging": {
-        "title": "EV charging strategy",
+        "title": "Energy settings › Strategy › EV charging",
         "description": "Configure how flexible EV charging should use price, solar, battery and surplus energy.",
         "data": {
           "objective": "Charging objective",
@@ -95,7 +95,7 @@
         }
       },
       "resilience": {
-        "title": "Resilience",
+        "title": "Energy settings › Strategy › Resilience",
         "description": "Configure how Energy protects backup capacity and responds when resilience is prioritised.",
         "data": {
           "objective": "Resilience objective",
@@ -104,7 +104,7 @@
         }
       },
       "metering": {
-        "title": "Metering view",
+        "title": "Energy settings › Metering view",
         "description": "Choose the default period used for Energy metering and value views.",
         "data": {
           "display_period": "Default period"

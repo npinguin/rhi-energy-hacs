@@ -470,7 +470,6 @@ def default_settings() -> dict[str, Any]:
             "export_fee_eur_kwh": None,
         },
         "strategy": {
-            "energy.automation_mode": "advice",
             "energy.operating_mode": "advice",
             "home.primary_objective": "balanced",
             "battery.objective": "balanced",
@@ -530,7 +529,6 @@ def _strategy_select(settings: dict[str, Any], key: str, allowed: tuple[str, ...
 def strategy_properties(settings: dict[str, Any]) -> list[dict[str, Any]]:
     s=settings.get("strategy") or {}
     rows=[
-        _strategy_select(settings,"energy.automation_mode",_MODES,"home"),
         _strategy_select(settings,"home.primary_objective",_OBJECTIVES,"home"),
         _strategy_select(settings,"battery.objective",_OBJECTIVES,"battery"),
         _strategy_select(settings,"battery.grid_policy",_GRID_POLICIES,"battery"),
@@ -554,7 +552,6 @@ def strategy_properties(settings: dict[str, Any]) -> list[dict[str, Any]]:
         _strategy_select(settings,"resilience.grid_policy",_GRID_POLICIES,"resilience"),
         _strategy_select(settings,"resilience.battery_policy",_BATTERY_POLICIES,"resilience"),
     ]
-    # Additive V2 alias; old UX continues using energy.automation_mode.
     rows.append(_strategy_select(settings,"energy.operating_mode",_MODES,"home"))
     return rows
 
@@ -808,8 +805,7 @@ def automation_control_policy(settings: dict[str, Any]) -> dict[str, Any]:
     """Canonical authority boundary between planning, advice and autonomous execution."""
     strategy = settings.get("strategy") or {}
     raw_mode = str(
-        strategy.get("energy.automation_mode")
-        or strategy.get("energy.operating_mode")
+        strategy.get("energy.operating_mode")
         or "advice"
     ).strip().lower()
     mode = {"recommend": "advice", "off": "disabled"}.get(raw_mode, raw_mode)
@@ -1395,7 +1391,7 @@ def protective_execution_decision(grid_import_kw: Any, battery_power_kw: Any, as
 
 
 def intelligence(plan: dict[str, Any], facts: dict[str, Any], settings: dict[str, Any], flexible_assets: list[dict[str, Any]]) -> dict[str, Any]:
-    mode=(settings.get("strategy") or {}).get("energy.automation_mode") or (settings.get("strategy") or {}).get("energy.operating_mode","advice")
+    mode=(settings.get("strategy") or {}).get("energy.operating_mode","advice")
     d0=(plan.get("planning_horizons") or {}).get("D0") or {}
     balance=d0.get("balance") or {}
     gi=number(balance.get("expected_grid_import_kwh"))

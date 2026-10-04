@@ -507,16 +507,13 @@ class EnergyInteractionEngine:
                     result.update(status="CONFIRMED", reason="persisted_strategy_intent", readback_value=numeric)
             else:
                 normalized = str(value).lower()
-                if property_id in {"energy.automation_mode", "energy.operating_mode"}:
+                if property_id == "energy.operating_mode":
                     normalized = {"off": "disabled", "recommend": "advice"}.get(normalized, normalized)
                 allowed = (row.get("constraints") or {}).get("allowed") or []
                 if allowed and normalized not in allowed:
                     result["reason"] = "outside_constraints"
                 else:
                     strategy[property_id] = normalized
-                    if property_id in {"energy.automation_mode", "energy.operating_mode"}:
-                        strategy["energy.automation_mode"] = normalized
-                        strategy["energy.operating_mode"] = normalized
                     result.update(status="CONFIRMED", reason="persisted_strategy_intent", readback_value=normalized)
         elif property_id in {"metering.selected_period_id", "metering.selected_period"}:
             normalized = str(value).lower()
@@ -692,7 +689,7 @@ class EnergyInteractionEngine:
                     row.update(status="CONFIRMED", dispatch_state="LOCAL_COMPLETE", reason="planning_hold_cleared")
                     await self.store.async_save()
                     strategy = (self.store.data.get("settings") or {}).get("strategy", {})
-                    mode = strategy.get("energy.automation_mode") or strategy.get("energy.operating_mode")
+                    mode = strategy.get("energy.operating_mode")
                     if mode == "automatic":
                         await self._execute_plan("resume")
             elif command_id in {

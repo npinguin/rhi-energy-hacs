@@ -35,6 +35,12 @@ class EnergyStore:
             for k,v in (raw.get("settings") or {}).items():
                 if isinstance(v,dict) and isinstance(settings.get(k),dict): settings[k].update(v)
                 else: settings[k]=v
+            legacy_strategy = ((raw.get("settings") or {}).get("strategy") or {})
+            if "energy.automation_mode" in legacy_strategy:
+                strategy = settings.setdefault("strategy", {})
+                if "energy.operating_mode" not in legacy_strategy:
+                    strategy["energy.operating_mode"] = legacy_strategy["energy.automation_mode"]
+                strategy.pop("energy.automation_mode", None)
             self.data.update(raw); self.data["settings"]=settings
 
     async def async_save(self) -> None:

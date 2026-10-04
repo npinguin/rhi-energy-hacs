@@ -545,7 +545,7 @@ def _retrospective_projection(
     ready_count = sum(row["state"] == "READY" for row in prerequisites)
     evidence_ready = ready_count == len(prerequisites)
     return {
-        "contract_id": "RHI_ENERGY_RETROSPECTIVE_V1",
+        "contract_id": "RHI_ENERGY_RETROSPECTIVE_V2",
         "status": "NOT_EVALUATED" if evidence_ready else "COLLECTING_EVIDENCE",
         "reason": (
             "objective_performance_model_not_published"
@@ -708,7 +708,7 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
     }
 
     return {
-        "contract_id": "RHI_ENERGY_CORE_V1",
+        "contract_id": "RHI_ENERGY_CORE_V2",
         "battery": battery,
         "solar": solar,
         "grid": grid,

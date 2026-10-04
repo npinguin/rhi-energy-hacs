@@ -57,7 +57,7 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
     }
     _STRATEGY_FIELDS = {
         "home": {
-            "automation_mode": "energy.operating_mode",
+            "operating_mode": "energy.operating_mode",
             "primary_objective": "home.primary_objective",
         },
         "battery": {
@@ -192,18 +192,31 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
     ):
         schema = self._form_schema(fields)
         if not schema.schema:
-            return await return_step()
+            return self.async_abort(reason="canonical_configuration_unavailable")
         if user_input is None:
             return self.async_show_form(step_id=step_id, data_schema=schema)
         try:
             await self._write_fields(fields, user_input)
-        except (RuntimeError, TypeError, ValueError):
+        except RuntimeError:
+            return self.async_show_form(
+                step_id=step_id,
+                data_schema=schema,
+                errors={"base": "canonical_runtime_unavailable"},
+            )
+        except (TypeError, ValueError):
             return self.async_show_form(
                 step_id=step_id,
                 data_schema=schema,
                 errors={"base": "invalid_configuration"},
             )
-        return await return_step()
+
+        # Stay inside the exact section the user just configured. Rebuild the form
+        # from Public V2 so saved readback is visible immediately and no hidden
+        # wizard state becomes a second authority.
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=self._form_schema(fields),
+        )
 
     async def async_step_init(self, user_input=None):
         return self.async_show_menu(
