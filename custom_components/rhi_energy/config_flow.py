@@ -188,7 +188,6 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
         step_id: str,
         fields: dict[str, str],
         user_input,
-        return_step,
     ):
         schema = self._form_schema(fields)
         if not schema.schema:
@@ -229,7 +228,6 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             step_id="pricing",
             fields=self._PRICING_FIELDS,
             user_input=user_input,
-            return_step=self.async_step_init,
         )
 
     async def async_step_strategy(self, user_input=None):
@@ -243,7 +241,6 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             step_id="metering",
             fields=self._METERING_FIELDS,
             user_input=user_input,
-            return_step=self.async_step_init,
         )
 
     async def async_step_home(self, user_input=None):
@@ -251,7 +248,6 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             step_id="home",
             fields=self._STRATEGY_FIELDS["home"],
             user_input=user_input,
-            return_step=self.async_step_strategy,
         )
 
     async def async_step_battery(self, user_input=None):
@@ -259,7 +255,6 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             step_id="battery",
             fields=self._STRATEGY_FIELDS["battery"],
             user_input=user_input,
-            return_step=self.async_step_strategy,
         )
 
     async def async_step_solar(self, user_input=None):
@@ -267,7 +262,6 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             step_id="solar",
             fields=self._STRATEGY_FIELDS["solar"],
             user_input=user_input,
-            return_step=self.async_step_strategy,
         )
 
     async def async_step_grid(self, user_input=None):
@@ -275,7 +269,6 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             step_id="grid",
             fields=self._STRATEGY_FIELDS["grid"],
             user_input=user_input,
-            return_step=self.async_step_strategy,
         )
 
     async def async_step_ev_charging(self, user_input=None):
@@ -283,7 +276,6 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             step_id="ev_charging",
             fields=self._STRATEGY_FIELDS["ev_charging"],
             user_input=user_input,
-            return_step=self.async_step_strategy,
         )
 
     async def async_step_resilience(self, user_input=None):
@@ -291,5 +283,4 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             step_id="resilience",
             fields=self._STRATEGY_FIELDS["resilience"],
             user_input=user_input,
-            return_step=self.async_step_strategy,
         )

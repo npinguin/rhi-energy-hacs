@@ -62,7 +62,6 @@ def _publication(asset: dict[str, Any]) -> dict[str, Any]:
         "unresolved_required_property_keys": unresolved_required,
         "complete": not missing_required,
         "resolution_complete": not unresolved_required,
-        "v1_fallback_allowed": False,
     }
 
 
