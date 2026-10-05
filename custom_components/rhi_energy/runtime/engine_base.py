@@ -18,8 +18,7 @@ from .canonical_semantics import (
     aggregate_battery_power,
     aggregate_battery_soc,
     battery_state_from_power,
-    complete_numeric_sum,
-    derive_consumption,
+    complete_numeric_sum, current_flexible_power_envelope, derive_consumption,
     derive_home_consumption,
     deterministic_plan,
     grid_flow_direction,
@@ -752,6 +751,7 @@ class EnergyRuntime:
         with facts.writer("consumption_accounting"):
             facts["flexible_loads.power_kw"] = flexible_power
             facts["flexible_loads.attributed_power_kw"] = attributed_flexible_power
+            facts["flexible_loads.available_power_kw"] = current_flexible_power_envelope(facts.get("grid_export.power_kw"))["available_power_kw"]
             facts["home_consumption.power_kw"] = home_power
             facts["battery_charge.power_kw"] = battery_charge_power
             facts["battery_discharge.power_kw"] = battery_discharge_power

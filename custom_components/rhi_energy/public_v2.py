@@ -55,6 +55,7 @@ def runtime_public_core_consistency(facts: dict[str, Any], public_contract: dict
         "home_consumption.power_kw": ((core.get("home") or {}).get("power_kw")),
         "flexible_loads.power_kw": ((core.get("flexible") or {}).get("power_kw")),
         "flexible_loads.attributed_power_kw": ((core.get("flexible") or {}).get("attributed_power_kw")),
+        "flexible_loads.available_power_kw": ((core.get("flexible") or {}).get("available_power_kw")),
     }
     differences = []
     for key, public_value in expected.items():
@@ -720,6 +721,13 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
     flexible = {
         "power_kw": facts.get("flexible_loads.power_kw"),
         "attributed_power_kw": facts.get("flexible_loads.attributed_power_kw"),
+        "available_power_kw": facts.get("flexible_loads.available_power_kw"),
+        "available_power_reason": (
+            "trusted_current_grid_export"
+            if facts.get("flexible_loads.available_power_kw") is not None
+            else "trusted_current_grid_export_unavailable"
+        ),
+        "available_power_source_fact": "grid_export.power_kw",
         "asset_count": len(flexible_assets),
         "assets": flexible_assets,
         "producer_available": producer_available,
@@ -740,6 +748,11 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
     flexible["fields"] = {
         "power_kw": _semantic_field(flexible["power_kw"], unit="kW", reason="flexible_load_power_unavailable"),
         "attributed_power_kw": _semantic_field(flexible["attributed_power_kw"], unit="kW", reason="flexible_load_attribution_unavailable"),
+        "available_power_kw": _semantic_field(
+            flexible["available_power_kw"],
+            unit="kW",
+            reason="trusted_current_grid_export_unavailable",
+        ),
     }
 
     gas_total = facts.get("gas.total_m3")

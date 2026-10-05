@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.4.2"
+DOMAIN_MODEL_VERSION: Final[str] = "1.4.3"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -167,6 +167,7 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
     "flexible_loads": (
         {"input_id":None,"role":"power","property_key":"flexible_loads.power_kw","fact_key":"flexible_loads.power_kw","name":"Flexible load power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"attributed_power","property_key":"flexible_loads.attributed_power_kw","fact_key":"flexible_loads.attributed_power_kw","name":"Attributed flexible load power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+        {"input_id":None,"role":"available_power","property_key":"flexible_loads.available_power_kw","fact_key":"flexible_loads.available_power_kw","name":"Available flexible-load power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
     ),
 
     "battery_system": (

@@ -1355,6 +1355,35 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         "execution_policy": deepcopy(control_policy),
     }
 
+def current_flexible_power_envelope(grid_export_kw: Any) -> dict[str, Any]:
+    """Return current allocatable flexible-load power from trusted physical export.
+
+    This is an instantaneous kW envelope, not horizon planning energy. Forecast
+    surplus and battery discharge are intentionally outside this calculation.
+    """
+    export = number(grid_export_kw)
+    if export is None:
+        return {
+            "available_power_kw": None,
+            "availability": "UNAVAILABLE",
+            "reason": "trusted_current_grid_export_unavailable",
+            "source_fact": "grid_export.power_kw",
+        }
+    if export < -1e-9:
+        return {
+            "available_power_kw": None,
+            "availability": "UNAVAILABLE",
+            "reason": "trusted_current_grid_export_invalid_negative",
+            "source_fact": "grid_export.power_kw",
+        }
+    return {
+        "available_power_kw": round(max(0.0, export), 6),
+        "availability": "AVAILABLE",
+        "reason": "trusted_current_grid_export",
+        "source_fact": "grid_export.power_kw",
+    }
+
+
 def automatic_execution_decision(grid_export_kw: Any, asset: dict[str, Any], planning_hold: bool = False) -> dict[str, Any]:
     """Fail-closed automatic execution gate based on trusted current export.
 
