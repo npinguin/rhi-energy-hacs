@@ -8,6 +8,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .canonical_device import canonical_device_identifier, source_device_ids
 from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
+from .public_v2 import runtime_public_core_consistency
 
 from .const import (
     DOMAIN,
@@ -398,6 +399,8 @@ def _source_resolution_coherence(logical_assets) -> dict:
         "contradictions": contradictions[:60],
     }
 
+
+
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry):
     state = (hass.data.get(DOMAIN) or {}).get(entry.entry_id) or {}
     manager = state.get("build_manager")
@@ -414,6 +417,11 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     activity = store_data.get("activity", [])
     evidence = store_data.get("pilot_evidence", {})
     periods = metering.get("periods") or {}
+    public_contract = (
+        state.get("public_projector").get_v2()
+        if state.get("public_projector")
+        else {}
+    ) or {}
     specifications = tuple(provider.iter_specifications()) if provider else ()
     registry = er.async_get(hass)
     public_surface = []
@@ -501,15 +509,19 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             },
         },
         "event_flow": (runtime.event_flow.snapshot() if runtime and hasattr(runtime, "event_flow") else {}),
-        "public_projection": (
-            state.get("public_projector").projection_diagnostics()
-            if state.get("public_projector")
-            and hasattr(state.get("public_projector"), "projection_diagnostics")
-            else {}
-        ),
-        "canonical_coverage": deepcopy(
-            ((state.get("public_projector").get_v2() if state.get("public_projector") else {}) or {}).get("coverage") or {}
-        ),
+        "public_projection": {
+            **(
+                state.get("public_projector").projection_diagnostics()
+                if state.get("public_projector")
+                and hasattr(state.get("public_projector"), "projection_diagnostics")
+                else {}
+            ),
+            "core": deepcopy(public_contract.get("core") or {}),
+            "runtime_core_consistency": runtime_public_core_consistency(
+                facts, public_contract
+            ),
+        },
+        "canonical_coverage": deepcopy(public_contract.get("coverage") or {}),
         "operational_readiness": deepcopy(snap.get("operational_readiness") or {}),
         "source_resolution_coherence": _source_resolution_coherence(snap.get("logical_assets") or []),
         "property_operations": {

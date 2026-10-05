@@ -37,6 +37,42 @@ PUBLIC_CONTRACT_V2 = "2.0.0"
 PUBLIC_PROFILE_CONTRACT = "ENERGY_PROFILE_CATALOG_V2"
 
 
+def runtime_public_core_consistency(facts: dict[str, Any], public_contract: dict[str, Any]) -> dict[str, Any]:
+    """Prove canonical runtime facts survive unchanged into Public V2 core."""
+    core = (public_contract or {}).get("core") or {}
+    expected = {
+        "battery.power_kw": ((core.get("battery") or {}).get("power_kw")),
+        "battery.soc_pct": ((core.get("battery") or {}).get("soc_pct")),
+        "battery.capacity_kwh": ((core.get("battery") or {}).get("capacity_kwh")),
+        "battery.available_kwh": ((core.get("battery") or {}).get("available_kwh")),
+        "battery.state": ((core.get("battery") or {}).get("state")),
+        "solar.power_kw": ((core.get("solar") or {}).get("power_kw")),
+        "grid.net_power_kw": ((core.get("grid") or {}).get("net_power_kw")),
+        "grid_import.power_kw": ((core.get("grid") or {}).get("import_power_kw")),
+        "grid_export.power_kw": ((core.get("grid") or {}).get("export_power_kw")),
+        "grid.flow_direction": ((core.get("grid") or {}).get("flow_direction")),
+        "site_consumption.power_kw": ((core.get("consumption") or {}).get("power_kw")),
+        "home_consumption.power_kw": ((core.get("home") or {}).get("power_kw")),
+        "flexible_loads.power_kw": ((core.get("flexible") or {}).get("power_kw")),
+        "flexible_loads.attributed_power_kw": ((core.get("flexible") or {}).get("attributed_power_kw")),
+    }
+    differences = []
+    for key, public_value in expected.items():
+        runtime_value = facts.get(key)
+        if runtime_value != public_value:
+            differences.append({
+                "fact_id": key,
+                "runtime_value": runtime_value,
+                "public_value": public_value,
+            })
+    return {
+        "complete": not differences,
+        "assessed_fact_count": len(expected),
+        "difference_count": len(differences),
+        "differences": differences,
+    }
+
+
 def _publication(asset: dict[str, Any]) -> dict[str, Any]:
     props = [row for row in asset.get("properties") or [] if isinstance(row, dict)]
     published = sorted({str(row.get("property_key")) for row in props if row.get("property_key")})

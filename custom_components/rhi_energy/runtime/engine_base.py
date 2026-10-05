@@ -525,6 +525,9 @@ class EnergyRuntime:
             facts["battery.available_kwh"] = facts[f"{sid}.available_kwh"]
             facts["battery.soc_pct"] = facts[f"{sid}.soc_pct"]
             facts["battery.status"] = facts[f"{sid}.status"]
+            # Operating state is canonical product truth and must be derived once
+            # in the runtime, not inferred independently by Public V2 or UX.
+            facts["battery.state"] = battery_state_from_power(facts[f"{sid}.power_kw"])
             facts["battery_system.source_id"] = sid
             # Child completeness is only required when aggregate system truth
             # cannot be resolved from an authoritative system-level measurement.

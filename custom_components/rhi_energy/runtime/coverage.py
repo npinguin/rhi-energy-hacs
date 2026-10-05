@@ -158,10 +158,16 @@ def canonical_coverage(
         for binding in accepted_rows
         if _binding_asset_id(binding) in known_non_product_asset_ids
     })
+    # Canonical composition may collapse one source-backed semantic asset
+    # (for example grid_<id>) into a stable product asset (grid_connection).
+    # Once that exact accepted binding is present on a published canonical
+    # property it is not orphaned merely because the pre-composition source
+    # asset id is no longer materialized as a product object.
     orphan_accepted_binding_ids = sorted({
         str(binding["binding_id"])
         for binding in accepted_rows
         if _binding_asset_id(binding) not in known_asset_ids
+        and str(binding["binding_id"]) not in published_binding_ids
     })
     unpublished_product_binding_ids = sorted(
         set(product_accepted_binding_ids) - set(published_binding_ids)
