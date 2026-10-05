@@ -706,6 +706,25 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
         "attributed_power_kw": _semantic_field(flexible["attributed_power_kw"], unit="kW", reason="flexible_load_attribution_unavailable"),
     }
 
+    gas_total = facts.get("gas.total_m3")
+    gas_current_available = gas_total is not None
+    gas_history = deepcopy(source.get("gas_history") or {})
+    gas_history_available = str(gas_history.get("status") or "").upper() == "AVAILABLE"
+    gas = {
+        "current_total": _semantic_field(gas_total, unit="m³", reason="gas_current_meter_unavailable"),
+        "history": {
+            **gas_history,
+            "status": "AVAILABLE" if gas_history_available else "UNAVAILABLE",
+            "reason_code": (
+                None
+                if gas_history_available
+                else "STATISTICS_NOT_AVAILABLE"
+                if gas_current_available
+                else "CURRENT_METER_UNAVAILABLE"
+            ),
+        },
+    }
+
     return {
         "contract_id": "RHI_ENERGY_CORE_V2",
         "battery": battery,
@@ -714,6 +733,7 @@ def _build_core(source: dict[str, Any]) -> dict[str, Any]:
         "consumption": consumption,
         "home": home,
         "flexible": flexible,
+        "gas": gas,
     }
 
 

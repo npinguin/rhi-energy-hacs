@@ -1396,6 +1396,15 @@ def intelligence(plan: dict[str, Any], facts: dict[str, Any], settings: dict[str
     balance=d0.get("balance") or {}
     gi=number(balance.get("expected_grid_import_kwh"))
     ge=number(balance.get("expected_grid_export_kwh"))
+    required_core = {
+        "solar.power_kw": number(facts.get("solar.power_kw")),
+        "grid.net_power_kw": number(facts.get("grid.net_power_kw")),
+        "site_consumption.power_kw": number(facts.get("site_consumption.power_kw")),
+        "home_consumption.power_kw": number(facts.get("home_consumption.power_kw")),
+    }
+    if "battery_system.source_id" in facts or facts.get("battery.capacity_kwh") is not None:
+        required_core["battery.power_kw"] = number(facts.get("battery.power_kw"))
+    missing_core = [key for key, value in required_core.items() if value is None]
     needs=[
         a for a in flexible_assets
         if str(a.get("participation_state") or "participating").strip().lower() == "participating"
@@ -1404,10 +1413,13 @@ def intelligence(plan: dict[str, Any], facts: dict[str, Any], settings: dict[str
         and (number(a.get("energy_to_target_kwh")) or 0) > 0
     ]
     plan_availability = ((d0.get("quality") or {}).get("availability"))
+    evidence_complete = plan_availability == AVAILABLE and not missing_core
     if mode == "disabled":
         decision="HOLD"; rec="Energy automation is disabled."; reason="strategy_disabled"; readiness=UNAVAILABLE
     elif plan_availability != AVAILABLE:
         decision="NOT_EVALUATED"; rec=None; reason="planning_inputs_incomplete"; readiness=UNAVAILABLE
+    elif missing_core:
+        decision="NOT_EVALUATED"; rec=None; reason="canonical_core_truth_incomplete"; readiness=UNAVAILABLE
     elif needs and ge is not None and ge > 0.5:
         decision="USE_SURPLUS"; rec=f"Use expected surplus for {needs[0].get('display_name') or needs[0].get('asset_id')}."; reason="forecast_surplus_and_flexible_need"; readiness=AVAILABLE
     elif needs and gi is not None and gi > 0:
@@ -1426,4 +1438,9 @@ def intelligence(plan: dict[str, Any], facts: dict[str, Any], settings: dict[str
         "status": "READY" if readiness == AVAILABLE else "NOT_AVAILABLE",
         "automation_mode": mode,
         "selected_flexible_load_id": needs[0].get("asset_id") if needs else None,
+        "assessment_state": "AVAILABLE" if readiness == AVAILABLE else "INCOMPLETE",
+        "evidence_complete": evidence_complete,
+        "missing_evidence": missing_core + ([] if plan_availability == AVAILABLE else ["planning.D0"]),
+        "reason_code": reason,
+        "action_required": decision not in {"HOLD", "NOT_EVALUATED"},
     }
