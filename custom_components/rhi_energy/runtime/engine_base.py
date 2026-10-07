@@ -13,7 +13,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 from ..adapters import get_normalization_semantics, get_normalizer
-from .callbacks import RuntimeCallbacks, logical_topology
+from .callbacks import RuntimeCallbacks, changed_logical_asset_ids, logical_topology
 from .canonical_semantics import (
     aggregate_battery_power,
     aggregate_battery_soc,
@@ -136,8 +136,13 @@ class EnergyRuntime:
         if signature != self._topology_signature:
             self._topology_signature = signature
             self._callback_hub.notify_topology()
-    def _notify(self) -> None:
-        self._callback_hub.notify_all()
+    def _notify(self, asset_ids: set[str] | None = None, *, full_asset_fanout: bool = False) -> None:
+        if full_asset_fanout:
+            self._callback_hub.notify_all()
+            return
+        self._callback_hub.notify_general()
+        if asset_ids:
+            self._callback_hub.notify_assets(asset_ids)
     def _notify_assets(self, asset_ids: set[str]) -> None:
         self._callback_hub.notify_assets(asset_ids)
     def _binding_index(self) -> dict[str, dict[str, Any]]:
@@ -513,7 +518,6 @@ class EnergyRuntime:
                 if units and all(value is not None for value in svals)
                 else None
             )
-
             # Battery System is a canonical Energy object composed exclusively from
             # normalized Battery objects.  Never re-read or reinterpret integration
             # sources here.
@@ -535,7 +539,6 @@ class EnergyRuntime:
                 or facts[f"{sid}.available_kwh"] is None
             ):
                 issues.append(f"battery_system:{sid}:energy_aggregate_incomplete")
-
         for system in [row for row in assets if row.get("object_class") == "solar_production"]:
             sid = str(system.get("asset_id") or "")
             issues.extend(aggregate_solar_system(
@@ -545,23 +548,19 @@ class EnergyRuntime:
                 facts,
                 complete_numeric_sum,
             ))
-
         meters = [row for row in assets if row.get("object_class") == "gas_meter"]
         gas_values = [facts.get(f"{row.get('asset_id')}.total_m3") for row in meters]
         facts["gas.total_m3"] = complete_numeric_sum(gas_values, expected_count=len(meters))
         facts["gas.total"] = facts["gas.total_m3"]
         if meters and any(value is None for value in gas_values):
             issues.append(f"gas_meter:aggregate_incomplete:{sum(value is None for value in gas_values)}_of_{len(meters)}_unavailable")
-
         optimizers = [row for row in assets if row.get("object_class") == "solar_optimizer"]
         if optimizers:
             known = sum(facts.get(f"{row.get('asset_id')}.power_w") is not None for row in optimizers)
             facts["solar_optimizer.count"] = len(optimizers)
             facts["solar_optimizer.health"] = "OK" if known == len(optimizers) else "DEGRADED"
-
     def _canonicalize(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
         """Project accepted logical objects into canonical Energy facts.
-
         Structural selection is complete before runtime activation. Runtime never
         arbitrates providers or reinterprets source ownership.
         """
@@ -583,7 +582,6 @@ class EnergyRuntime:
                     facts[key] = facts.get(prop.get("fact_key"))
             facts[f"{concept}.source_id"] = selected.get("asset_id")
             facts[f"{concept}.source_integration"] = selected.get("integration_domain")
-
         price_rows = [row for row in assets if row.get("object_class") == "price_source"]
         import_rows = [row for row in price_rows if row.get("market_role") != "export"]
         export_rows = [row for row in price_rows if row.get("market_role") == "export"]
@@ -609,7 +607,6 @@ class EnergyRuntime:
             facts["pricing.export_source_id"] = row.get("asset_id")
         elif len(export_rows) > 1:
             issues.append("price_source:multiple_accepted_export_objects")
-
         facts["metering.grid_import_total_kwh"] = facts.get("grid_import.energy_total_kwh")
         facts["metering.grid_export_total_kwh"] = facts.get("grid_export.energy_total_kwh")
         # Directional state is canonical Energy truth, derived once from the
@@ -624,7 +621,6 @@ class EnergyRuntime:
         if facts.get("price_source.source_id"):
             facts["pricing.source_id"] = facts.get("price_source.source_id")
             facts["pricing.source_integration"] = facts.get("price_source.source_integration")
-
     def _evaluate_runtime_layers(
         self,
         facts: dict[str, Any],
@@ -642,7 +638,6 @@ class EnergyRuntime:
             self.model, self.store.data.get("metering") or {}, facts, flexible,
             logical_assets, producer_available, plan, intel, settings,
         )
-
     @staticmethod
     def _battery_units(logical_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -662,13 +657,12 @@ class EnergyRuntime:
                 "health": asset.get("health"),
             })
         return rows
-
     def _recompute(self, *, full_hydration: bool = False) -> None:
         if self.model is None:
             self.snapshot = self._empty_snapshot()
-            self._notify()
+            self._notify(full_asset_fanout=True)
             return
-
+        previous_logical_assets = self.snapshot.get("logical_assets") or []
         domain_assets = [row for row in (self.model.get("logical_assets") or []) if isinstance(row, dict)]
         if full_hydration:
             self._source_fact_cache.clear()
@@ -695,7 +689,6 @@ class EnergyRuntime:
             resolves_from={"source_materialization", "domain_aggregation"},
         ):
             self._canonicalize(domain_assets, facts, runtime_issues)
-
         consumption = derive_consumption(
             physical_input(self.model, "solar_production", "solar.power_kw", facts, domain_assets),
             physical_input(self.model, "grid_connection", "grid.net_power_kw", facts, domain_assets),
@@ -885,8 +878,15 @@ class EnergyRuntime:
         }
         # Runtime telemetry updates values on already materialized entities only.
         # Topology/entity projection is activated exclusively by activate_model().
-        self._notify()
-
+        changed_asset_ids = changed_logical_asset_ids(
+            previous_logical_assets,
+            logical_assets,
+            full_hydration=full_hydration,
+        )
+        self._notify(
+            changed_asset_ids,
+            full_asset_fanout=full_hydration,
+        )
     async def async_stop(self) -> None:
         self.event_flow.stop()
         if callable(self._unsubscribe):

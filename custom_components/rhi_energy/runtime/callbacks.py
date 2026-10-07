@@ -21,6 +21,31 @@ def logical_topology(snapshot: dict[str, Any]) -> tuple[Any, ...]:
     ))
 
 
+def changed_logical_asset_ids(
+    previous_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    current_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    full_hydration: bool,
+) -> set[str]:
+    previous = {
+        str(row.get("asset_id") or ""): row
+        for row in previous_rows
+        if isinstance(row, dict) and row.get("asset_id")
+    }
+    current = {
+        str(row.get("asset_id") or ""): row
+        for row in current_rows
+        if isinstance(row, dict) and row.get("asset_id")
+    }
+    if full_hydration:
+        return set(current)
+    return {
+        asset_id
+        for asset_id in set(previous) | set(current)
+        if previous.get(asset_id) != current.get(asset_id)
+    }
+
+
 class RuntimeCallbacks:
     """Keep global, topology and asset-scoped callback fanout outside the engine core."""
 
@@ -28,6 +53,10 @@ class RuntimeCallbacks:
         self.general: list[Callable[[], None]] = []
         self.topology: list[Callable[[], None]] = []
         self.assets: dict[str, list[Callable[[], None]]] = {}
+        self.general_notify_count = 0
+        self.asset_notify_batch_count = 0
+        self.asset_callback_count = 0
+        self.full_asset_fanout_count = 0
 
     @staticmethod
     def _remove(rows: list[Callable[[], None]], cb: Callable[[], None]) -> None:
@@ -56,17 +85,36 @@ class RuntimeCallbacks:
 
         return remove
 
-    def notify_all(self) -> None:
+    def notify_general(self) -> None:
+        self.general_notify_count += 1
         for cb in tuple(self.general):
             cb()
-        for rows in tuple(self.assets.values()):
-            for cb in tuple(rows):
-                cb()
+
+    def notify_all(self) -> None:
+        self.full_asset_fanout_count += 1
+        self.notify_general()
+        self.notify_assets(set(self.assets))
 
     def notify_assets(self, asset_ids: set[str]) -> None:
+        if not asset_ids:
+            return
+        self.asset_notify_batch_count += 1
         for asset_id in asset_ids:
             for cb in tuple(self.assets.get(str(asset_id), ())):
+                self.asset_callback_count += 1
                 cb()
+
+    def diagnostics(self) -> dict[str, int]:
+        return {
+            "general_listener_count": len(self.general),
+            "topology_listener_count": len(self.topology),
+            "asset_listener_asset_count": len(self.assets),
+            "asset_listener_count": sum(len(rows) for rows in self.assets.values()),
+            "general_notify_count": self.general_notify_count,
+            "asset_notify_batch_count": self.asset_notify_batch_count,
+            "asset_callback_count": self.asset_callback_count,
+            "full_asset_fanout_count": self.full_asset_fanout_count,
+        }
 
     def notify_topology(self) -> None:
         for cb in tuple(self.topology):
