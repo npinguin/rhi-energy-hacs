@@ -20,7 +20,6 @@ from .canonical_semantics import (
     battery_state_from_power,
     complete_numeric_sum, current_flexible_power_envelope, derive_consumption,
     derive_home_consumption,
-    deterministic_plan,
     grid_flow_direction,
     intelligence,
     number,
@@ -40,6 +39,7 @@ from .layer_readiness import evaluate_runtime_layers
 from .solar_accounting import aggregate_solar_system
 from .semantic_authority import CanonicalFactStore
 from .pilot_readiness import operational_readiness
+from .planning_cadence import TacticalPlanningCadence
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
 def _unit_to_kw(value: Any, unit: str | None) -> float | None:
@@ -92,6 +92,7 @@ def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
 class EnergyRuntime:
     def __init__(self, hass: HomeAssistant, store) -> None:
         self.hass = hass
+        self._local_timezone = ZoneInfo(self.hass.config.time_zone)
         self.store = store
         self.model: dict[str, Any] | None = None
         self.snapshot: dict[str, Any] = self._empty_snapshot()
@@ -107,6 +108,7 @@ class EnergyRuntime:
         # become the accidental persistence layer for source truth.
         self._source_fact_cache: dict[str, Any] = {}
         self.event_flow = SourceEventCoalescer(hass, self._recompute)
+        self.planning_cadence = TacticalPlanningCadence(hass, self._recompute, self._local_timezone)
         self._startup_hydration_unsub = None
     @staticmethod
     def _empty_snapshot() -> dict[str, Any]:
@@ -168,6 +170,7 @@ class EnergyRuntime:
             self.snapshot = self._empty_snapshot()
             self._notify()
         else:
+            self.planning_cadence.start()
             self._recompute(full_hydration=True)
             if self._entity_ids_cache:
                 self._unsubscribe = async_track_state_change_event(
@@ -186,6 +189,7 @@ class EnergyRuntime:
         self._unsubscribe = None
         self._startup_hydration_unsub = None
         self.model = model
+        self.planning_cadence.activate(model is not None)
         bindings = (model or {}).get("accepted_bindings", [])
         self._binding_index_cache = {
             str(row["binding_id"]): row for row in bindings if isinstance(row, dict) and row.get("binding_id")
@@ -220,7 +224,6 @@ class EnergyRuntime:
             {"mobility": bool(attrs or rows or connections)},
             {"mobility": deepcopy(attrs)},
         )
-
     def _convert(self, prop: dict[str, Any], raw: Any, unit: str | None, attrs: dict[str, Any]) -> Any:
         key = str(prop.get("property_key") or "")
         kind = str(prop.get("kind") or "text")
@@ -279,7 +282,6 @@ class EnergyRuntime:
         if kind == "monetary":
             return _price_to_eur_kwh(raw, unit)
         return raw if _present(raw) else None
-
     def _read_property(
         self,
         asset: dict[str, Any],
@@ -360,7 +362,6 @@ class EnergyRuntime:
             "transform": (prop.get("normalization_semantics") or {}).get("transform", "identity"),
         }
         return normalized
-
     def _populate_direct_facts(
         self,
         assets: list[dict[str, Any]],
@@ -420,7 +421,6 @@ class EnergyRuntime:
                         "Energy property normalization failed asset=%s property=%s: %s",
                         asset.get("asset_id"), prop.get("property_key"), exc,
                     )
-
         for asset in assets:
             props = _properties(asset)
             aid = str(asset.get("asset_id") or "")
@@ -458,11 +458,9 @@ class EnergyRuntime:
                 soc = facts.get((props.get("battery.soc_pct") or {}).get("fact_key"))
                 if "battery.available_kwh" in props:
                     facts[str(props["battery.available_kwh"].get("fact_key"))] = round(float(capacity) * float(soc) / 100, 4) if isinstance(capacity, (int, float)) and isinstance(soc, (int, float)) and 0 <= float(soc) <= 100 else None
-
     @staticmethod
     def _children(assets: list[dict[str, Any]], parent_id: str, object_class: str) -> list[dict[str, Any]]:
         return [row for row in assets if row.get("object_class") == object_class and str(row.get("parent_asset_id") or "") == parent_id]
-
     def _aggregate_objects(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
         # Battery systems aggregate only complete unit evidence.
         for system in [row for row in assets if row.get("object_class") == "battery_system"]:
@@ -831,8 +829,7 @@ class EnergyRuntime:
                 max(0.0, float(today_home_kwh)) / (float(today_home_coverage_s) / 3600.0),
                 6,
             )
-        now_local = datetime.now(ZoneInfo(self.hass.config.time_zone))
-        plan = deterministic_plan(facts, settings, flexible, now_local)
+        plan = self.planning_cadence.resolve(facts, settings, flexible)
         intel = intelligence(plan, facts, settings, flexible)
         overview = overview_snapshot(facts)
         logical_assets = apply_runtime_values(domain_assets, facts, flexible)
@@ -862,6 +859,7 @@ class EnergyRuntime:
             "producer_publication_metadata": producer_metadata,
             "mobility_publication_available": producer_availability.get("mobility", False),
             "plan": plan,
+            "planning_runtime": self.planning_cadence.diagnostics(),
             "intelligence": intel,
             "overview": overview,
             "domain_model_revision": self.model.get("domain_model_revision"),
@@ -896,5 +894,6 @@ class EnergyRuntime:
         self._unsubscribe = None
         if callable(self._startup_hydration_unsub):
             self._startup_hydration_unsub()
+        self.planning_cadence.stop()
         self._startup_hydration_unsub = None
         self._callback_hub.clear()

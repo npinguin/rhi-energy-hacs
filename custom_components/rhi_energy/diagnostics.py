@@ -509,6 +509,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             },
         },
         "event_flow": (runtime.event_flow.snapshot() if runtime and hasattr(runtime, "event_flow") else {}),
+        "planning_runtime": deepcopy(snap.get("planning_runtime") or {}),
         "public_projection": {
             **(
                 state.get("public_projector").projection_diagnostics()

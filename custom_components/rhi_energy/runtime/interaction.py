@@ -1198,6 +1198,11 @@ class EnergyInteractionEngine:
         return {}, "no_current_planning_bucket"
 
     async def _execute_plan(self, origin: str) -> dict[str, Any]:
+        if origin != "automatic":
+            # An explicit user action means "plan with current settings now".
+            # Automatic execution stays on the bounded 1-minute operational cadence
+            # and consumes the latest 5-minute tactical plan.
+            self.runtime.planning_cadence.refresh_now()
         policy = automation_control_policy(self.store.data.get("settings") or {})
         allowed = (
             policy["autonomous_execution_allowed"]
