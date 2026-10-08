@@ -12,6 +12,7 @@ try:
     from .runtime.canonical_semantics import prop, pricing_properties, strategy_properties
     from .runtime.value_accounting import interval_actuals
     from .runtime.coverage import canonical_coverage
+    from .presentation import property_presentation
 except ImportError:  # direct runpy tests
     from pathlib import Path as _Path
     import runpy as _runpy
@@ -31,6 +32,8 @@ except ImportError:  # direct runpy tests
     interval_actuals = _value["interval_actuals"]
     _coverage = _runpy.run_path(str(_root / "runtime" / "coverage.py"))
     canonical_coverage = _coverage["canonical_coverage"]
+    _presentation = _runpy.run_path(str(_root / "presentation.py"))
+    property_presentation = _presentation["property_presentation"]
 
 PUBLIC_CONTRACT_V2 = "2.0.0"
 
@@ -130,45 +133,6 @@ def _public_operation(operation: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def _property_presentation_family(property_key: str, row: dict[str, Any]) -> str:
-    """Classify canonical properties once in the backend for consistent UX grouping."""
-    key = str(property_key or "").strip().lower()
-    if row.get("control_capability") is True or row.get("write_supported") is True:
-        return "control"
-    if any(token in key for token in ("power", "energy", "soc", "capacity", "current_a", "voltage", "flow")):
-        return "energy"
-    if any(token in key for token in ("target", "reserve", "policy", "mode", "deadline", "ready_by", "limit", "profile")):
-        return "configuration"
-    if any(token in key for token in ("source", "connection", "integration", "device", "availability", "health")):
-        return "source_connectivity"
-    if any(token in key for token in ("reason", "diagnostic", "revision", "binding", "provenance")):
-        return "diagnostics"
-    return "summary"
-
-
-def _property_presentation_role(property_key: str, row: dict[str, Any], asset_type: str) -> str:
-    """Publish the intended product depth so UX does not have to guess."""
-    key = str(property_key or "").strip().lower()
-    family = _property_presentation_family(key, row)
-    if row.get("control_capability") is True or row.get("write_supported") is True:
-        return "configuration"
-    if family == "diagnostics" or any(
-        token in key
-        for token in ("source_", "binding", "provenance", "revision", "raw_", "integration", "health_reason")
-    ):
-        return "diagnostics"
-    primary_tokens = (
-        "power_kw", "energy_today", "soc_pct", "available_kwh", "flow_direction",
-        "operating_state", "state", "status", "energy_to_target", "required_energy",
-        "ready_by", "deadline", "net_power",
-    )
-    if any(token in key for token in primary_tokens):
-        return "key"
-    if asset_type in {"battery", "battery_system"} and any(token in key for token in ("capacity_kwh", "reserve_soc")):
-        return "key"
-    return "detail"
-
-
 def _decorate_objects(
     objects: list[dict[str, Any]],
     property_operations: dict[str, dict[str, Any]] | None = None,
@@ -244,20 +208,7 @@ def _decorate_objects(
         provenance_rows: list[dict[str, Any]] = []
         for property_row in asset.get("properties") or []:
             property_key = str(property_row.get("property_key") or "")
-            family = _property_presentation_family(property_key, property_row)
-            role = _property_presentation_role(property_key, property_row, asset_type)
-            property_row["presentation"] = {
-                "family": family,
-                "role": role,
-                "surface": {
-                    "key": "key_properties",
-                    "configuration": "configuration",
-                    "detail": "details",
-                    "diagnostics": "diagnostics",
-                }[role],
-                "primary": role == "key",
-                "technical": role == "diagnostics",
-            }
+            property_row["presentation"] = property_presentation(asset_type, property_row)
             resolution = property_row.get("resolution") or {}
             for evidence in resolution.get("provenance") or []:
                 if isinstance(evidence, dict) and evidence not in provenance_rows:

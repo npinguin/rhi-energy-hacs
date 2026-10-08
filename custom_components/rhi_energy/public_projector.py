@@ -1,34 +1,34 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import hashlib
 import json
+from time import perf_counter
 from typing import Any
 
 from .projection_base import PublicProjectionBase as BaseProjector
-from .public_v2 import build_public_contract_v2, published_v2
+from .public_v2 import build_public_contract_v2
 
 
 _VOLATILE_PUBLIC_FIELDS = {"generated_at", "content_fingerprint", "contract_revision"}
 
 
 def _stable_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Return semantic public truth without transport/revision metadata."""
+    """Return a read-only semantic view without recursively copying the payload."""
     return {
-        key: deepcopy(value)
+        key: value
         for key, value in payload.items()
         if key not in _VOLATILE_PUBLIC_FIELDS
     }
 
 
-def _fingerprint(payload: dict[str, Any]) -> str:
+def _fingerprint(payload: dict[str, Any]) -> tuple[str, int]:
     encoded = json.dumps(
         _stable_payload(payload),
         sort_keys=True,
         separators=(",", ":"),
         default=str,
     ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return hashlib.sha256(encoded).hexdigest(), len(encoded)
 
 
 class PublicContractProjector(BaseProjector):
@@ -48,6 +48,9 @@ class PublicContractProjector(BaseProjector):
         self._recompute_request_count = 0
         self._projection_count = 0
         self._unchanged_skip_count = 0
+        self._projection_total_ms = 0.0
+        self._projection_max_ms = 0.0
+        self._last_payload_bytes = 0
 
 
     def projection_diagnostics(self) -> dict[str, Any]:
@@ -58,6 +61,10 @@ class PublicContractProjector(BaseProjector):
             "recompute_scheduled": self._scheduled is not None,
             "contract_revision": self._contract_revision,
             "content_fingerprint": self._content_fingerprint,
+            "projection_total_ms": round(self._projection_total_ms, 3),
+            "projection_average_ms": round(self._projection_total_ms / self._projection_count, 3) if self._projection_count else 0.0,
+            "projection_max_ms": round(self._projection_max_ms, 3),
+            "last_payload_bytes": self._last_payload_bytes,
         }
 
     def request_recompute(self) -> None:
@@ -73,15 +80,22 @@ class PublicContractProjector(BaseProjector):
         self.recompute()
 
     def recompute(self) -> None:
-        snapshot = deepcopy(self.runtime.snapshot)
+        started = perf_counter()
         model = self.manager.domain_model or {}
-        battery = (model.get("concepts") or {}).get("battery_system") or {}
-        snapshot["battery_reserve_write_supported"] = bool(battery.get("reserve_binding"))
-        snapshot["settings"] = deepcopy(self.store.data.get("settings") or {})
         rows = self.interaction.command_rows()
-        v2_contract = build_public_contract_v2(snapshot, self.store.data, rows, model)
-        candidate_public = published_v2(v2_contract)
-        fingerprint = _fingerprint(candidate_public)
+        # build_public_contract_v2 owns its fresh output and copies only the mutable
+        # inputs it needs. Avoid whole-snapshot copies before and after that build.
+        candidate_public = build_public_contract_v2(
+            self.runtime.snapshot,
+            self.store.data,
+            rows,
+            model,
+        )
+        fingerprint, payload_bytes = _fingerprint(candidate_public)
+        elapsed_ms = (perf_counter() - started) * 1000.0
+        self._projection_total_ms += elapsed_ms
+        self._projection_max_ms = max(self._projection_max_ms, elapsed_ms)
+        self._last_payload_bytes = payload_bytes
 
         if self._content_fingerprint == fingerprint:
             self._unchanged_skip_count += 1
