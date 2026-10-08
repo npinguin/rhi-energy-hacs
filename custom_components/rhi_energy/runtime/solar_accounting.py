@@ -16,13 +16,14 @@ def _provider_value(
     suffix: str,
     complete_sum: Callable[..., float | None],
 ) -> tuple[float | None, list[str]]:
-    by_provider: dict[str, list[float]] = {}
+    by_provider: dict[str, list[float | None]] = {}
     for row in rows:
         asset_id = str(row.get("asset_id") or "")
         value = facts.get(f"{asset_id}.{suffix}")
-        if value is None:
-            continue
         provider = str(row.get("integration_domain") or row.get("builder_id") or "unknown")
+        # Missing participating evidence must remain visible to complete_sum.
+        # Dropping None here silently turned an incomplete multi-inverter provider
+        # into a complete partial aggregate.
         by_provider.setdefault(provider, []).append(value)
 
     provider_totals = {
