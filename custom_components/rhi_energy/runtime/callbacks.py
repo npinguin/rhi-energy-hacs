@@ -52,11 +52,13 @@ class RuntimeCallbacks:
     def __init__(self) -> None:
         self.general: list[Callable[[], None]] = []
         self.topology: list[Callable[[], None]] = []
+        self.public: list[Callable[[], None]] = []
         self.assets: dict[str, list[Callable[[], None]]] = {}
         self.general_notify_count = 0
         self.asset_notify_batch_count = 0
         self.asset_callback_count = 0
         self.full_asset_fanout_count = 0
+        self.public_notify_count = 0
 
     @staticmethod
     def _remove(rows: list[Callable[[], None]], cb: Callable[[], None]) -> None:
@@ -70,6 +72,10 @@ class RuntimeCallbacks:
     def add_topology(self, cb: Callable[[], None]):
         self.topology.append(cb)
         return lambda: self._remove(self.topology, cb)
+
+    def add_public(self, cb: Callable[[], None]):
+        self.public.append(cb)
+        return lambda: self._remove(self.public, cb)
 
     def add_asset(self, asset_id: str, cb: Callable[[], None]):
         key = str(asset_id)
@@ -93,7 +99,13 @@ class RuntimeCallbacks:
     def notify_all(self) -> None:
         self.full_asset_fanout_count += 1
         self.notify_general()
+        self.notify_public()
         self.notify_assets(set(self.assets))
+
+    def notify_public(self) -> None:
+        self.public_notify_count += 1
+        for cb in tuple(self.public):
+            cb()
 
     def notify_assets(self, asset_ids: set[str]) -> None:
         if not asset_ids:
@@ -108,12 +120,14 @@ class RuntimeCallbacks:
         return {
             "general_listener_count": len(self.general),
             "topology_listener_count": len(self.topology),
+            "public_listener_count": len(self.public),
             "asset_listener_asset_count": len(self.assets),
             "asset_listener_count": sum(len(rows) for rows in self.assets.values()),
             "general_notify_count": self.general_notify_count,
             "asset_notify_batch_count": self.asset_notify_batch_count,
             "asset_callback_count": self.asset_callback_count,
             "full_asset_fanout_count": self.full_asset_fanout_count,
+            "public_notify_count": self.public_notify_count,
         }
 
     def notify_topology(self) -> None:
@@ -123,4 +137,5 @@ class RuntimeCallbacks:
     def clear(self) -> None:
         self.general.clear()
         self.topology.clear()
+        self.public.clear()
         self.assets.clear()

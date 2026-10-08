@@ -9,7 +9,13 @@ class PublicProjectionBase:
         self._cache={}; self._v2={}; self._callbacks={}; self._removers=[]
 
     def start(self):
-        for owner in (self.runtime,self.store,self.metering,self.interaction,self.manager):
+        # Runtime has a dedicated semantic/public callback so diagnostics-only
+        # recomputes do not rebuild the complete Public V2 contract.
+        if hasattr(self.runtime, 'add_public_callback'):
+            self._removers.append(self.runtime.add_public_callback(self.request_recompute))
+        elif hasattr(self.runtime, 'add_callback'):
+            self._removers.append(self.runtime.add_callback(self.request_recompute))
+        for owner in (self.store,self.metering,self.interaction,self.manager):
             if hasattr(owner,'add_callback'):
                 self._removers.append(owner.add_callback(self.request_recompute))
         self.recompute()

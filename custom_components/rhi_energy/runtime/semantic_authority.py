@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from copy import deepcopy
 from typing import Any, Iterator
 
 
@@ -17,13 +16,24 @@ class CanonicalFactStore(dict[str, Any]):
         self,
         initial: dict[str, Any] | None = None,
         previous_paths: dict[str, Any] | None = None,
+        previous_conflicts: list[dict[str, Any]] | None = None,
+        *,
+        track_writers: bool = True,
     ) -> None:
-        super().__init__(deepcopy(initial or {}))
+        # Runtime values are treated as immutable observations. A shallow mapping
+        # copy is enough and avoids recursively copying the complete domain state.
+        super().__init__(initial or {})
+        self._track_writers = bool(track_writers)
         self._owner = "unscoped"
         self._allowed_previous: set[str] = set()
         self._cycle_writers: dict[str, str] = {}
-        self._paths: dict[str, dict[str, Any]] = deepcopy(previous_paths or {})
-        self._conflicts: list[dict[str, Any]] = []
+        # Semantic ownership is structural truth. It is built during hydration /
+        # model activation and reused unchanged during ordinary telemetry updates.
+        self._paths: dict[str, dict[str, Any]] = (
+            {} if track_writers else (previous_paths or {})
+        )
+        self._conflicts: list[dict[str, Any]] = list(previous_conflicts or [])
+        self._changed_keys: set[str] = set()
 
     @contextmanager
     def writer(
@@ -32,6 +42,9 @@ class CanonicalFactStore(dict[str, Any]):
         *,
         resolves_from: set[str] | tuple[str, ...] = (),
     ) -> Iterator["CanonicalFactStore"]:
+        if not self._track_writers:
+            yield self
+            return
         previous_owner = self._owner
         previous_allowed = self._allowed_previous
         self._owner = str(owner)
@@ -44,6 +57,12 @@ class CanonicalFactStore(dict[str, Any]):
 
     def __setitem__(self, key: str, value: Any) -> None:
         fact_id = str(key)
+        if not self._track_writers:
+            previous_value = self.get(fact_id, object())
+            super().__setitem__(fact_id, value)
+            if previous_value != value:
+                self._changed_keys.add(fact_id)
+            return
         owner = self._owner
         previous = self._cycle_writers.get(fact_id)
         path = self._paths.setdefault(
@@ -76,16 +95,23 @@ class CanonicalFactStore(dict[str, Any]):
                 # Fail closed: retain the already-selected canonical value.
                 return
 
+        previous_value = self.get(fact_id, object())
         super().__setitem__(fact_id, value)
+        if previous_value != value:
+            self._changed_keys.add(fact_id)
         self._cycle_writers[fact_id] = owner
         path["selected_writer"] = owner
 
     @property
     def conflicts(self) -> list[dict[str, Any]]:
-        return deepcopy(self._conflicts)
+        return list(self._conflicts)
 
     def semantic_paths(self) -> dict[str, dict[str, Any]]:
-        return deepcopy(self._paths)
+        return self._paths
+
+    @property
+    def changed_keys(self) -> frozenset[str]:
+        return frozenset(self._changed_keys)
 
     @property
     def complete(self) -> bool:

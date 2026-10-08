@@ -415,16 +415,41 @@ def apply_runtime_values(
     logical_assets: list[dict[str, Any]],
     facts: dict[str, Any],
     flexible_assets: list[dict[str, Any]] | None = None,
+    *,
+    previous_rows: list[dict[str, Any]] | None = None,
+    affected_asset_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    rows = deepcopy(logical_assets) + _runtime_only_assets(flexible_assets or [])
+    """Apply runtime truth to all assets at hydration or only the changed asset scope.
+
+    Unaffected runtime rows are immutable for the duration of a structural model
+    generation and can therefore be reused directly. This keeps ordinary telemetry
+    cost proportional to changed truth instead of total logical-asset count.
+    """
+    templates = list(logical_assets) + _runtime_only_assets(flexible_assets or [])
+    previous = {
+        str(row.get("asset_id") or ""): row
+        for row in (previous_rows or [])
+        if isinstance(row, dict) and row.get("asset_id")
+    }
     flexible_by_logical = {
         str(item.get("asset_id")): item
         for item in (flexible_assets or []) if item.get("asset_id")
     }
-    for asset in rows:
+    rows: list[dict[str, Any]] = []
+    for template in templates:
+        asset_id = str(template.get("asset_id") or "")
+        if (
+            affected_asset_ids is not None
+            and asset_id not in affected_asset_ids
+            and asset_id in previous
+        ):
+            rows.append(previous[asset_id])
+            continue
+
+        asset = deepcopy(template)
         available = 0
         missing_required = 0
-        flexible = flexible_by_logical.get(str(asset.get("asset_id") or ""))
+        flexible = flexible_by_logical.get(asset_id)
         for prop in asset.get("properties") or []:
             value = flexible.get(prop.get("property_key")) if flexible is not None else facts.get(prop.get("fact_key")) if prop.get("fact_key") else None
             prop["value"] = value
@@ -447,4 +472,5 @@ def apply_runtime_values(
             asset["health"] = asset.get("normalization_status") or "UNKNOWN"
         asset["property_count"] = len(asset.get("properties") or [])
         asset["available_property_count"] = available
+        rows.append(asset)
     return rows

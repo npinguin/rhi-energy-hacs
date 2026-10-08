@@ -15,8 +15,6 @@ from homeassistant.helpers.event import async_track_state_change_event
 from ..adapters import get_normalization_semantics, get_normalizer
 from .callbacks import RuntimeCallbacks, changed_logical_asset_ids, logical_topology
 from .canonical_semantics import (
-    aggregate_battery_power,
-    aggregate_battery_soc,
     battery_state_from_power,
     complete_numeric_sum, current_flexible_power_envelope, derive_consumption,
     derive_home_consumption,
@@ -36,7 +34,7 @@ from .grid_power import apply_grid_power_facts
 from .producers import mobility_entity_ids, read_mobility_energy_assets
 from .presence import experience_presence, physical_input
 from .layer_readiness import evaluate_runtime_layers
-from .solar_accounting import aggregate_solar_system
+from .aggregation import aggregate_objects
 from .semantic_authority import CanonicalFactStore
 from .pilot_readiness import operational_readiness
 from .planning_cadence import TacticalPlanningCadence
@@ -100,6 +98,9 @@ class EnergyRuntime:
         self._callback_hub = RuntimeCallbacks()
         self._topology_signature: tuple[Any, ...] | None = None
         self._binding_index_cache: dict[str, dict[str, Any]] = {}
+        self._domain_assets_cache: tuple[dict[str, Any], ...] = ()
+        self._assets_by_class_cache: dict[str, tuple[dict[str, Any], ...]] = {}
+        self._children_cache: dict[tuple[str, str], tuple[dict[str, Any], ...]] = {}
         self._entity_ids_cache: tuple[str, ...] = ()
         self._incremental_entity_targets: dict[str, tuple[tuple[str, str], ...]] = {}
         self._dirty_entity_ids: set[str] = set()
@@ -107,6 +108,11 @@ class EnergyRuntime:
         # facts are rebuilt from this source authority each recompute and can never
         # become the accidental persistence layer for source truth.
         self._source_fact_cache: dict[str, Any] = {}
+        self._fact_state: dict[str, Any] = {}
+        self._producer_cache: tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, bool], dict[str, dict[str, Any]]] = ([], [], {"mobility": False}, {"mobility": {}})
+        self._flexible_state: list[dict[str, Any]] = []
+        self._semantic_paths: dict[str, dict[str, Any]] = {}
+        self._semantic_conflicts: list[dict[str, Any]] = []
         self.event_flow = SourceEventCoalescer(hass, self._recompute)
         self.planning_cadence = TacticalPlanningCadence(hass, self._recompute, self._local_timezone)
         self._startup_hydration_unsub = None
@@ -131,16 +137,26 @@ class EnergyRuntime:
         return self._callback_hub.add_asset(asset_id, cb)
     def add_topology_callback(self, cb):
         return self._callback_hub.add_topology(cb)
+    def add_public_callback(self, cb):
+        return self._callback_hub.add_public(cb)
     def _notify_topology_if_changed(self) -> None:
         signature = logical_topology(self.snapshot)
         if signature != self._topology_signature:
             self._topology_signature = signature
             self._callback_hub.notify_topology()
-    def _notify(self, asset_ids: set[str] | None = None, *, full_asset_fanout: bool = False) -> None:
+    def _notify(
+        self,
+        asset_ids: set[str] | None = None,
+        *,
+        full_asset_fanout: bool = False,
+        public_changed: bool = False,
+    ) -> None:
         if full_asset_fanout:
             self._callback_hub.notify_all()
             return
         self._callback_hub.notify_general()
+        if public_changed:
+            self._callback_hub.notify_public()
         if asset_ids:
             self._callback_hub.notify_assets(asset_ids)
     def _notify_assets(self, asset_ids: set[str]) -> None:
@@ -199,10 +215,33 @@ class EnergyRuntime:
         self._binding_index_cache = {
             str(row["binding_id"]): row for row in bindings if isinstance(row, dict) and row.get("binding_id")
         }
+        self._domain_assets_cache = tuple(
+            row for row in (model or {}).get("logical_assets", []) if isinstance(row, dict)
+        )
+        by_class: dict[str, list[dict[str, Any]]] = {}
+        children: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for row in self._domain_assets_cache:
+            object_class = str(row.get("object_class") or "")
+            if object_class:
+                by_class.setdefault(object_class, []).append(row)
+            parent_id = str(row.get("parent_asset_id") or "")
+            if parent_id and object_class:
+                children.setdefault((parent_id, object_class), []).append(row)
+        self._assets_by_class_cache = {
+            key: tuple(rows) for key, rows in by_class.items()
+        }
+        self._children_cache = {
+            key: tuple(rows) for key, rows in children.items()
+        }
         self._entity_ids_cache = tuple(self._entity_ids()) if model is not None else ()
         self._incremental_entity_targets = build_entity_targets(model)
         self._dirty_entity_ids.clear()
         self._source_fact_cache.clear()
+        self._fact_state.clear()
+        self._producer_cache = ([], [], {"mobility": False}, {"mobility": {}})
+        self._flexible_state = []
+        self._semantic_paths.clear()
+        self._semantic_conflicts.clear()
         if self.hass.is_running:
             self._hydrate_active_model()
         else:
@@ -427,6 +466,17 @@ class EnergyRuntime:
                         asset.get("asset_id"), prop.get("property_key"), exc,
                     )
         for asset in assets:
+            if dirty_entity_ids is not None:
+                asset_source_entities = {
+                    str(((self._binding_index().get(binding_id) or {}).get("source_identity") or {}).get("current_entity_id") or "")
+                    for prop in (asset.get("properties") or [])
+                    for binding_id in (
+                        [str(value) for value in (prop.get("binding_ids") or []) if value]
+                        + ([str(prop.get("binding_id"))] if prop.get("binding_id") else [])
+                    )
+                }
+                if not (asset_source_entities & dirty_entity_ids):
+                    continue
             props = _properties(asset)
             aid = str(asset.get("asset_id") or "")
             if asset.get("object_class") == "grid_connection":
@@ -463,102 +513,6 @@ class EnergyRuntime:
                 soc = facts.get((props.get("battery.soc_pct") or {}).get("fact_key"))
                 if "battery.available_kwh" in props:
                     facts[str(props["battery.available_kwh"].get("fact_key"))] = round(float(capacity) * float(soc) / 100, 4) if isinstance(capacity, (int, float)) and isinstance(soc, (int, float)) and 0 <= float(soc) <= 100 else None
-    @staticmethod
-    def _children(assets: list[dict[str, Any]], parent_id: str, object_class: str) -> list[dict[str, Any]]:
-        return [row for row in assets if row.get("object_class") == object_class and str(row.get("parent_asset_id") or "") == parent_id]
-    def _aggregate_objects(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
-        # Battery systems aggregate only complete unit evidence.
-        for system in [row for row in assets if row.get("object_class") == "battery_system"]:
-            sid = str(system.get("asset_id") or "")
-            units = self._children(assets, sid, "battery")
-            pvals = [facts.get(f"{u.get('asset_id')}.power_kw") for u in units]
-            cvals = [facts.get(f"{u.get('asset_id')}.capacity_kwh") for u in units]
-            avals = [facts.get(f"{u.get('asset_id')}.available_kwh") for u in units]
-            socvals = [facts.get(f"{u.get('asset_id')}.soc_pct") for u in units]
-            svals = [facts.get(f"{u.get('asset_id')}.status") for u in units]
-            direct_power = facts.get(f"{sid}.power_kw")
-            direct_capacity = facts.get(f"{sid}.capacity_kwh")
-            direct_soc = facts.get(f"{sid}.soc_pct")
-            direct_status = facts.get(f"{sid}.status")
-            child_power = complete_numeric_sum(pvals, expected_count=len(units))
-            child_capacity = complete_numeric_sum(cvals, expected_count=len(units))
-            child_available = complete_numeric_sum(avals, expected_count=len(units))
-            facts[f"{sid}.power_kw"] = aggregate_battery_power(
-                pvals, direct_power, unit_count=len(units)
-            )
-            if (
-                units
-                and child_power is not None
-                and isinstance(direct_power, (int, float))
-                and abs(float(direct_power) - float(child_power)) > 0.10
-            ):
-                issues.append(
-                    f"battery_system:{sid}:direct_power_disagrees_with_child_power"
-                )
-            facts[f"{sid}.capacity_kwh"] = child_capacity if child_capacity is not None else direct_capacity
-            capacity = facts[f"{sid}.capacity_kwh"]
-            aggregate_soc = aggregate_battery_soc(child_capacity, child_available, socvals)
-            # Complete child-energy evidence wins; direct controller SoC is fallback only.
-            facts[f"{sid}.soc_pct"] = aggregate_soc if aggregate_soc is not None else direct_soc
-            facts[f"{sid}.available_kwh"] = (
-                child_available
-                if child_available is not None
-                else round(float(capacity) * float(facts[f"{sid}.soc_pct"]) / 100.0, 6)
-                if isinstance(capacity, (int, float)) and isinstance(facts[f"{sid}.soc_pct"], (int, float))
-                else None
-            )
-            if aggregate_soc is not None and isinstance(direct_soc, (int, float)) and abs(float(direct_soc) - float(aggregate_soc)) > 1.0:
-                issues.append(f"battery_system:{sid}:direct_soc_disagrees_with_child_energy")
-            facts[f"{sid}.status"] = (
-                direct_status
-                if direct_status is not None
-                else next(iter(set(svals)))
-                if units and all(value is not None for value in svals) and len(set(svals)) == 1
-                else "mixed"
-                if units and all(value is not None for value in svals)
-                else None
-            )
-            # Battery System is a canonical Energy object composed exclusively from
-            # normalized Battery objects.  Never re-read or reinterpret integration
-            # sources here.
-            facts["battery.power_kw"] = facts[f"{sid}.power_kw"]
-            facts["battery.capacity_kwh"] = facts[f"{sid}.capacity_kwh"]
-            facts["battery.available_kwh"] = facts[f"{sid}.available_kwh"]
-            facts["battery.soc_pct"] = facts[f"{sid}.soc_pct"]
-            facts["battery.status"] = facts[f"{sid}.status"]
-            # Operating state is canonical product truth and must be derived once
-            # in the runtime, not inferred independently by Public V2 or UX.
-            facts["battery.state"] = battery_state_from_power(facts[f"{sid}.power_kw"])
-            facts["battery_system.source_id"] = sid
-            # Child completeness is only required when aggregate system truth
-            # cannot be resolved from an authoritative system-level measurement.
-            if units and facts[f"{sid}.power_kw"] is None:
-                issues.append(f"battery_system:{sid}:power_aggregate_incomplete")
-            if units and (
-                facts[f"{sid}.capacity_kwh"] is None
-                or facts[f"{sid}.available_kwh"] is None
-            ):
-                issues.append(f"battery_system:{sid}:energy_aggregate_incomplete")
-        for system in [row for row in assets if row.get("object_class") == "solar_production"]:
-            sid = str(system.get("asset_id") or "")
-            issues.extend(aggregate_solar_system(
-                system,
-                self._children(assets, sid, "solar_inverter"),
-                self._children(assets, sid, "solar_source"),
-                facts,
-                complete_numeric_sum,
-            ))
-        meters = [row for row in assets if row.get("object_class") == "gas_meter"]
-        gas_values = [facts.get(f"{row.get('asset_id')}.total_m3") for row in meters]
-        facts["gas.total_m3"] = complete_numeric_sum(gas_values, expected_count=len(meters))
-        facts["gas.total"] = facts["gas.total_m3"]
-        if meters and any(value is None for value in gas_values):
-            issues.append(f"gas_meter:aggregate_incomplete:{sum(value is None for value in gas_values)}_of_{len(meters)}_unavailable")
-        optimizers = [row for row in assets if row.get("object_class") == "solar_optimizer"]
-        if optimizers:
-            known = sum(facts.get(f"{row.get('asset_id')}.power_w") is not None for row in optimizers)
-            facts["solar_optimizer.count"] = len(optimizers)
-            facts["solar_optimizer.health"] = "OK" if known == len(optimizers) else "DEGRADED"
     def _canonicalize(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
         """Project accepted logical objects into canonical Energy facts.
         Structural selection is complete before runtime activation. Runtime never
@@ -663,15 +617,29 @@ class EnergyRuntime:
             self._notify(full_asset_fanout=True)
             return
         previous_logical_assets = self.snapshot.get("logical_assets") or []
-        domain_assets = [row for row in (self.model.get("logical_assets") or []) if isinstance(row, dict)]
+        previous_plan = self.snapshot.get("plan") or {}
+        previous_intelligence = self.snapshot.get("intelligence") or {}
+        previous_overview = self.snapshot.get("overview") or {}
+        domain_assets = list(self._domain_assets_cache)
         if full_hydration:
             self._source_fact_cache.clear()
+            self._fact_state.clear()
+        dirty_entity_ids = None if full_hydration else set(self._dirty_entity_ids)
+        affected_asset_ids = None if full_hydration else {
+            asset_id
+            for entity_id in (dirty_entity_ids or set())
+            for asset_id, _property_key in self._incremental_entity_targets.get(entity_id, ())
+        }
+        mobility_changed = full_hydration or bool(
+            (dirty_entity_ids or set()) & set(mobility_entity_ids())
+        )
         facts = CanonicalFactStore(
-            deepcopy(self._source_fact_cache),
-            {} if full_hydration else deepcopy(self.snapshot.get("semantic_paths") or {}),
+            self._fact_state,
+            None if full_hydration else self._semantic_paths,
+            None if full_hydration else self._semantic_conflicts,
+            track_writers=full_hydration,
         )
         runtime_issues: list[str] = []
-        dirty_entity_ids = None if full_hydration else set(self._dirty_entity_ids)
         with facts.writer("source_materialization"):
             self._populate_direct_facts(
                 domain_assets,
@@ -683,7 +651,13 @@ class EnergyRuntime:
         if not full_hydration:
             self._dirty_entity_ids.difference_update(dirty_entity_ids or set())
         with facts.writer("domain_aggregation", resolves_from={"source_materialization"}):
-            self._aggregate_objects(domain_assets, facts, runtime_issues)
+            aggregate_objects(
+                self._assets_by_class_cache,
+                self._children_cache,
+                facts,
+                runtime_issues,
+                affected_asset_ids=affected_asset_ids,
+            )
         with facts.writer(
             "canonical_resolution",
             resolves_from={"source_materialization", "domain_aggregation"},
@@ -698,8 +672,13 @@ class EnergyRuntime:
         # residual after the complete Mobility-owned flexible-load publication.
         with facts.writer("consumption_accounting"):
             facts["site_consumption.power_kw"] = consumption["power_kw"]
-        consumers, connections, producer_availability, producer_metadata = self._producer_assets()
-        flexible = normalize_mobility_consumers(consumers, connections)
+        if mobility_changed:
+            self._producer_cache = self._producer_assets()
+            consumers, connections, producer_availability, producer_metadata = self._producer_cache
+            self._flexible_state = normalize_mobility_consumers(consumers, connections)
+        else:
+            consumers, connections, producer_availability, producer_metadata = self._producer_cache
+        flexible = self._flexible_state
         producer_available = bool(producer_availability.get("mobility"))
         attributed_flexible_power = flexible_power_total(
             flexible,
@@ -789,6 +768,11 @@ class EnergyRuntime:
                 else "UNAVAILABLE"
             )
         semantic_conflicts = facts.conflicts
+        if full_hydration:
+            self._semantic_paths = facts.semantic_paths()
+            self._semantic_conflicts = semantic_conflicts
+        else:
+            semantic_conflicts = self._semantic_conflicts
         if semantic_conflicts:
             runtime_issues.extend(
                 f"semantic_path_conflict:{row.get('fact_id')}:{row.get('previous_writer')}->{row.get('candidate_writer')}"
@@ -825,7 +809,37 @@ class EnergyRuntime:
         plan = self.planning_cadence.resolve(facts, settings, flexible)
         intel = intelligence(plan, facts, settings, flexible)
         overview = overview_snapshot(facts)
-        logical_assets = apply_runtime_values(domain_assets, facts, flexible)
+        logical_refresh_ids: set[str] | None = None
+        if not full_hydration and not mobility_changed:
+            logical_refresh_ids = set(affected_asset_ids or set())
+            for row in domain_assets:
+                asset_id = str(row.get("asset_id") or "")
+                if asset_id not in logical_refresh_ids:
+                    continue
+                parent_id = str(row.get("parent_asset_id") or "")
+                if parent_id:
+                    logical_refresh_ids.add(parent_id)
+            affected_classes = {
+                str(row.get("object_class") or "")
+                for row in domain_assets
+                if str(row.get("asset_id") or "") in (affected_asset_ids or set())
+            }
+            if affected_classes & {
+                "grid_connection",
+                "battery",
+                "battery_system",
+                "solar_inverter",
+                "solar_source",
+                "solar_production",
+            }:
+                logical_refresh_ids.update({"energy_site", "home_consumption"})
+        logical_assets = apply_runtime_values(
+            domain_assets,
+            facts,
+            flexible,
+            previous_rows=previous_logical_assets,
+            affected_asset_ids=logical_refresh_ids,
+        )
         system_assets, planning_assets, intelligence_assets, layer_health = self._evaluate_runtime_layers(
             facts, flexible, logical_assets, producer_available, plan, intel, settings
         )
@@ -841,6 +855,7 @@ class EnergyRuntime:
         any_available = any(int(asset.get("available_property_count") or 0) > 0 for asset in active_assets)
         degraded_assets = [str(asset.get("asset_id")) for asset in active_assets if asset.get("health") == "DEGRADED"]
         health = "OK" if any_available and not runtime_issues and not self.model.get("issues") and not degraded_assets else "DEGRADED" if any_available or active_assets else "UNKNOWN"
+        self._fact_state = dict(facts)
         self.snapshot = {
             "health": health,
             "facts": facts,
@@ -866,9 +881,9 @@ class EnergyRuntime:
             "model_fingerprint": self.model.get("model_fingerprint"),
             "dependency_diagnostics": deepcopy(self.model.get("dependency_diagnostics") or {}),
             "runtime_issues": runtime_issues,
-            "semantic_paths": facts.semantic_paths(),
+            "semantic_paths": self._semantic_paths,
             "semantic_conflicts": semantic_conflicts,
-            "semantic_path_complete": facts.complete,
+            "semantic_path_complete": not semantic_conflicts,
             "operational_readiness": operational,
             "consumption_split_evidence": consumption_split_evidence,
             "degraded_logical_assets": degraded_assets[:40],
@@ -883,9 +898,18 @@ class EnergyRuntime:
             logical_assets,
             full_hydration=full_hydration,
         )
+        public_changed = bool(
+            full_hydration
+            or facts.changed_keys
+            or plan != previous_plan
+            or intel != previous_intelligence
+            or overview != previous_overview
+            or mobility_changed
+        )
         self._notify(
             changed_asset_ids,
             full_asset_fanout=full_hydration,
+            public_changed=public_changed,
         )
     async def async_stop(self) -> None:
         self.event_flow.stop()
