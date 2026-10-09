@@ -1,8 +1,7 @@
 """Canonical Energy product semantics.
 
 This module deliberately has no Home Assistant imports so product semantics can
-be contract-tested without a running HA instance. Public V2 is the only product
-contract projection authority.
+be contract-tested without a running HA instance. Energy-owned canonical properties are the sole product truth.
 """
 from __future__ import annotations
 

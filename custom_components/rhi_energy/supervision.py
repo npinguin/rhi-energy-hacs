@@ -12,7 +12,6 @@ from .const import (
     DOMAIN,
     DOMAIN_ID,
     PUBLICATION_REVISION,
-    PUBLIC_V2_ENTITY,
     RELEASE,
 )
 
@@ -114,32 +113,15 @@ class EnergyDomainSupervision:
             getattr(manager, "configuration_status", None), configuration=True
         )
         foundation_status = _status(getattr(manager, "foundation_status", None))
-        transport_record = state.get("public_transport")
-        canonical_transport_status = (
-            "BLOCKED"
-            if isinstance(transport_record, dict) and transport_record.get("ready") is False
-            else "OK"
-        )
-        contract_status = "OK" if foundation_status == "OK" and canonical_transport_status == "OK" else "BLOCKED"
+        contract_status = "OK" if foundation_status == "OK" else "BLOCKED"
         build_status = _status(getattr(manager, "build_health", None))
         runtime_status = _status(runtime_snapshot.get("health"))
-        projector = state.get("public_projector")
-        canonical_public_v2: dict[str, Any] = {}
-        if projector is not None and hasattr(projector, "get_v2"):
-            canonical_public_v2 = projector.get_v2() or {}
         mobility_available = bool(runtime_snapshot.get("mobility_publication_available"))
         mobility_expected = _mobility_runtime_expected(self.hass)
-        canonical_coverage = (
-            canonical_public_v2.get("coverage")
-            if isinstance(canonical_public_v2, dict)
-            else {}
-        ) or {}
+        canonical_coverage = runtime_snapshot.get("canonical_coverage") or {}
         canonical_coverage_status = (
-            "OK"
-            if canonical_coverage.get("complete") is True
-            else "BLOCKED"
-            if canonical_public_v2
-            else "UNKNOWN"
+            "OK" if canonical_coverage.get("complete") is True
+            else "UNKNOWN" if not canonical_coverage else "BLOCKED"
         )
 
         builder_assessments = getattr(manager, "builder_assessments", {}) or {}
@@ -194,12 +176,6 @@ class EnergyDomainSupervision:
                 f"FOUNDATION_HANDOFF_{contract_status}", blocking=True,
                 severity="CRITICAL", scope=["SelectedDomainBuildInput"],
             ))
-        if canonical_transport_status != "OK":
-            issues.append(_issue(
-                "energy:contract:public_v2_transport", "CONTRACT",
-                "PUBLIC_V2_CANONICAL_TRANSPORT_UNAVAILABLE", blocking=True,
-                severity="CRITICAL", scope=[PUBLIC_V2_ENTITY],
-            ))
         if build_status != "OK":
             issues.append(_issue(
                 "energy:build:domain_model", "BINDING",
@@ -221,7 +197,7 @@ class EnergyDomainSupervision:
                 canonical_coverage.get("unpublished_accepted_binding_ids")
                 or canonical_coverage.get("unclassified_property_ids")
                 or canonical_coverage.get("unexplained_resolution_property_ids")
-                or ["RHI_ENERGY_PUBLIC_CONTRACT_V2"]
+                or ["EnergyRuntime"]
             )
             issues.append(_issue(
                 "energy:contract:canonical_coverage", "CONTRACT",
@@ -249,7 +225,7 @@ class EnergyDomainSupervision:
                 severity="WARNING", scope=["sensor.mobility_energy_asset_publication"],
             ))
 
-        # Canonical runtime and Public V2 are the only Energy readiness authorities.
+        # Canonical Energy runtime is the readiness authority.
         canonical_statuses = [
             configuration_status,
             contract_status,

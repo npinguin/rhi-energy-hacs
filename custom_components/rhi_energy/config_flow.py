@@ -1,7 +1,6 @@
 """Guided canonical configuration flow for Robotix Home Intelligence Energy."""
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 
 import voluptuous as vol
@@ -16,7 +15,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import DOMAIN
-from .v2_configuration import configuration_rows
+from .v2_configuration import canonical_configuration_rows
 
 
 class RhiEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -43,7 +42,7 @@ class RhiEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
-    """Guided product configuration over canonical Public V2 properties."""
+    """Guided product configuration over Energy-owned canonical properties."""
 
     _PRICING_FIELDS = {
         "market_price_fallback": "pricing.spot_eur_kwh",
@@ -99,17 +98,18 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             .get(self.config_entry.entry_id, {})
         )
 
-    def _contract(self) -> dict[str, Any]:
-        projector = self._state().get("public_projector")
-        return deepcopy(projector.get_v2() or {}) if projector is not None else {}
-
     def _interaction(self):
         return self._state().get("interaction")
 
     def _row_map(self) -> dict[str, dict[str, Any]]:
+        state = self._state()
+        runtime = state.get("runtime")
+        store = state.get("store")
+        if runtime is None or store is None:
+            return {}
         return {
             str(row.get("property_id")): row
-            for row in configuration_rows(self._contract())
+            for row in canonical_configuration_rows(runtime, store)
             if isinstance(row, dict) and row.get("property_id")
         }
 
@@ -209,9 +209,7 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
                 errors={"base": "invalid_configuration"},
             )
 
-        # Stay inside the exact section the user just configured. Rebuild the form
-        # from Public V2 so saved readback is visible immediately and no hidden
-        # wizard state becomes a second authority.
+        # Rebuild from the canonical store so saved readback is visible immediately.
         return self.async_show_form(
             step_id=step_id,
             data_schema=self._form_schema(fields),

@@ -22,8 +22,7 @@ from .const import (
 )
 from .runtime.interaction import EnergyInteractionEngine
 from .runtime.metering import EnergyMetering
-from .migration import async_prepare_public_entity_takeover, canonical_public_v2_transport_status
-from .public_projector import PublicContractProjector
+from .migration_cleanup import async_cleanup_retired_entities
 from .profile_catalog import EnergyProfileCatalogProvider
 from .visual_catalog import EnergyVisualAssetCatalogProvider
 from .contracts.publication import EnergyBuildSpecificationProvider
@@ -139,8 +138,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     setup_performance: dict[str, float] = {}
 
     stage_started = perf_counter()
-    migration = await async_prepare_public_entity_takeover(hass, entry)
-    setup_performance["migration_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+    migration_cleanup = await async_cleanup_retired_entities(hass, entry)
+    setup_performance["migration_cleanup_ms"] = round((perf_counter() - stage_started) * 1000, 3)
 
     provider = _ensure_publication_provider(hass)
     store = EnergyStore(hass)
@@ -151,7 +150,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime = EnergyRuntime(hass, store)
     metering = EnergyMetering(hass, store, runtime)
     interaction = EnergyInteractionEngine(hass, store, runtime, metering, manager)
-    projector = PublicContractProjector(runtime, store, metering, interaction, manager)
     supervision = EnergyDomainSupervision(hass, entry.entry_id)
     profile_catalog_provider = EnergyProfileCatalogProvider()
     visual_catalog_provider = EnergyVisualAssetCatalogProvider()
@@ -163,8 +161,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         services = await async_register_services(hass, interaction, manager)
         state = {
             "provider": provider, "store": store, "build_manager": manager, "runtime": runtime,
-            "metering": metering, "interaction": interaction, "public_projector": projector,
-            "services": services, "migration": migration, "supervision": supervision,
+            "metering": metering, "interaction": interaction,
+            "services": services, "migration_cleanup": migration_cleanup, "supervision": supervision,
             "supervision_unsubscribe": None,
             "profile_catalog_provider": profile_catalog_provider,
             "visual_catalog_provider": visual_catalog_provider,
@@ -200,18 +198,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await interaction.async_start()
         setup_performance["interaction_start_ms"] = round((perf_counter() - stage_started) * 1000, 3)
 
-        projector.start()
-
         stage_started = perf_counter()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         setup_performance["platform_setup_ms"] = round((perf_counter() - stage_started) * 1000, 3)
-
-        state["public_transport"] = canonical_public_v2_transport_status(hass)
-        if state["public_transport"].get("ready") is not True:
-            raise ConfigEntryNotReady(
-                "canonical_public_v2_transport_not_ready:"
-                + str(state["public_transport"].get("current_entity_id"))
-            )
 
         # Pre-topology boot model: canonical HA devices are materialized naturally
         # by Home Assistant from entity DeviceInfo during platform registration.
@@ -226,7 +215,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         setup_performance["total_setup_ms"] = round((perf_counter() - setup_started) * 1000, 3)
     except Exception:
         _LOGGER.exception("RHI Energy setup failed")
-        await projector.async_stop()
         await interaction.async_stop()
         await metering.async_stop()
         await runtime.async_stop()
@@ -277,7 +265,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "switch_projection",
         "datetime_projection",
         "entity_projection",
-        "public_projector",
         "interaction",
         "metering",
         "runtime",

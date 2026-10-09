@@ -10,7 +10,7 @@ from homeassistant.helpers.entity import EntityCategory
 from .canonical_device import canonical_device_info
 from .const import DOMAIN
 from .logical_control import logical_asset, logical_property, source_state, supported_controls
-from .v2_configuration import configuration_device_info, configuration_row, editable_rows
+from .v2_configuration import configuration_device_info, canonical_configuration_row, canonical_editable_rows
 
 
 class EnergyLogicalSelect(SelectEntity):
@@ -120,20 +120,21 @@ class EnergyLogicalSelectManager:
 
 
 class EnergyConfigurationSelect(SelectEntity):
-    """Native select editor for editable Public V2 strategy/configuration properties."""
+    """Native select editor for canonical strategy/configuration properties."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, entry, projector, interaction, property_id: str) -> None:
+    def __init__(self, entry, runtime, store, interaction, property_id: str) -> None:
         self._entry = entry
-        self._projector = projector
+        self._runtime = runtime
+        self._store = store
         self._interaction = interaction
         self._property_id = property_id
         self._attr_unique_id = f"rhi_energy:v2:configuration:select:{property_id}"
 
     def _row(self) -> dict:
-        return configuration_row(self._projector.get_v2(), self._property_id)
+        return canonical_configuration_row(self._runtime, self._store, self._property_id)
 
     @property
     def name(self):
@@ -160,9 +161,28 @@ class EnergyConfigurationSelect(SelectEntity):
     async def async_select_option(self, option: str) -> None:
         await self._interaction.write_property(self._property_id, option)
 
+    @property
+    def extra_state_attributes(self):
+        row = self._row()
+        operation = row.get("operation") or {}
+        return {
+            "property_id": self._property_id,
+            "canonical_contract": "RHI_ENERGY_CANONICAL_PROPERTY_V2",
+            "availability": row.get("availability"),
+            "reason_code": row.get("reason_code"),
+            "quality": row.get("quality"),
+            "group": row.get("group"),
+            "editable": row.get("editable") is True,
+            "write": row.get("write") or {},
+            "write_status": row.get("write_status") or row.get("write_state"),
+            "operation": operation,
+            "readback_value": row.get("readback_value"),
+        }
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        self.async_on_remove(self._projector.add_v2_callback(self.async_write_ha_state))
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
+        self.async_on_remove(self._store.add_callback(self.async_write_ha_state))
         self.async_on_remove(self._interaction.add_callback(self.async_write_ha_state))
 
 
@@ -171,11 +191,12 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities: AddEnt
     configuration_selects = [
         EnergyConfigurationSelect(
             entry,
-            state["public_projector"],
+            state["runtime"],
+            state["store"],
             state["interaction"],
             str(row["property_id"]),
         )
-        for row in editable_rows(state["public_projector"].get_v2(), "select")
+        for row in canonical_editable_rows(state["runtime"], state["store"], "select")
     ]
     if configuration_selects:
         async_add_entities(configuration_selects)

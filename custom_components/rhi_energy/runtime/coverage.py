@@ -95,13 +95,14 @@ def canonical_coverage(
     write_without_readback = [
         row["property_id"] for row in rows if not row["write_readback_complete"]
     ]
-    duplicate_ids = sorted(
-        {
-            row["property_id"]
-            for row in rows
-            if sum(other["property_id"] == row["property_id"] for other in rows) > 1
-        }
-    )
+    seen_ids: set[str] = set()
+    duplicate_id_set: set[str] = set()
+    for row in rows:
+        property_id = row["property_id"]
+        if property_id in seen_ids:
+            duplicate_id_set.add(property_id)
+        seen_ids.add(property_id)
+    duplicate_ids = sorted(duplicate_id_set)
     published_binding_ids = sorted({
         str(binding_id)
         for asset in objects

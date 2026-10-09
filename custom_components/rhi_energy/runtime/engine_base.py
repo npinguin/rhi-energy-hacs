@@ -22,6 +22,8 @@ from .canonical_semantics import (
     intelligence,
     number,
     overview_snapshot,
+    pricing_properties,
+    strategy_properties,
     split_battery_power,
 )
 from ..semantic import property_definitions
@@ -37,6 +39,8 @@ from .layer_readiness import evaluate_runtime_layers
 from .aggregation import aggregate_objects
 from .semantic_authority import CanonicalFactStore
 from .pilot_readiness import operational_readiness
+from .coverage import canonical_coverage
+from .retrospective import retrospective_evidence
 from .planning_cadence import TacticalPlanningCadence
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
@@ -130,6 +134,8 @@ class EnergyRuntime:
             "overview": {},
             "domain_model_revision": None,
             "runtime_issues": [],
+            "canonical_coverage": {},
+            "retrospective": {},
         }
     def add_callback(self, cb):
         return self._callback_hub.add(cb)
@@ -855,6 +861,24 @@ class EnergyRuntime:
         any_available = any(int(asset.get("available_property_count") or 0) > 0 for asset in active_assets)
         degraded_assets = [str(asset.get("asset_id")) for asset in active_assets if asset.get("health") == "DEGRADED"]
         health = "OK" if any_available and not runtime_issues and not self.model.get("issues") and not degraded_assets else "DEGRADED" if any_available or active_assets else "UNKNOWN"
+        # Coverage is domain-owned evidence, independently computed from normalized
+        # canonical objects/properties. Supervision must never read Public V2.
+        coverage = canonical_coverage(
+            [row for row in logical_assets if row.get("product_projection") is not False],
+            {
+                "pricing": {"properties": pricing_properties(facts, settings)},
+                "strategy": {"configured_properties": strategy_properties(settings)},
+            },
+            (self.model or {}).get("accepted_bindings") or [],
+            self._semantic_paths,
+            logical_assets,
+        )
+        retrospective = retrospective_evidence(
+            plan,
+            self.store.data.get("metering") or {},
+            self.store.data.get("command_state") or {},
+            str(settings.get("metering_selected_period") or "today"),
+        )
         self._fact_state = dict(facts)
         self.snapshot = {
             "health": health,
@@ -885,6 +909,8 @@ class EnergyRuntime:
             "semantic_conflicts": semantic_conflicts,
             "semantic_path_complete": not semantic_conflicts,
             "operational_readiness": operational,
+            "canonical_coverage": coverage,
+            "retrospective": retrospective,
             "consumption_split_evidence": consumption_split_evidence,
             "degraded_logical_assets": degraded_assets[:40],
             "experience_presence": experience_presence(

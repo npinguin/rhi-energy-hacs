@@ -1,4 +1,4 @@
-"""RHI Energy V2 sensors: canonical Public V2 plus native Home Assistant surfaces."""
+"""RHI Energy native Home Assistant sensors over canonical domain runtime."""
 from __future__ import annotations
 
 import asyncio
@@ -23,8 +23,8 @@ from .const import (
 from .canonical_device import canonical_device_info, source_device_ids
 from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
 from .source_topology import source_binding_index
-from .public_v2 import public_v2_sensor_attributes
 from .presentation import property_presentation
+from .runtime.value_accounting import native_metric_evidence
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -32,30 +32,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     provider = state["provider"]
     manager = state["build_manager"]
     runtime = state["runtime"]
-    projector = state["public_projector"]
     entities: list[SensorEntity] = [
-        EnergyPublicV2Sensor(entry, projector),
-        EnergyV2MetricSensor(entry, projector, "home_consumption_power_kw"),
-        EnergyV2MetricSensor(entry, projector, "planning_today_required_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_today_planned_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_today_still_to_plan_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_today_flexible_required_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_today_flexible_planned_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_today_flexible_still_to_plan_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_required_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_planned_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_still_to_plan_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_flexible_required_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_flexible_planned_kwh"),
-        EnergyV2MetricSensor(entry, projector, "planning_tomorrow_flexible_still_to_plan_kwh"),
-        EnergyV2MetricSensor(entry, projector, "net_financial_result_eur"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "home_consumption_power_kw"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_required_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_planned_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_still_to_plan_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_flexible_required_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_flexible_planned_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_flexible_still_to_plan_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_tomorrow_required_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_tomorrow_planned_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_tomorrow_still_to_plan_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_tomorrow_flexible_required_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_tomorrow_flexible_planned_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "planning_tomorrow_flexible_still_to_plan_kwh"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "net_financial_result_eur"),
         EnergyBatteryMetricSensor(entry, runtime, "power_kw"),
         EnergyBatteryMetricSensor(entry, runtime, "soc_pct"),
         EnergyBatteryMetricSensor(entry, runtime, "capacity_kwh"),
         EnergyBatteryMetricSensor(entry, runtime, "available_kwh"),
-        EnergyPlanningLayerSensor(entry, projector, "strategic"),
-        EnergyPlanningLayerSensor(entry, projector, "tactical"),
-        EnergyPlanningLayerSensor(entry, projector, "operational"),
+        EnergyPlanningLayerSensor(entry, runtime, state["store"], "strategic"),
+        EnergyPlanningLayerSensor(entry, runtime, state["store"], "tactical"),
+        EnergyPlanningLayerSensor(entry, runtime, state["store"], "operational"),
+        EnergyRetrospectiveSensor(entry, runtime, state["store"]),
         EnergyReleaseSensor(entry, state),
         EnergyHealthSensor(entry, manager, runtime),
         EnergyConfigurationSensor(entry, manager, provider),
@@ -69,6 +68,61 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     # Projection is intentionally deferred: canonical runtime and diagnostics must
     # become available before a large SolarEdge optimizer/panel graph is materialised.
     logical_projection.start_deferred()
+
+
+class EnergyRetrospectiveSensor(SensorEntity):
+    """Backend-owned evidence readiness; no synthetic objective score."""
+
+    _attr_has_entity_name = False
+    _attr_should_poll = False
+    _attr_name = "Energy Retrospective"
+    _attr_suggested_object_id = "energy_retrospective"
+
+    def __init__(self, entry, runtime, store):
+        self._entry = entry
+        self._runtime = runtime
+        self._store = store
+        self._attr_unique_id = "rhi_energy:canonical:retrospective"
+
+    @property
+    def device_info(self):
+        return canonical_device_info({
+            "asset_id": "energy_site", "object_class": "energy_site",
+            "display_name": "Energy",
+        })
+
+    @property
+    def available(self):
+        row = self._runtime.snapshot.get("retrospective") or {}
+        return row.get("contract_id") == "ENERGY_CANONICAL_RETROSPECTIVE_V1"
+
+    @property
+    def native_value(self):
+        return (self._runtime.snapshot.get("retrospective") or {}).get("status")
+
+    @property
+    def extra_state_attributes(self):
+        row = self._runtime.snapshot.get("retrospective") or {}
+        return {
+            "canonical_contract": row.get("contract_id"),
+            "selected_period": row.get("selected_period"),
+            "availability": row.get("availability") or "UNAVAILABLE",
+            "reason": row.get("reason") or "retrospective_evidence_unavailable",
+            "prerequisites": list(row.get("prerequisites") or []),
+            "evidence_coverage_pct": row.get("evidence_coverage_pct"),
+            "confidence": row.get("confidence"),
+            "score": row.get("score"),
+            "trend": row.get("trend"),
+            "objectives": list(row.get("objectives") or []),
+            "execution_kpis": dict(row.get("execution_kpis") or {}),
+            "score_semantics": row.get("score_semantics"),
+            "observed_at": self._runtime.snapshot.get("observed_at"),
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
+        self.async_on_remove(self._store.add_callback(self.async_write_ha_state))
 
 
 class _EnergySensor(SensorEntity):
@@ -98,9 +152,10 @@ class EnergyPlanningLayerSensor(SensorEntity):
     _attr_has_entity_name = False
     _attr_should_poll = False
 
-    def __init__(self, entry: ConfigEntry, projector, layer: str) -> None:
+    def __init__(self, entry: ConfigEntry, runtime, store, layer: str) -> None:
         self._entry = entry
-        self._projector = projector
+        self._runtime = runtime
+        self._store = store
         self._layer = layer
         self._attr_name = f"{layer.title()} Planning"
         self._attr_suggested_object_id = f"energy_planning_{layer}"
@@ -114,15 +169,16 @@ class EnergyPlanningLayerSensor(SensorEntity):
         }
 
     def _state(self) -> str:
-        contract = self._projector.get_v2()
         if self._layer == "strategic":
-            strategy = ((contract.get("configuration") or {}).get("strategy") or {})
-            return str(strategy.get("effective_state") or "UNAVAILABLE")
-        planning = contract.get("planning") or {}
+            settings = self._store.data.get("settings") or {}
+            if any(bool(value) for value in (settings.get("holds") or {}).values()):
+                return "OVERRIDDEN"
+            return "AVAILABLE" if ((self._runtime.snapshot.get("plan") or {}).get("health") in {"OK", "READY"}) else "NOT_EVALUATED"
+        plan = self._runtime.snapshot.get("plan") or {}
         if self._layer == "tactical":
-            return str(planning.get("health") or "UNAVAILABLE")
-        d0 = ((planning.get("horizons") or {}).get("D0") or {})
-        return str(((d0.get("quality") or {}).get("availability")) or planning.get("health") or "UNAVAILABLE")
+            return str(plan.get("health") or "UNAVAILABLE")
+        d0 = ((plan.get("planning_horizons") or {}).get("D0") or {})
+        return str(((d0.get("quality") or {}).get("availability")) or plan.get("health") or "UNAVAILABLE")
 
     @property
     def native_value(self):
@@ -130,45 +186,18 @@ class EnergyPlanningLayerSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        contract = self._projector.get_v2()
         return {
             "planning_layer": self._layer,
             "logical_device_role": "energy_planning",
             "canonical_source_refs": list(_PLANNING_LAYER_CANONICAL_REFS[self._layer]),
-            "domain_model_revision": contract.get("domain_model_revision"),
+            "domain_model_revision": self._runtime.snapshot.get("domain_model_revision"),
             "projection_only": True,
         }
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        self.async_on_remove(self._projector.add_v2_callback(self.async_write_ha_state))
-
-
-class EnergyPublicV2Sensor(_EnergySensor):
-    """Single canonical Energy Public V2 object graph."""
-
-    _attr_name = "RHI Energy Public Contract V2"
-    _attr_suggested_object_id = "rhi_energy_public_contract_v2"
-    _attr_unique_id = "rhi_energy:public:contract:v2"
-
-    def __init__(self, entry: ConfigEntry, projector) -> None:
-        super().__init__(entry)
-        self._projector = projector
-
-    @property
-    def native_value(self):
-        return self._projector.get_v2().get("health") or "UNKNOWN"
-
-    @property
-    def extra_state_attributes(self):
-        # Expose the complete published V2 contract. The sensor is a transport
-        # surface only; it must never maintain a second field allow-list that can
-        # drift from build_public_contract_v2().
-        return public_v2_sensor_attributes(self._projector.get_v2())
-
-    async def async_added_to_hass(self):
-        await super().async_added_to_hass()
-        self.async_on_remove(self._projector.add_v2_callback(self.async_write_ha_state))
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
+        self.async_on_remove(self._store.add_callback(self.async_write_ha_state))
 
 
 _V2_METRICS = {
@@ -190,14 +219,15 @@ _V2_METRICS = {
 
 
 class EnergyV2MetricSensor(SensorEntity):
-    """First-class HA metric projected directly from canonical Public V2."""
+    """First-class HA metric read directly from canonical Energy truth."""
 
     _attr_has_entity_name = False
     _attr_should_poll = False
 
-    def __init__(self, entry, projector, key: str) -> None:
+    def __init__(self, entry, runtime, store, key: str) -> None:
         self._entry = entry
-        self._projector = projector
+        self._runtime = runtime
+        self._store = store
         self._key = key
         name, _path, unit, device_class, state_class, group = _V2_METRICS[key]
         self._group = group
@@ -224,33 +254,43 @@ class EnergyV2MetricSensor(SensorEntity):
             "sw_version": RELEASE,
         }
 
-    def _value(self):
-        _name, path, _unit, _dc, _sc, _group = _V2_METRICS[self._key]
-        value = self._projector.get_v2()
-        for part in path:
-            if not isinstance(value, dict):
-                return None
-            value = value.get(part)
-        return value
+    def _evidence(self):
+        """Read the exact native-entity value and availability from domain-owned evidence."""
+        return native_metric_evidence(self._key, self._runtime.snapshot, self._store.data)
 
     @property
     def native_value(self):
-        return self._value()
+        return self._evidence()["value"]
 
     @property
     def available(self):
-        return self._value() is not None
+        evidence = self._evidence()
+        return evidence["availability"] == "AVAILABLE" and evidence["value"] is not None
 
     @property
     def extra_state_attributes(self):
+        evidence = self._evidence()
         return {
-            "contract_id": "RHI_ENERGY_PUBLIC_CONTRACT_V2",
+            "canonical_source": "rhi_energy.runtime",
             "metric_key": self._key,
+            "availability": evidence["availability"],
+            "reason_code": evidence.get("reason_code"),
+            "quality": evidence.get("quality"),
+            "source_fact": evidence.get("source_fact"),
+            "provenance": evidence.get("provenance"),
+            "horizon": evidence.get("horizon"),
+            "source_field": evidence.get("source_field"),
+            "totals_complete": evidence.get("totals_complete"),
+            "period": evidence.get("period"),
+            "actual_complete": evidence.get("actual_complete"),
+            "evidence_method": evidence.get("evidence_method"),
+            "observed_at": self._runtime.snapshot.get("observed_at"),
         }
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        self.async_on_remove(self._projector.add_v2_callback(self.async_write_ha_state))
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
+        self.async_on_remove(self._store.add_callback(self.async_write_ha_state))
 
 
 class _RuntimeSensor(_EnergySensor):
@@ -865,6 +905,54 @@ class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
             return "STRUCTURAL"
         return asset.get("health") or asset.get("normalization_status") or "UNKNOWN"
 
+    def _appearance(self, asset: dict) -> dict:
+        # Energy-owned per-asset visual choice is persisted in the domain store.
+        # Producer-owned Mobility visuals are read-only and never shadowed.
+        state = (self._hass.data.get(DOMAIN) or {}).get(self._entry.entry_id) or {}
+        store = state.get("store")
+        stored = getattr(store, "data", {}) or {}
+        settings = stored.get("settings") or {}
+        configured = ((settings.get("appearance") or {}).get(self._asset_id) or {}).get("visual_ref")
+        asset_type = str(asset.get("asset_type") or asset.get("object_class") or "").lower()
+        source_domain = str(asset.get("source_domain") or "").lower()
+        producer_ref = str(asset.get("visual_ref") or "")
+        producer_owned = (
+            source_domain == "mobility"
+            or asset_type in {"vehicle", "charger", "flexible_load"}
+            or producer_ref.startswith("mobility.")
+        )
+        configured = None if producer_owned else str(configured or "").strip() or None
+        effective = configured or producer_ref or None
+        prop_id = f"appearance:{self._asset_id}:visual_ref"
+        operation = (stored.get("property_operation_state") or {}).get(prop_id) or {}
+        editable = not producer_owned and bool(asset_type)
+        return {
+            "visual_ref": effective,
+            "configured_visual_ref": configured,
+            "appearance_editable": editable,
+            "appearance_owner": "mobility" if producer_owned else "energy",
+            "appearance_write": {
+                "supported": editable,
+                "operation_id": "energy.property.write",
+                "service": "rhi_energy.write_property",
+                "property_id": prop_id,
+                "readback_property": prop_id,
+            } if editable else {"supported": False, "reason": "producer_owned_visual"},
+            "appearance_operation": {
+                "status": operation.get("status"),
+                "requested_value": operation.get("requested_value"),
+                "readback_value": operation.get("readback_value"),
+                "reason": operation.get("reason"),
+            },
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        state = (self._hass.data.get(DOMAIN) or {}).get(self._entry.entry_id) or {}
+        store = state.get("store")
+        if store is not None:
+            self.async_on_remove(store.add_callback(self.async_write_ha_state))
+
     def _source_devices(self, asset: dict) -> list[dict]:
         registry = dr.async_get(self._hass)
         rows = []
@@ -889,6 +977,7 @@ class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
         asset = self._asset() or {}
         props = asset.get("properties") or []
         source_devices = self._source_devices(asset)
+        appearance = self._appearance(asset)
         return {
             "canonical_contract": "RHI_ENERGY_CANONICAL_OBJECT_V2",
             "logical_object_class": asset.get("object_class"),
@@ -916,7 +1005,12 @@ class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
             "topology_kind": asset.get("topology_kind"),
             "canonical_via_device": canonical_parent_asset_id(asset),
             "profile_id": asset.get("profile_id"),
-            "visual_ref": asset.get("visual_ref"),
+            "visual_ref": appearance["visual_ref"],
+            "configured_visual_ref": appearance["configured_visual_ref"],
+            "appearance_editable": appearance["appearance_editable"],
+            "appearance_owner": appearance["appearance_owner"],
+            "appearance_write": appearance["appearance_write"],
+            "appearance_operation": appearance["appearance_operation"],
             "capabilities": list(asset.get("capabilities") or [])[:40],
             "identity": dict(asset.get("identity") or {}),
             "technical_specification": dict(asset.get("technical_specification") or {}),
@@ -992,6 +1086,7 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
             "canonical_contract": "RHI_ENERGY_CANONICAL_PROPERTY_V2",
             "logical_object_class": asset.get("object_class"),
             "asset_id": self._asset_id,
+            "parent_asset_id": asset.get("parent_asset_id"),
             "asset_display_name": asset.get("display_name") or self._asset_id,
             "property_key": self._property_key,
             "display_name": prop.get("display_name") or self._property_key,
