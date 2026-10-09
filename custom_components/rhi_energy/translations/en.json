@@ -114,7 +114,7 @@
       },
       "planner": {
         "title": "Energy settings › Planning optimizer",
-        "description": "Configure a vanilla EMHASS endpoint for read-only connectivity checks. Optimization is not activated until native capability and result validation pass.",
+        "description": "Choose the planning provider independently from the Energy operating mode. EMHASS planning is read-only for physical devices until separately qualified. Hard unsupported strategies remain blocked.",
         "data": {
           "planner_provider": "Planning provider",
           "emhass_url": "EMHASS service URL",
@@ -142,7 +142,8 @@
       "invalid_configuration": "The setting could not be saved. Check the selected values and try again.",
       "canonical_runtime_unavailable": "Energy runtime is not available. Reload the integration and try again.",
       "emhass_activation_not_yet_supported": "EMHASS cannot be selected as primary until native optimization and safety validation pass.",
-      "invalid_url": "Enter a valid EMHASS HTTP(S) service URL."
+      "invalid_url": "Enter a valid EMHASS HTTP(S) service URL.",
+      "emhass_url_required": "Configure an EMHASS service URL before selecting EMHASS as the planner."
     },
     "abort": {
       "canonical_configuration_unavailable": "Energy configuration is not available yet. Wait until the Energy runtime is ready and open Configure again."

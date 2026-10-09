@@ -11,6 +11,7 @@ from typing import Any
 from .emhass_client import VanillaEmhassClient
 from .emhass_context import build_emhass_context
 from .emhass_result_adapter import accept_shadow_plan
+from .emhass_strategy import assess_emhass_strategy
 
 _NATIVE_KEYS = frozenset({
     "set_use_battery", "number_of_batteries", "battery_nominal_energy_capacity",
@@ -119,6 +120,9 @@ class EmhassShadowRunner:
             if start < datetime.now(timezone.utc):
                 from datetime import timedelta
                 start += timedelta(hours=1)
+            strategy_coverage = assess_emhass_strategy(strategy)
+            if strategy_coverage.blockers:
+                raise ValueError("native_strategy_constraints_unsupported:" + ",".join(strategy_coverage.blockers))
             context = build_emhass_context(
                 start_utc=start, horizon_hours=requested_hours,
                 local_timezone=self.hass.config.time_zone,
@@ -131,7 +135,7 @@ class EmhassShadowRunner:
                 flexible_assets=loads,
                 grid_import_limit_kw=self.options.get("emhass_grid_import_limit_kw"),
                 grid_export_limit_kw=self.options.get("emhass_grid_export_limit_kw"),
-                reserve_target_pct=strategy.get("battery.reserve_target_pct"),
+                reserve_target_pct=strategy_coverage.effective_reserve_pct,
                 supported_native_parameters=set(_NATIVE_KEYS),
             )
             run = await client.optimize_shadow(context.payload, action="naive-mpc-optim")
@@ -155,6 +159,8 @@ class EmhassShadowRunner:
                 "planned_export_kwh": accepted.total_export_kwh,
                 "net_financial_result_eur": accepted.net_financial_result_eur,
                 "flexible_scheduled_kwh": accepted.flexible_scheduled_kwh,
+                "strategy_mapped_constraints": list(strategy_coverage.mapped_constraints),
+                "strategy_preference_differences": list(strategy_coverage.advisory_preferences),
             })
         except asyncio.CancelledError:
             raise

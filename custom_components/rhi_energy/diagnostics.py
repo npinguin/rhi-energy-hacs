@@ -482,6 +482,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "event_flow": (runtime.event_flow.snapshot() if runtime and hasattr(runtime, "event_flow") else {}),
         "callback_fanout": (runtime._callback_hub.diagnostics() if runtime and hasattr(runtime, "_callback_hub") else {}),
         "planning_runtime": deepcopy(snap.get("planning_runtime") or {}),
+        "planning_selection": deepcopy(snap.get("planning_selection") or {}),
+        "planning_providers": deepcopy(snap.get("planning_providers") or {}),
         "operational_readiness": deepcopy(snap.get("operational_readiness") or {}),
         "source_resolution_coherence": _source_resolution_coherence(snap.get("logical_assets") or []),
         "property_operations": {

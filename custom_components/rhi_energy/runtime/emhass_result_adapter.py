@@ -95,6 +95,18 @@ def accept_shadow_plan(
             raise NativeCapabilityError("emhass_grid_limit_violated")
         source_pv = _finite(row, "P_PV", minimum=0)
         source_load = _finite(row, "P_Load", minimum=0)
+        # Native optimization must honor the exact accepted source evidence.
+        # PV may be curtailed, but it cannot exceed the accepted forecast;
+        # household baseload and tariff values must retain their meaning.
+        for forecast_key in ("pv_power_forecast", "load_power_forecast",
+                             "load_cost_forecast", "prod_price_forecast"):
+            forecasts = context.payload.get(forecast_key)
+            if not isinstance(forecasts, list) or len(forecasts) != len(raw):
+                raise NativeCapabilityError("emhass_source_horizon_missing:" + forecast_key)
+        expected_pv = context.payload["pv_power_forecast"][position]
+        expected_load = context.payload["load_power_forecast"][position]
+        if source_pv > expected_pv + 1 or abs(source_load - expected_load) > 1:
+            raise NativeCapabilityError("emhass_canonical_power_mismatch")
         total_battery_power = 0.0
         for idx, aid in enumerate(context.battery_ids):
             p_key = "P_batt" if battery_count == 1 else f"P_batt_{idx}"
@@ -142,6 +154,11 @@ def accept_shadow_plan(
             raise NativeCapabilityError("emhass_power_balance_unverified")
         import_price = _finite(row, "unit_load_cost")
         export_price = _finite(row, "unit_prod_price")
+        if (
+            abs(import_price - float(context.payload["load_cost_forecast"][position])) > 1e-6
+            or abs(export_price - float(context.payload["prod_price_forecast"][position])) > 1e-6
+        ):
+            raise NativeCapabilityError("emhass_canonical_tariff_mismatch")
         step_value = (export_w * export_price - import_w * import_price) / 1000
         net_result += step_value
         imported += import_w / 1000
@@ -179,6 +196,8 @@ def accept_shadow_plan(
         expected_need = constraints.get("energy_to_target_kwh")
         if expected_need is not None and flex_energy[aid] + 0.01 < float(expected_need):
             raise NativeCapabilityError("emhass_flexible_energy_need_unmet:" + aid)
+        if expected_need is not None and flex_energy[aid] > float(expected_need) + 0.01:
+            raise NativeCapabilityError("emhass_flexible_energy_target_exceeded:" + aid)
     for horizon in horizon_totals.values():
         for name in ("grid_import_kwh", "grid_export_kwh", "net_financial_result_eur"):
             horizon[name] = round(horizon[name], 5)

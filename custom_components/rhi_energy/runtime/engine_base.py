@@ -785,18 +785,20 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
                 max(0.0, float(today_home_kwh)) / (float(today_home_coverage_s) / 3600.0),
                 6,
             )
-        plan = self.planning_cadence.resolve(facts, settings, flexible)
+        deterministic = self.planning_cadence.resolve(facts, settings, flexible)
+        plan, planner_selection = self._select_effective_planner(deterministic, settings)
         planning_providers = {
             "rhi_deterministic": {
-                "status": "PLAN_AVAILABLE" if plan else "UNKNOWN",
-                "readiness": "UNVALIDATED",
-                "selected": True,
+                "status": "PLAN_AVAILABLE" if deterministic else "UNKNOWN",
+                "readiness": "VALIDATED" if deterministic.get("health") == "OK" else "DEGRADED",
+                "selected": planner_selection["effective_provider"] == "rhi_deterministic",
                 "mode": "primary",
                 "last_run_at": self.planning_cadence.diagnostics().get("last_tactical_refresh_at"),
-                "result_status": "AVAILABLE" if plan else "UNKNOWN",
+                "result_status": "AVAILABLE" if deterministic else "UNKNOWN",
             },
             "emhass": dict(self._emhass_runner.status if self._emhass_runner is not None else self._emhass_connection),
         }
+        planning_providers["emhass"]["selected"] = planner_selection["effective_provider"] == "emhass"
         intel = intelligence(plan, facts, settings, flexible)
         overview = overview_snapshot(facts)
         logical_refresh_ids: set[str] | None = None
@@ -877,6 +879,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             "plan": plan,
             "planning_runtime": self.planning_cadence.diagnostics(),
             "planning_providers": planning_providers,
+            "planning_selection": planner_selection,
             "intelligence": intel,
             "overview": overview,
             "domain_model_revision": self.model.get("domain_model_revision"),

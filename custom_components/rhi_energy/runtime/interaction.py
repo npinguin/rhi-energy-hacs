@@ -1227,6 +1227,29 @@ class EnergyInteractionEngine:
             return {"executed": False, "reason": reason, "policy": policy}
 
         snap = self.runtime.snapshot
+        effective_plan = snap.get("plan") or {}
+        if (
+            effective_plan.get("provider") == "emhass"
+            and effective_plan.get("execution_authorized") is not True
+        ):
+            # EMHASS advisories are not a source of physical command authority.
+            # Do not infer permission from a valid solver result, automatic mode
+            # or the presence of Energy-owned bucket allocations.
+            self.store.add_activity({
+                "activity_type": "plan_execution",
+                "origin": origin,
+                "status": "not_executed",
+                "reason": "emhass_advisory_has_no_execution_authority",
+                "requested_provider": "emhass",
+                "automation_mode": policy["configured_mode"],
+            })
+            await self.store.async_save()
+            self._notify()
+            return {
+                "executed": False,
+                "reason": "emhass_advisory_has_no_execution_authority",
+                "policy": policy,
+            }
         facts = snap.get("facts") or {}
         holds = (self.store.data.get("settings") or {}).get("holds", {})
         now = datetime.now(ZoneInfo(self.hass.config.time_zone))

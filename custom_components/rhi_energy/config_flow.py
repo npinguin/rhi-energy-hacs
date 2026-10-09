@@ -311,10 +311,10 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             return self.async_show_form(step_id="planner", data_schema=schema)
         requested = str(user_input.get("planner_provider") or "rhi_deterministic")
         url = str(user_input.get("emhass_url") or "").strip().rstrip("/")
-        if requested == "emhass":
+        if requested == "emhass" and not url:
             return self.async_show_form(
                 step_id="planner", data_schema=schema,
-                errors={"base": "emhass_activation_not_yet_supported"},
+                errors={"emhass_url": "emhass_url_required"},
             )
         if url:
             try:
@@ -325,7 +325,7 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
                     errors={"emhass_url": "invalid_url"},
                 )
         current.update({
-            "planner_provider": "rhi_deterministic",
+            "planner_provider": requested,
             "emhass_url": url,
             "emhass_shadow_only": True,
             "emhass_horizon_hours": user_input.get("emhass_horizon_hours", 24),

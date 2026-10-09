@@ -51,12 +51,86 @@ class EnergyRuntimeAuxiliary:
             self.planning_cadence.request_refresh()
             self._recompute()
 
+    def _select_effective_planner(self, deterministic, settings):
+        """Select a validated provider without permitting EMHASS command ownership."""
+        from datetime import datetime, timezone
+        from .canonical_semantics import automation_control_policy
+        from .emhass_advisory import project_emhass_advisory, AdvisoryProjectionError
+        from .planner_selection import select_plan, FallbackPolicy
+
+        runner = self._emhass_runner
+        requested = str(
+            (runner.options.get("planner_provider") if runner else "") or "rhi_deterministic"
+        )
+        if requested != "emhass":
+            return deterministic, {
+                "requested_provider": "rhi_deterministic",
+                "effective_provider": "rhi_deterministic",
+                "reason": "default_deterministic_primary",
+            }
+
+        valid_rhi = deterministic.get("health") == "OK"
+        native = None
+        native_valid = False
+        reject_reason = "native_optimizer_not_available"
+        if runner is not None and runner.result is not None:
+            status = runner.status
+            active_revision = self.planning_cadence.diagnostics().get("last_tactical_refresh_at")
+            version_ok = status.get("version_verified") is True
+            current_revision = status.get("requested_cadence_revision") == active_revision
+            if status.get("status") == "SHADOW_PLAN_ACCEPTED" and version_ok and current_revision:
+                try:
+                    native = project_emhass_advisory(
+                        runner.result,
+                        time_zone=str(self.hass.config.time_zone),
+                        now=datetime.now(timezone.utc),
+                    )
+                    native_valid = True
+                except (AdvisoryProjectionError, ValueError) as exc:
+                    reject_reason = f"native_projection_rejected:{type(exc).__name__}"
+            else:
+                reject_reason = "native_version_or_generation_not_validated"
+        # Never silently switch a user-selected native Automatic controller to
+        # a different physical planner. Advisory fallback is permitted; an
+        # automatic run requires explicit provider authority and otherwise HOLD.
+        fallback = (
+            FallbackPolicy.HOLD
+            if automation_control_policy(settings)["autonomous_execution_allowed"]
+            else FallbackPolicy.RHI
+        )
+        decision = select_plan(
+            "emhass",
+            {"rhi_deterministic": deterministic, **({"emhass": native} if native is not None else {})},
+            {"rhi_deterministic": valid_rhi, "emhass": native_valid},
+            fallback=fallback,
+        )
+        effective = decision.plan
+        if effective is None:
+            # An unavailable plan is not replaced by a fabricated empty schedule.
+            return {"health": "UNAVAILABLE", "reason": "no_validated_plan_hold",
+                    "planning_horizons": {}, "planning_horizons_json": [],
+                    "execution_authorized": False,
+                    "execution_policy": automation_control_policy(settings)}, {
+                "requested_provider": "emhass",
+                "effective_provider": None,
+                "reason": reject_reason,
+            }
+        if decision.effective_provider == "emhass":
+            effective["execution_policy"] = automation_control_policy(settings)
+            effective["execution_authorized"] = False
+        return effective, {
+            "requested_provider": "emhass",
+            "effective_provider": decision.effective_provider,
+            "reason": decision.reason if native_valid else reject_reason,
+        }
+
     def _publish_emhass_shadow_status(self) -> None:
         """Publish result evidence without recomputing telemetry or planner."""
         if self._emhass_stopping or self._emhass_runner is None:
             return
-        self.snapshot.setdefault("planning_providers", {})["emhass"] = dict(self._emhass_runner.status)
-        self._notify(public_changed=True)
+        # Solver results may change the effective advisory provider; re-evaluate
+        # against the unchanged tactical revision before publishing the snapshot.
+        self._recompute()
 
     def _schedule_emhass_shadow(self, facts, logical_assets, flexible, settings) -> None:
         if self._emhass_runner is None:
@@ -68,7 +142,10 @@ class EnergyRuntimeAuxiliary:
             strategy=settings.get("strategy") or {},
             cadence_revision=self.planning_cadence.diagnostics().get("last_tactical_refresh_at"),
         )
-        self.snapshot["planning_providers"]["emhass"] = dict(self._emhass_runner.status)
+        self.snapshot["planning_providers"]["emhass"] = {
+            **dict(self._emhass_runner.status),
+            "selected": (self.snapshot.get("planning_selection") or {}).get("effective_provider") == "emhass",
+        }
 
     def start_emhass_probe(self, url: str) -> None:
         """Schedule a single HA-managed connection probe, owned by this runtime."""
