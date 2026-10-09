@@ -100,6 +100,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
         self.store = store
         self._emhass_probe_task = None
         self._emhass_runner = None
+        self._selected_planner_provider = 'rhi_deterministic'
         self._emhass_stopping = False
         self._emhass_connection = {
             "status": "NOT_CONFIGURED", "readiness": "UNAVAILABLE",

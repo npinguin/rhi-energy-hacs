@@ -49,6 +49,9 @@ def project_emhass_advisory(
         raise AdvisoryProjectionError("native_plan_not_read_only_accepted")
     if not accepted.rows:
         raise AdvisoryProjectionError("native_plan_empty")
+    if accepted.step_minutes not in (30, 60):
+        raise AdvisoryProjectionError("native_step_unsupported")
+    step_hours = accepted.step_minutes / 60
     zone = ZoneInfo(time_zone)
     now_utc = now.astimezone(timezone.utc)
     today = now_utc.astimezone(zone).date()
@@ -59,7 +62,7 @@ def project_emhass_advisory(
         start = _utc(row.get("timestamp"))
         if last_end is not None and start != last_end:
             raise AdvisoryProjectionError("native_horizon_not_contiguous")
-        end = start + timedelta(hours=1)
+        end = start + timedelta(minutes=accepted.step_minutes)
         last_end = end
         horizon_day = start.astimezone(zone).date()
         day_offset = (horizon_day - today).days
@@ -94,7 +97,7 @@ def project_emhass_advisory(
                 flex_allocations.append({
                     "asset_id": aid,
                     "planned_power_kw": round(power, 6),
-                    "planned_energy_kwh": round(power, 6),
+                    "planned_energy_kwh": round(power * step_hours, 6),
                     "provider": "emhass",
                 })
         battery_w = 0.0
@@ -109,29 +112,32 @@ def project_emhass_advisory(
         if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not isfinite(v)
                for v in (import_price, export_price)):
             raise AdvisoryProjectionError("native_price_not_finite")
-        financial = exported * export_price - imported * import_price
+        financial = (exported * export_price - imported * import_price) * step_hours
+        pv_energy, home_energy = pv * step_hours, home * step_hours
+        imported_energy, exported_energy = imported * step_hours, exported * step_hours
+        battery_support_energy = max(0.0, battery_w) * step_hours
         item["buckets"].append({
             "start_time": start.astimezone(zone).isoformat(),
             "end_time": end.astimezone(zone).isoformat(),
-            "duration_hours": 1,
+            "duration_hours": step_hours,
             "asset_allocations": flex_allocations,
-            "solar_kwh": round(pv, 6),
-            "home_consumption_kwh": round(home, 6),
-            "grid_import_kwh": round(imported, 6),
-            "grid_export_kwh": round(exported, 6),
-            "battery_discharge_kwh": round(max(0.0, battery_w), 6),
-            "battery_charge_kwh": round(max(0.0, -battery_w), 6),
+            "solar_kwh": round(pv_energy, 6),
+            "home_consumption_kwh": round(home_energy, 6),
+            "grid_import_kwh": round(imported_energy, 6),
+            "grid_export_kwh": round(exported_energy, 6),
+            "battery_discharge_kwh": round(battery_support_energy, 6),
+            "battery_charge_kwh": round(max(0.0, -battery_w) * step_hours, 6),
             "flexible_scheduled_kwh": round(flex_kwh, 6),
             "net_financial_result_eur": round(financial, 6),
             "planning_state": "advisory",
             "execution_authorized": False,
         })
-        item["supply"]["solar_kwh"] += pv
-        item["supply"]["grid_import_kwh"] += imported
-        item["supply"]["battery_support_kwh"] += max(0.0, battery_w)
-        item["demand"]["home_kwh"] += home
+        item["supply"]["solar_kwh"] += pv_energy
+        item["supply"]["grid_import_kwh"] += imported_energy
+        item["supply"]["battery_support_kwh"] += battery_support_energy
+        item["demand"]["home_kwh"] += home_energy
         item["demand"]["flexible_scheduled_kwh"] += flex_kwh
-        item["balance"]["expected_grid_export_kwh"] += exported
+        item["balance"]["expected_grid_export_kwh"] += exported_energy
         item["price_value"]["net_financial_result_eur"] += financial
 
     for key in ("D0", "D1"):
@@ -156,7 +162,7 @@ def project_emhass_advisory(
             "availability": "AVAILABLE" if full else "PARTIAL",
             "estimated": True,
             "coverage": "COMPLETE" if full else "PARTIAL_ROLLING_HORIZON",
-            "covered_hours": total,
+            "covered_hours": total * step_hours,
             "warnings": [] if full else ["rolling_native_horizon_not_full_calendar_day"],
         }
         horizon["flexible_planned_kwh"] = round(horizon["demand"]["flexible_scheduled_kwh"], 6)

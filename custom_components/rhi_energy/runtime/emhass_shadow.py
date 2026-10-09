@@ -12,6 +12,11 @@ from .emhass_client import VanillaEmhassClient
 from .emhass_context import build_emhass_context
 from .emhass_result_adapter import accept_shadow_plan
 from .emhass_strategy import assess_emhass_strategy
+from .emhass_source_config import (
+    battery_configuration_from_canonical,
+    canonical_site_limits,
+    canonical_export_compensation,
+)
 
 _NATIVE_KEYS = frozenset({
     "set_use_battery", "number_of_batteries", "battery_nominal_energy_capacity",
@@ -77,6 +82,7 @@ class EmhassShadowRunner:
     def request(self, *, model: dict[str, Any] | None, facts: dict[str, Any],
                 batteries: list[dict[str, Any]], loads: list[dict[str, Any]],
                 metering_profile: dict[str, Any], strategy: dict[str, Any],
+                settings: dict[str, Any],
                 cadence_revision: Any) -> None:
         if self._stopped or (self._task is not None and not self._task.done()):
             return
@@ -89,9 +95,10 @@ class EmhassShadowRunner:
         self._task = self.hass.async_create_task(self._run(
             generation, model, dict(facts), [dict(row) for row in batteries],
             [dict(row) for row in loads], dict(metering_profile), dict(strategy),
+            dict(settings),
         ))
 
-    async def _run(self, generation, model, facts, batteries, loads, metering_profile, strategy):
+    async def _run(self, generation, model, facts, batteries, loads, metering_profile, strategy, settings):
         try:
             requested_hours = self.options.get("emhass_horizon_hours", 24)
             if requested_hours not in (24, 48):
@@ -112,8 +119,14 @@ class EmhassShadowRunner:
                     if isinstance(nested, dict) and "optimization_time_step" in nested:
                         optimization = nested["optimization_time_step"]
                         break
-            if optimization is None or float(optimization) != 60:
-                raise ValueError("emhass_optimization_step_not_verified_60_minutes")
+            if optimization is None:
+                raise ValueError("emhass_optimization_step_not_reported")
+            try:
+                native_step = int(optimization)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("emhass_optimization_step_invalid") from exc
+            if native_step not in (30, 60) or str(float(optimization)) != str(float(native_step)):
+                raise ValueError("emhass_optimization_step_not_supported")
             pv_source = selected_solar_forecast_entry(model)
             pv = await hourly_pv_from_accepted_forecast(self.hass, pv_source)
             start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
@@ -123,18 +136,26 @@ class EmhassShadowRunner:
             strategy_coverage = assess_emhass_strategy(strategy)
             if strategy_coverage.blockers:
                 raise ValueError("native_strategy_constraints_unsupported:" + ",".join(strategy_coverage.blockers))
+            # All native physical inputs are resolved from canonical Energy
+            # assets, facts and strategy, never from legacy optimizer options.
+            site_import_kw, site_export_kw = canonical_site_limits(facts)
+            battery_configuration = battery_configuration_from_canonical(
+                batteries, strategy_reserve_pct=strategy_coverage.effective_reserve_pct,
+            )
+            export_compensation = canonical_export_compensation(facts, settings)
             context = build_emhass_context(
                 start_utc=start, horizon_hours=requested_hours,
+                step_minutes=native_step,
                 local_timezone=self.hass.config.time_zone,
                 pv_watts=pv,
                 import_price_intervals=facts.get("pricing.future_prices"),
                 currency=str(facts.get("pricing.currency") or ""),
-                export_price_eur_kwh=self.options.get("emhass_export_price_eur_kwh"),
+                export_price_eur_kwh=export_compensation,
                 baseload_profile=metering_profile, battery_units=batteries,
-                battery_configuration=self.options.get("emhass_battery_configuration") or {},
+                battery_configuration=battery_configuration,
                 flexible_assets=loads,
-                grid_import_limit_kw=self.options.get("emhass_grid_import_limit_kw"),
-                grid_export_limit_kw=self.options.get("emhass_grid_export_limit_kw"),
+                grid_import_limit_kw=site_import_kw,
+                grid_export_limit_kw=site_export_kw,
                 reserve_target_pct=strategy_coverage.effective_reserve_pct,
                 supported_native_parameters=set(_NATIVE_KEYS),
             )
@@ -151,6 +172,7 @@ class EmhassShadowRunner:
                 "status": "SHADOW_PLAN_ACCEPTED" if version_verified else "SHADOW_VERSION_UNVERIFIED",
                 "readiness": "SHADOW_VALIDATED" if version_verified else "VERSION_UNVERIFIED",
                 "version_verified": version_verified, "emhass_version": runtime_version or None,
+                "optimization_time_step": native_step,
                 "result_status": "ACCEPTED_READ_ONLY", "reason": None,
                 "generated_at": accepted.generated_at,
                 "battery_count": len(accepted.battery_ids),

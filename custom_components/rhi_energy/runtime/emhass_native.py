@@ -21,6 +21,7 @@ def compose_emhass_request(
     *,
     native_parameters: dict[str, Any],
     supported_parameters: set[str],
+    step_minutes: int = 60,
 ) -> dict[str, Any]:
     """Fail closed for unsupported native parameters, never silently drop them.
 
@@ -28,7 +29,7 @@ def compose_emhass_request(
     constraints and optimizer settings must be implemented by the provider
     adapter and tested against the actual EMHASS version.
     """
-    base = emhass_day_ahead_payload(hours)
+    base = emhass_day_ahead_payload(hours, step_minutes=step_minutes)
     unknown = set(native_parameters) - supported_parameters
     if unknown:
         raise NativeCapabilityError(

@@ -35,6 +35,11 @@ class EnergyRuntimeAuxiliary:
                 "power_kw": (props.get("battery.power_kw") or {}).get("value"),
                 "soc_pct": (props.get("battery.soc_pct") or {}).get("value"),
                 "capacity_kwh": (props.get("battery.capacity_kwh") or {}).get("value"),
+                "max_charge_power_kw": (props.get("battery.max_charge_power_kw") or {}).get("value"),
+                "max_discharge_power_kw": (props.get("battery.max_discharge_power_kw") or {}).get("value"),
+                "charge_limit_kw": (props.get("battery.charge_limit_kw") or {}).get("value"),
+                "discharge_limit_kw": (props.get("battery.discharge_limit_kw") or {}).get("value"),
+                "reserve_soc_pct": (props.get("battery.reserve_soc_pct") or {}).get("value"),
                 "available_kwh": (props.get("battery.available_kwh") or {}).get("value"),
                 "status": (props.get("battery.status") or {}).get("value"),
                 "health": asset.get("health"),
@@ -60,7 +65,8 @@ class EnergyRuntimeAuxiliary:
 
         runner = self._emhass_runner
         requested = str(
-            (runner.options.get("planner_provider") if runner else "") or "rhi_deterministic"
+            (runner.options.get("planner_provider") if runner else None)
+            or getattr(self, "_selected_planner_provider", "rhi_deterministic")
         )
         if requested != "emhass":
             return deterministic, {
@@ -140,6 +146,7 @@ class EnergyRuntimeAuxiliary:
             batteries=self._battery_units(logical_assets), loads=flexible,
             metering_profile=(self.store.data.get("metering") or {}).get("baseload_profile") or {},
             strategy=settings.get("strategy") or {},
+            settings=settings,
             cadence_revision=self.planning_cadence.diagnostics().get("last_tactical_refresh_at"),
         )
         self.snapshot["planning_providers"]["emhass"] = {

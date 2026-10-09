@@ -23,6 +23,7 @@ class AcceptedShadowPlan:
     flexible_scheduled_kwh: dict[str, float]
     battery_discharge_kwh: dict[str, float]
     horizon_summary: dict[str, Any] | None = None
+    step_minutes: int = 60
     read_only: bool = True
 
 
@@ -57,8 +58,12 @@ def accept_shadow_plan(
     Hourly input / output resolution must agree exactly. More frequent native
     solver steps require a separately tested interval mapping, never truncation.
     """
-    if resolution_minutes != 60:
-        raise NativeCapabilityError("emhass_timestep_not_hourly")
+    native_step = context.provenance.get("native_step_minutes", resolution_minutes)
+    if native_step not in (30, 60) or resolution_minutes not in (30, 60):
+        raise NativeCapabilityError("emhass_timestep_unsupported")
+    if native_step != resolution_minutes and resolution_minutes != 60:
+        raise NativeCapabilityError("emhass_timestep_context_mismatch")
+    step_hours = native_step / 60
     if last_run.get("action") != "naive-mpc-optim":
         raise NativeCapabilityError("emhass_unexpected_solver_mode")
     raw = validate_native_run(plan, last_run)
@@ -126,7 +131,7 @@ def accept_shadow_plan(
             if -power > (charge_max if battery_count == 1 else charge_max[idx]) + 1e-3:
                 raise NativeCapabilityError("emhass_battery_charge_limit:" + aid)
             total_battery_power += power
-            battery_discharge[aid] += max(0, power) / 1000
+            battery_discharge[aid] += max(0, power) * step_hours / 1000
         total_flexible_power = 0.0
         for idx, aid in enumerate(context.flexible_ids):
             power = _finite(row, f"P_deferrable{idx}", minimum=0)
@@ -168,7 +173,7 @@ def accept_shadow_plan(
             horizon = "D0" if slot_day == first_day else "D1" if (slot_day - first_day).days == 1 else None
             if horizon:
                 bucket = horizon_totals[horizon]
-                bucket["covered_hours"] += 1
+                bucket["covered_hours"] += step_hours
                 bucket["grid_import_kwh"] += import_w / 1000
                 bucket["grid_export_kwh"] += export_w / 1000
                 bucket["net_financial_result_eur"] += step_value
@@ -179,7 +184,7 @@ def accept_shadow_plan(
         constraints = (context.provenance.get("flexible_constraints") or {}).get(aid) or {}
         minimum_minutes = constraints.get("minimum_runtime_minutes")
         if minimum_minutes is not None and active:
-            required_steps = int((float(minimum_minutes) + 59) // 60)
+            required_steps = int((float(minimum_minutes) + native_step - 1) // native_step)
             runs = []
             current_run = 0
             previous = None
@@ -215,4 +220,5 @@ def accept_shadow_plan(
         flexible_scheduled_kwh={k: round(v, 5) for k, v in flex_energy.items()},
         battery_discharge_kwh={k: round(v, 5) for k, v in battery_discharge.items()},
         horizon_summary=horizon_totals or None,
+        step_minutes=native_step,
     )

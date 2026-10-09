@@ -19,8 +19,7 @@
           "pricing": "Pricing & tariffs",
           "strategy": "Strategy & priorities",
           "metering": "Metering view",
-          "planner": "Planning optimizer",
-          "planner_battery": "Optimizer batteries"
+          "planner": "Planning optimizer"
         }
       },
       "pricing": {
@@ -113,28 +112,10 @@
         }
       },
       "planner": {
-        "title": "Energy settings › Planning optimizer",
-        "description": "Choose the planning provider independently from the Energy operating mode. EMHASS planning is read-only for physical devices until separately qualified. Hard unsupported strategies remain blocked.",
+        "title": "Planning optimizer",
+        "description": "Choose how RHI Energy calculates the plan. RHI manages all sources, equipment, parameters, strategy and safety automatically.",
         "data": {
-          "planner_provider": "Planning provider",
-          "emhass_url": "EMHASS service URL",
-          "emhass_horizon_hours": "Optimization horizon (hours)",
-          "emhass_export_price_eur_kwh": "Export compensation (EUR/kWh)",
-          "emhass_grid_import_limit_kw": "Maximum grid import (kW)",
-          "emhass_grid_export_limit_kw": "Maximum grid export (kW)"
-        }
-      },
-      "planner_battery": {
-        "title": "Energy settings › EMHASS battery",
-        "description": "Configure one of the installed stationary batteries. Values are independently validated against measured SOC and existing Energy reserve strategy. Repeat for each installed battery.",
-        "data": {
-          "battery_asset_id": "Installed battery",
-          "soc_min_pct": "Minimum state of charge (%)",
-          "soc_max_pct": "Maximum state of charge (%)",
-          "charge_max_kw": "Maximum charging power (kW)",
-          "discharge_max_kw": "Maximum discharging power (kW)",
-          "charge_efficiency": "Charging efficiency (0–1)",
-          "discharge_efficiency": "Discharging efficiency (0–1)"
+          "planner_provider": "Planning provider"
         }
       }
     },
@@ -142,8 +123,7 @@
       "invalid_configuration": "The setting could not be saved. Check the selected values and try again.",
       "canonical_runtime_unavailable": "Energy runtime is not available. Reload the integration and try again.",
       "emhass_activation_not_yet_supported": "EMHASS cannot be selected as primary until native optimization and safety validation pass.",
-      "invalid_url": "Enter a valid EMHASS HTTP(S) service URL.",
-      "emhass_url_required": "Configure an EMHASS service URL before selecting EMHASS as the planner."
+      "invalid_url": "Enter a valid EMHASS HTTP(S) service URL."
     },
     "abort": {
       "canonical_configuration_unavailable": "Energy configuration is not available yet. Wait until the Energy runtime is ready and open Configure again."

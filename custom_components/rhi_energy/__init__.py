@@ -239,8 +239,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Keep DBS publication registered after a runtime setup failure. It is an
         # independent configuration-time contract and lets Foundation diagnose/configure.
         raise
-    if entry.options.get("emhass_url"):
-        runtime.configure_emhass_shadow(entry.options["emhass_url"], dict(entry.options))
+    runtime._selected_planner_provider = str(entry.options.get("planner_provider") or "rhi_deterministic")
+    if entry.options.get("planner_provider") == "emhass":
+        from .runtime.emhass_discovery import (
+            EmhassDiscoveryError,
+            discover_emhass_addon,
+        )
+        try:
+            # Prefer the installed running add-on; old manually entered URLs
+            # are migration hints only, not part of the public config wizard.
+            url = discover_emhass_addon(hass)
+            runtime.configure_emhass_shadow(url, dict(entry.options))
+        except EmhassDiscoveryError as exc:
+            runtime._emhass_connection.update(
+                status="DISCOVERY_BLOCKED", readiness="UNAVAILABLE",
+                selected=False, mode="advisory",
+                reason=str(exc),
+            )
     entry.async_on_unload(entry.add_update_listener(_reload_on_options_update))
     _LOGGER.info("RHI Energy %s setup complete", RELEASE)
     return True

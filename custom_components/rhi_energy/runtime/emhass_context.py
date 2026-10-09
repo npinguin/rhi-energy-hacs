@@ -119,6 +119,7 @@ def _deferrable_rows(
     assets: list[dict[str, Any]],
     start_utc: datetime,
     count: int,
+    step_minutes: int = 60,
 ) -> list[dict[str, Any]]:
     rows = []
     for asset in assets:
@@ -136,8 +137,8 @@ def _deferrable_rows(
             raise NativeCapabilityError("flexible_power_invalid:" + aid)
         deadline = _timestamp(asset.get("ready_by") or asset.get("deadline"), aid + ":deadline")
         available = (deadline - start_utc).total_seconds() / 3600
-        end_step = min(count, max(0, floor(available)))
-        if available <= 0 or need > end_step * nominal + 1e-8:
+        end_step = min(count, max(0, floor(available * 60 / step_minutes)))
+        if available <= 0 or need > end_step * nominal * step_minutes / 60 + 1e-8:
             raise NativeCapabilityError("flexible_deadline_infeasible:" + aid)
         min_runtime = _finite(asset.get("minimum_runtime_minutes", 0), aid + ":min_runtime", nonnegative=True)
         if min_runtime > 0 and need + 1e-8 < minimum * min_runtime / 60:
@@ -158,6 +159,7 @@ def build_emhass_context(
     start_utc: datetime,
     horizon_hours: int,
     local_timezone: str,
+    step_minutes: int = 60,
     pv_watts: Mapping[str, float],
     import_price_intervals: list[dict[str, Any]],
     currency: str,
@@ -182,6 +184,8 @@ def build_emhass_context(
         raise PlanningInputError("horizon_start_must_be_hour_boundary")
     if not isinstance(horizon_hours, int) or isinstance(horizon_hours, bool) or not 1 <= horizon_hours <= 48:
         raise PlanningInputError("invalid_horizon_hours")
+    if step_minutes not in (30, 60):
+        raise PlanningInputError("unsupported_native_timestep")
     if currency != "EUR":
         raise PlanningInputError("unsupported_tariff_currency")
     zone = ZoneInfo(local_timezone)
@@ -189,19 +193,22 @@ def build_emhass_context(
     prices = _hourly_map(import_price_intervals, key_label="import_prices", value_label="import_eur_kwh")
     export_price = _finite(export_price_eur_kwh, "export_eur_kwh")
     hours: list[CanonicalHour] = []
-    for idx in range(horizon_hours):
-        stamp = start + timedelta(hours=idx)
-        if stamp not in pv or stamp not in prices:
-            missing = "pv_forecast" if stamp not in pv else "import_prices"
-            raise PlanningInputError(missing + "_missing_slot:" + stamp.isoformat())
+    for idx in range(horizon_hours * 60 // step_minutes):
+        stamp = start + timedelta(minutes=idx * step_minutes)
+        # An authoritative hourly power/price estimate is a piecewise constant
+        # estimate over its proven hour, NOT an invented extra forecast hour.
+        source_hour = stamp.replace(minute=0, second=0, microsecond=0)
+        if source_hour not in pv or source_hour not in prices:
+            missing = "pv_forecast" if source_hour not in pv else "import_prices"
+            raise PlanningInputError(missing + "_missing_slot:" + source_hour.isoformat())
         hours.append(CanonicalHour(
-            stamp.isoformat(), pv[stamp] / 1000,
+            stamp.isoformat(), pv[source_hour] / 1000,
             _hourly_baseload(baseload_profile, stamp, zone),
-            prices[stamp], export_price,
+            prices[source_hour], export_price,
         ))
     reserve = _finite(reserve_target_pct, "reserve_target_pct", nonnegative=True) if reserve_target_pct is not None else None
     batteries, soc = _battery_rows(battery_units, battery_configuration, reserve_target_pct=reserve)
-    loads = _deferrable_rows(flexible_assets, start, horizon_hours)
+    loads = _deferrable_rows(flexible_assets, start, len(hours), step_minutes)
     validate_native_context(
         battery_systems=batteries, flexible_loads=loads,
         mapped_battery_ids={x["asset_id"] for x in batteries},
@@ -217,10 +224,11 @@ def build_emhass_context(
         import_limit_kw=_finite(grid_import_limit_kw, "grid_import_limit_kw", nonnegative=True),
         export_limit_kw=_finite(grid_export_limit_kw, "grid_export_limit_kw", nonnegative=True),
     ))
-    native["prediction_horizon"] = horizon_hours
+    native["prediction_horizon"] = len(hours)
     payload = compose_emhass_request(
         hours, native_parameters=native,
         supported_parameters=supported_native_parameters,
+        step_minutes=step_minutes,
     )
     return CanonicalEmhassContext(
         payload=payload,
@@ -229,6 +237,8 @@ def build_emhass_context(
         timeline_utc=tuple(row.timestamp for row in hours),
         provenance={
             "solar_forecast": "accepted_source_service_response",
+            "native_step_minutes": step_minutes,
+            "source_resolution_minutes": 60,
             "local_timezone": local_timezone,
             "home_baseload": "persistent_hourly_metered_profile",
             "import_prices": "canonical_timestamped_future_prices",
