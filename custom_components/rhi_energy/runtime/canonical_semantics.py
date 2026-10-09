@@ -1174,11 +1174,21 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         grid_import = number((lane_totals.get("sources") or {}).get("grid_in_kwh"))
         grid_export = number((lane_totals.get("boundary") or {}).get("grid_out_kwh"))
         battery_support = number((lane_totals.get("sources") or {}).get("battery_out_kwh"))
+        required_kwh = round(demand + requested, 4) if complete and demand is not None else None
+        planned_kwh = round(demand + scheduled, 4) if complete and demand is not None else None
         return ({
             "horizon_id": horizon_id,
             "label": "Today" if horizon_id == "D0" else "Tomorrow",
             "mode": mode,
             "time_scope": "remaining_today" if horizon_id == "D0" else "full_day_tomorrow",
+            # Canonical summary values belong to Planning itself. Public/UX
+            # projections may select these fields but must never recalculate them.
+            "required_kwh": required_kwh,
+            "planned_kwh": planned_kwh,
+            "still_to_plan_kwh": deferred if complete else None,
+            "flexible_required_kwh": requested if complete else None,
+            "flexible_planned_kwh": scheduled if complete else None,
+            "flexible_still_to_plan_kwh": deferred if complete else None,
             "supply": {
                 "solar_kwh": solar_total,
                 "solar_forecast_kwh": solar_total,

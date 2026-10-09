@@ -310,20 +310,13 @@ def _planning_projection(plan: dict[str, Any]) -> dict[str, Any]:
         demand = raw.get("demand") or {}
         quality = raw.get("quality") or {}
         home = demand.get("home_kwh")
-        flexible_required = demand.get("flexible_known_need_kwh")
-        flexible_planned = demand.get("flexible_scheduled_kwh")
-        flexible_still = demand.get("flexible_deferred_kwh")
-        required = (
-            round(float(home) + float(flexible_required), 4)
-            if home is not None and flexible_required is not None
-            else None
-        )
-        planned = (
-            round(float(home) + float(flexible_planned), 4)
-            if home is not None and flexible_planned is not None
-            else None
-        )
-        still = flexible_still if required is not None and planned is not None else None
+        # Planning owns its summary truth. Public V2 is a selector/serializer only.
+        required = raw.get("required_kwh")
+        planned = raw.get("planned_kwh")
+        still = raw.get("still_to_plan_kwh")
+        flexible_required = raw.get("flexible_required_kwh")
+        flexible_planned = raw.get("flexible_planned_kwh")
+        flexible_still = raw.get("flexible_still_to_plan_kwh")
         canonical_available = quality.get("availability") == "AVAILABLE"
         usable = all(value is not None for value in (
             required, planned, still, flexible_required, flexible_planned, flexible_still

@@ -24,6 +24,7 @@ from .canonical_device import canonical_device_info, source_device_ids
 from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
 from .source_topology import source_binding_index
 from .public_v2 import public_v2_sensor_attributes
+from .presentation import property_presentation
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -889,8 +890,12 @@ class EnergyLogicalAssetStatusSensor(_LogicalEnergySensor):
         props = asset.get("properties") or []
         source_devices = self._source_devices(asset)
         return {
+            "canonical_contract": "RHI_ENERGY_CANONICAL_OBJECT_V2",
             "logical_object_class": asset.get("object_class"),
             "asset_id": self._asset_id,
+            "display_name": asset.get("display_name") or self._asset_id,
+            "health": asset.get("health"),
+            "availability": asset.get("availability"),
             "builder_id": asset.get("builder_id"),
             "integration_domain": asset.get("integration_domain"),
             "runtime_truth": asset.get("runtime_truth"),
@@ -979,10 +984,33 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
     def extra_state_attributes(self):
         asset = self._asset() or {}
         prop = self._property() or {}
+        presentation = property_presentation(str(asset.get("object_class") or ""), prop) if prop else {}
         return {
+            # Canonical HA property entities are the direct domain-to-UX surface.
+            # Keep stable semantic/presentation metadata on the same entity instead
+            # of requiring a second aggregate product model.
+            "canonical_contract": "RHI_ENERGY_CANONICAL_PROPERTY_V2",
             "logical_object_class": asset.get("object_class"),
             "asset_id": self._asset_id,
+            "asset_display_name": asset.get("display_name") or self._asset_id,
             "property_key": self._property_key,
+            "display_name": prop.get("display_name") or self._property_key,
+            "value": prop.get("value"),
+            "availability": prop.get("availability"),
+            "quality": prop.get("quality"),
+            "unit": prop.get("unit"),
+            "kind": prop.get("kind"),
+            "editable": prop.get("editable") is True,
+            "editor": prop.get("editor"),
+            "write_supported": prop.get("write_supported") is True or ((prop.get("write") or {}).get("supported") is True),
+            "constraints": dict(prop.get("constraints") or {}),
+            "write": dict(prop.get("write") or {}),
+            "operation": dict(prop.get("operation") or {}),
+            "presentation_family": presentation.get("family"),
+            "presentation_role": presentation.get("role"),
+            "presentation_surface": presentation.get("surface"),
+            "presentation_primary": presentation.get("primary"),
+            "presentation_technical": presentation.get("technical"),
             "input_id": prop.get("input_id"),
             "property_status": prop.get("status"),
             "normalization_status": asset.get("normalization_status"),
