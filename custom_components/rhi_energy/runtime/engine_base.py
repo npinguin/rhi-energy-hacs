@@ -4,6 +4,8 @@ read accepted HA sources, normalize values, derive bounded Energy aggregates, an
 one canonical snapshot. Integration quirks are isolated in ``adapters/``.
 """
 from __future__ import annotations
+
+import asyncio
 from copy import deepcopy
 from datetime import UTC, datetime
 import logging
@@ -35,13 +37,13 @@ from .incremental import build_entity_targets, update_optimizer_entity
 from .grid_power import apply_grid_power_facts
 from .producers import mobility_entity_ids, read_mobility_energy_assets
 from .presence import experience_presence, physical_input
-from .layer_readiness import evaluate_runtime_layers
 from .aggregation import aggregate_objects
 from .semantic_authority import CanonicalFactStore
 from .pilot_readiness import operational_readiness
 from .coverage import canonical_coverage
 from .retrospective import retrospective_evidence
 from .planning_cadence import TacticalPlanningCadence
+from .engine_auxiliary import EnergyRuntimeAuxiliary
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
 def _unit_to_kw(value: Any, unit: str | None) -> float | None:
@@ -91,11 +93,18 @@ def _present(value: Any) -> bool:
 def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows = asset.get("properties") or []
     return {str(row.get("property_key")): row for row in rows if isinstance(row, dict) and row.get("property_key")}
-class EnergyRuntime:
+class EnergyRuntime(EnergyRuntimeAuxiliary):
     def __init__(self, hass: HomeAssistant, store) -> None:
         self.hass = hass
         self._local_timezone = ZoneInfo(self.hass.config.time_zone)
         self.store = store
+        self._emhass_probe_task = None
+        self._emhass_runner = None
+        self._emhass_stopping = False
+        self._emhass_connection = {
+            "status": "NOT_CONFIGURED", "readiness": "UNAVAILABLE",
+            "selected": False, "mode": "disabled", "result_status": "UNAVAILABLE",
+        }
         self.model: dict[str, Any] | None = None
         self.snapshot: dict[str, Any] = self._empty_snapshot()
         self._unsubscribe = None
@@ -581,42 +590,6 @@ class EnergyRuntime:
         if facts.get("price_source.source_id"):
             facts["pricing.source_id"] = facts.get("price_source.source_id")
             facts["pricing.source_integration"] = facts.get("price_source.source_integration")
-    def _evaluate_runtime_layers(
-        self,
-        facts: dict[str, Any],
-        flexible: list[dict[str, Any]],
-        logical_assets: list[dict[str, Any]],
-        producer_available: bool,
-        plan: dict[str, Any],
-        intel: dict[str, Any],
-        settings: dict[str, Any],
-    ):
-        """Keep the runtime-layer boundary stable while delegating pure evaluation."""
-        # Safety invariant is enforced by the evaluator:
-        # row.get("planning_input_ready") is True for participating flexible demand.
-        return evaluate_runtime_layers(
-            self.model, self.store.data.get("metering") or {}, facts, flexible,
-            logical_assets, producer_available, plan, intel, settings,
-        )
-    @staticmethod
-    def _battery_units(logical_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        for asset in logical_assets:
-            if asset.get("object_class") != "battery":
-                continue
-            props = _properties(asset)
-            rows.append({
-                "asset_id": asset.get("asset_id"),
-                "display_name": asset.get("display_name"),
-                "integration_domain": asset.get("integration_domain"),
-                "power_kw": (props.get("battery.power_kw") or {}).get("value"),
-                "soc_pct": (props.get("battery.soc_pct") or {}).get("value"),
-                "capacity_kwh": (props.get("battery.capacity_kwh") or {}).get("value"),
-                "available_kwh": (props.get("battery.available_kwh") or {}).get("value"),
-                "status": (props.get("battery.status") or {}).get("value"),
-                "health": asset.get("health"),
-            })
-        return rows
     def _recompute(self, *, full_hydration: bool = False) -> None:
         if self.model is None:
             self.snapshot = self._empty_snapshot()
@@ -813,6 +786,17 @@ class EnergyRuntime:
                 6,
             )
         plan = self.planning_cadence.resolve(facts, settings, flexible)
+        planning_providers = {
+            "rhi_deterministic": {
+                "status": "PLAN_AVAILABLE" if plan else "UNKNOWN",
+                "readiness": "UNVALIDATED",
+                "selected": True,
+                "mode": "primary",
+                "last_run_at": self.planning_cadence.diagnostics().get("last_tactical_refresh_at"),
+                "result_status": "AVAILABLE" if plan else "UNKNOWN",
+            },
+            "emhass": dict(self._emhass_runner.status if self._emhass_runner is not None else self._emhass_connection),
+        }
         intel = intelligence(plan, facts, settings, flexible)
         overview = overview_snapshot(facts)
         logical_refresh_ids: set[str] | None = None
@@ -892,6 +876,7 @@ class EnergyRuntime:
             "mobility_publication_available": producer_availability.get("mobility", False),
             "plan": plan,
             "planning_runtime": self.planning_cadence.diagnostics(),
+            "planning_providers": planning_providers,
             "intelligence": intel,
             "overview": overview,
             "domain_model_revision": self.model.get("domain_model_revision"),
@@ -917,6 +902,7 @@ class EnergyRuntime:
                 self.model, domain_assets, flexible, connections
             ),
         }
+        self._schedule_emhass_shadow(facts, logical_assets, flexible, settings)
         # Runtime telemetry updates values on already materialized entities only.
         # Topology/entity projection is activated exclusively by activate_model().
         changed_asset_ids = changed_logical_asset_ids(
@@ -938,6 +924,17 @@ class EnergyRuntime:
             public_changed=public_changed,
         )
     async def async_stop(self) -> None:
+        self._emhass_stopping = True
+        if self._emhass_runner is not None:
+            await self._emhass_runner.async_stop()
+            self._emhass_runner = None
+        if self._emhass_probe_task is not None:
+            self._emhass_probe_task.cancel()
+            try:
+                await self._emhass_probe_task
+            except asyncio.CancelledError:
+                pass
+            self._emhass_probe_task = None
         self.event_flow.stop()
         if callable(self._unsubscribe):
             self._unsubscribe()

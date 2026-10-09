@@ -148,6 +148,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     setup_performance["store_load_ms"] = round((perf_counter() - stage_started) * 1000, 3)
     manager = EnergyBuildManager(hass)
     runtime = EnergyRuntime(hass, store)
+    # A configured vanilla EMHASS service is probed in shadow/read-only mode.
+    # The deterministic planner remains authoritative until full native
+    # context mapping and optimization result acceptance are complete.
+    # Start the read-only probe after runtime setup has succeeded; keep its
+    # task owned by the runtime so unload cannot leave a stale callback.
     metering = EnergyMetering(hass, store, runtime)
     interaction = EnergyInteractionEngine(hass, store, runtime, metering, manager)
     supervision = EnergyDomainSupervision(hass, entry.entry_id)
@@ -234,8 +239,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Keep DBS publication registered after a runtime setup failure. It is an
         # independent configuration-time contract and lets Foundation diagnose/configure.
         raise
+    if entry.options.get("emhass_url"):
+        runtime.configure_emhass_shadow(entry.options["emhass_url"], dict(entry.options))
+    entry.async_on_unload(entry.add_update_listener(_reload_on_options_update))
     _LOGGER.info("RHI Energy %s setup complete", RELEASE)
     return True
+
+
+async def _reload_on_options_update(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Apply planner option changes via the normal Home Assistant lifecycle."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

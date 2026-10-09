@@ -16,6 +16,7 @@ from homeassistant.helpers.selector import (
 
 from .const import DOMAIN
 from .v2_configuration import canonical_configuration_rows
+from .runtime.emhass_client import validate_emhass_url
 
 
 class RhiEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -218,7 +219,7 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         return self.async_show_menu(
             step_id="init",
-            menu_options=["pricing", "strategy", "metering"],
+            menu_options=["pricing", "strategy", "metering", "planner", "planner_battery"],
         )
 
     async def async_step_pricing(self, user_input=None):
@@ -282,3 +283,102 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             fields=self._STRATEGY_FIELDS["resilience"],
             user_input=user_input,
         )
+
+
+    async def async_step_planner(self, user_input=None):
+        """Configure native EMHASS in safe shadow mode; no second control owner."""
+        current = dict(self.config_entry.options)
+        schema = vol.Schema({
+            vol.Optional("planner_provider", default=current.get("planner_provider", "rhi_deterministic")):
+                vol.In(["rhi_deterministic", "emhass"]),
+            vol.Optional("emhass_url", default=current.get("emhass_url", "")): str,
+            vol.Optional("emhass_horizon_hours", default=current.get("emhass_horizon_hours", 24)):
+                vol.In([24, 48]),
+            vol.Optional("emhass_export_price_eur_kwh", **(
+                {"default": current["emhass_export_price_eur_kwh"]}
+                if current.get("emhass_export_price_eur_kwh") is not None else {}
+            )): vol.Coerce(float),
+            vol.Optional("emhass_grid_import_limit_kw", **(
+                {"default": current["emhass_grid_import_limit_kw"]}
+                if current.get("emhass_grid_import_limit_kw") is not None else {}
+            )): vol.All(vol.Coerce(float), vol.Range(min=0)),
+            vol.Optional("emhass_grid_export_limit_kw", **(
+                {"default": current["emhass_grid_export_limit_kw"]}
+                if current.get("emhass_grid_export_limit_kw") is not None else {}
+            )): vol.All(vol.Coerce(float), vol.Range(min=0)),
+        })
+        if user_input is None:
+            return self.async_show_form(step_id="planner", data_schema=schema)
+        requested = str(user_input.get("planner_provider") or "rhi_deterministic")
+        url = str(user_input.get("emhass_url") or "").strip().rstrip("/")
+        if requested == "emhass":
+            return self.async_show_form(
+                step_id="planner", data_schema=schema,
+                errors={"base": "emhass_activation_not_yet_supported"},
+            )
+        if url:
+            try:
+                validate_emhass_url(url)
+            except ValueError:
+                return self.async_show_form(
+                    step_id="planner", data_schema=schema,
+                    errors={"emhass_url": "invalid_url"},
+                )
+        current.update({
+            "planner_provider": "rhi_deterministic",
+            "emhass_url": url,
+            "emhass_shadow_only": True,
+            "emhass_horizon_hours": user_input.get("emhass_horizon_hours", 24),
+        })
+        for key in ("emhass_export_price_eur_kwh",
+                    "emhass_grid_import_limit_kw", "emhass_grid_export_limit_kw"):
+            if key in user_input:
+                current[key] = user_input[key]
+        return self.async_create_entry(title="", data=current)
+
+    async def async_step_planner_battery(self, user_input=None):
+        """Configure 0..N distinct canonical stationary batteries by stable asset id."""
+        state = self._state()
+        runtime = state.get("runtime")
+        units = (runtime.snapshot.get("battery_units") or []) if runtime else []
+        assets = {
+            str(row["asset_id"]): str(row.get("display_name") or row["asset_id"])
+            for row in units if row.get("asset_id")
+        }
+        if not assets:
+            return self.async_abort(reason="canonical_configuration_unavailable")
+        current = dict(self.config_entry.options)
+        configurations = dict(current.get("emhass_battery_configuration") or {})
+        selected = (user_input or {}).get("battery_asset_id")
+        if selected not in assets:
+            selected = next(iter(assets))
+        saved = dict(configurations.get(selected) or {})
+        schema = {
+            vol.Required("battery_asset_id", default=selected): vol.In(assets),
+        }
+        for key, lower, upper in (
+            ("soc_min_pct", 0, 100), ("soc_max_pct", 0, 100),
+            ("charge_max_kw", 0, 50), ("discharge_max_kw", 0, 50),
+            ("charge_efficiency", 0.01, 1), ("discharge_efficiency", 0.01, 1),
+        ):
+            opts = {"default": saved[key]} if key in saved else {}
+            schema[vol.Required(key, **opts)] = vol.All(vol.Coerce(float), vol.Range(min=lower, max=upper))
+        form = vol.Schema(schema)
+        if user_input is None:
+            return self.async_show_form(step_id="planner_battery", data_schema=form)
+        lower = float(user_input["soc_min_pct"])
+        upper = float(user_input["soc_max_pct"])
+        if lower >= upper or not selected:
+            return self.async_show_form(
+                step_id="planner_battery", data_schema=form,
+                errors={"base": "invalid_configuration"},
+            )
+        configurations[selected] = {
+            key: float(user_input[key])
+            for key in (
+                "soc_min_pct", "soc_max_pct", "charge_max_kw", "discharge_max_kw",
+                "charge_efficiency", "discharge_efficiency",
+            )
+        }
+        current["emhass_battery_configuration"] = configurations
+        return self.async_create_entry(title="", data=current)

@@ -12,6 +12,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
+from .planner_entities import EnergyPlannerStatusSensor
 from .const import (
     DOMAIN,
     RELEASE,
@@ -33,6 +34,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     manager = state["build_manager"]
     runtime = state["runtime"]
     entities: list[SensorEntity] = [
+        EnergyPlannerStatusSensor(entry, runtime, "rhi_deterministic"),
+        EnergyPlannerStatusSensor(entry, runtime, "emhass"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "home_consumption_power_kw"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_required_kwh"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_planned_kwh"),
