@@ -245,16 +245,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             EmhassDiscoveryError,
             discover_emhass_addon,
         )
+        # Resolve one proven endpoint. Supervisor discovery is preferred, but
+        # existing migrated connection evidence remains eligible for recovery.
+        # Neither endpoint represents an alternative energy data authority.
+        from .runtime.emhass_client import VanillaEmhassClient, validate_emhass_url
+        candidates: list[tuple[str, str]] = []
+        discovery_reason = None
         try:
-            # Prefer the installed running add-on; old manually entered URLs
-            # are migration hints only, not part of the public config wizard.
-            url = discover_emhass_addon(hass)
-            runtime.configure_emhass_shadow(url, dict(entry.options))
+            candidates.append(("supervisor", discover_emhass_addon(hass)))
         except EmhassDiscoveryError as exc:
+            discovery_reason = str(exc)
+        saved = entry.options.get("emhass_url")
+        if isinstance(saved, str) and saved.strip():
+            try:
+                candidate = validate_emhass_url(saved)
+                if candidate not in {url for _, url in candidates}:
+                    candidates.append(("existing_endpoint", candidate))
+            except ValueError:
+                discovery_reason = "stored_emhass_endpoint_invalid"
+        connection_errors = []
+        selected = None
+        for origin, endpoint in candidates:
+            try:
+                probe = await VanillaEmhassClient(hass, endpoint).probe()
+                if not isinstance(probe, dict):
+                    raise ValueError("emhass_config_probe_invalid")
+                selected = (origin, endpoint)
+                break
+            except Exception as exc:
+                connection_errors.append(f"{origin}:{type(exc).__name__}")
+        if selected is not None:
+            origin, endpoint = selected
+            runtime.configure_emhass_shadow(endpoint, dict(entry.options))
+            runtime._emhass_connection["endpoint_origin"] = origin
+        else:
             runtime._emhass_connection.update(
                 status="DISCOVERY_BLOCKED", readiness="UNAVAILABLE",
                 selected=False, mode="advisory",
-                reason=str(exc),
+                reason=(
+                    "emhass_probe_failed:" + ",".join(connection_errors)
+                    if connection_errors else discovery_reason or "emhass_endpoint_unavailable"
+                ),
             )
     entry.async_on_unload(entry.add_update_listener(_reload_on_options_update))
     _LOGGER.info("RHI Energy %s setup complete", RELEASE)

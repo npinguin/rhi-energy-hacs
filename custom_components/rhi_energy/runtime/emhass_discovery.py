@@ -21,15 +21,8 @@ def candidate_from_supervisor(addons: dict[str, Any]) -> str:
             continue
         if str(info.get("state") or "").lower() != "started":
             continue
-        ports = info.get("ports") or {}
-        if not isinstance(ports, dict):
-            continue
-        container_ports = {
-            str(key).split("/")[0] for key in ports
-            if str(key).split("/")[0].isdigit()
-        }
-        if "5000" not in container_ports:
-            continue
+        # Supervisor port mappings describe host exposure, not whether the
+        # add-on is listening on its internal network. Never require them.
         host = slug.replace("_", "-")
         if not host.replace("-", "").isalnum():
             raise EmhassDiscoveryError("unsafe_addon_slug")

@@ -16,7 +16,7 @@ from homeassistant.helpers.selector import (
 
 from .const import DOMAIN
 from .v2_configuration import canonical_configuration_rows
-from .runtime.emhass_client import validate_emhass_url
+from .runtime.capability_service import EnergyCapabilityService
 
 
 class RhiEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -44,54 +44,6 @@ class RhiEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
     """Guided product configuration over Energy-owned canonical properties."""
-
-    _PRICING_FIELDS = {
-        "market_price_fallback": "pricing.spot_eur_kwh",
-        "network_cost": "pricing.import_network_eur_kwh",
-        "levies": "pricing.import_levies_eur_kwh",
-        "vat": "pricing.import_vat_pct",
-        "export_fee": "pricing.export_fee_eur_kwh",
-    }
-    _METERING_FIELDS = {
-        "display_period": "metering.selected_period",
-    }
-    _STRATEGY_FIELDS = {
-        "home": {
-            "operating_mode": "energy.operating_mode",
-            "primary_objective": "home.primary_objective",
-        },
-        "battery": {
-            "objective": "battery.objective",
-            "grid_policy": "battery.grid_policy",
-            "solar_policy": "battery.solar_policy",
-            "battery_policy": "battery.battery_policy",
-            "surplus_policy": "battery.surplus_policy",
-            "reserve_target": "battery.reserve_target_pct",
-        },
-        "solar": {
-            "objective": "solar.surplus_objective",
-            "grid_policy": "solar.grid_policy",
-            "solar_policy": "solar.solar_policy",
-            "battery_policy": "solar.battery_policy",
-            "surplus_policy": "solar.surplus_policy",
-        },
-        "grid": {
-            "home_battery_policy": "grid.home_battery_policy",
-            "flexible_load_policy": "grid.flexible_load_policy",
-        },
-        "ev_charging": {
-            "objective": "flexible_loads.objective",
-            "grid_policy": "flexible_loads.grid_policy",
-            "solar_policy": "flexible_loads.solar_policy",
-            "battery_policy": "flexible_loads.battery_policy",
-            "surplus_policy": "flexible_loads.surplus_policy",
-        },
-        "resilience": {
-            "objective": "resilience.objective",
-            "grid_policy": "resilience.grid_policy",
-            "battery_policy": "resilience.battery_policy",
-        },
-    }
 
     def _state(self) -> dict[str, Any]:
         return (
@@ -152,7 +104,7 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
         schema: dict[Any, Any] = {}
         for field_name, property_id in fields.items():
             row = rows.get(property_id)
-            if not row:
+            if not EnergyCapabilityService.editable_definition(row):
                 continue
             value = row.get("value")
             key = (
@@ -176,7 +128,7 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             if field_name not in user_input:
                 continue
             row = rows.get(property_id)
-            if not row:
+            if not EnergyCapabilityService.editable_definition(row):
                 continue
             value = user_input[field_name]
             if value == row.get("value"):
@@ -225,7 +177,7 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_pricing(self, user_input=None):
         return await self._edit(
             step_id="pricing",
-            fields=self._PRICING_FIELDS,
+            fields=EnergyCapabilityService.configuration_fields("pricing"),
             user_input=user_input,
         )
 
@@ -238,49 +190,49 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_metering(self, user_input=None):
         return await self._edit(
             step_id="metering",
-            fields=self._METERING_FIELDS,
+            fields=EnergyCapabilityService.configuration_fields("metering"),
             user_input=user_input,
         )
 
     async def async_step_home(self, user_input=None):
         return await self._edit(
             step_id="home",
-            fields=self._STRATEGY_FIELDS["home"],
+            fields=EnergyCapabilityService.configuration_fields("home"),
             user_input=user_input,
         )
 
     async def async_step_battery(self, user_input=None):
         return await self._edit(
             step_id="battery",
-            fields=self._STRATEGY_FIELDS["battery"],
+            fields=EnergyCapabilityService.configuration_fields("battery"),
             user_input=user_input,
         )
 
     async def async_step_solar(self, user_input=None):
         return await self._edit(
             step_id="solar",
-            fields=self._STRATEGY_FIELDS["solar"],
+            fields=EnergyCapabilityService.configuration_fields("solar"),
             user_input=user_input,
         )
 
     async def async_step_grid(self, user_input=None):
         return await self._edit(
             step_id="grid",
-            fields=self._STRATEGY_FIELDS["grid"],
+            fields=EnergyCapabilityService.configuration_fields("grid"),
             user_input=user_input,
         )
 
     async def async_step_ev_charging(self, user_input=None):
         return await self._edit(
             step_id="ev_charging",
-            fields=self._STRATEGY_FIELDS["ev_charging"],
+            fields=EnergyCapabilityService.configuration_fields("ev_charging"),
             user_input=user_input,
         )
 
     async def async_step_resilience(self, user_input=None):
         return await self._edit(
             step_id="resilience",
-            fields=self._STRATEGY_FIELDS["resilience"],
+            fields=EnergyCapabilityService.configuration_fields("resilience"),
             user_input=user_input,
         )
 
