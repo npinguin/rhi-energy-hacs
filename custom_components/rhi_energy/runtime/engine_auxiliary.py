@@ -116,10 +116,11 @@ class EnergyRuntimeAuxiliary:
                     reject_reason = f"native_projection_rejected:{type(exc).__name__}"
             else:
                 reject_reason = "native_version_or_generation_not_validated"
-        # An explicit provider selection is never silently substituted,
-        # including advisory mode. Independent baseline remains separately
-        # visible without acquiring execution authority.
-        fallback = FallbackPolicy.HOLD
+        # Preserve the requested optimizer preference while publishing a
+        # validated built-in plan when the external optimizer is unavailable.
+        # Never convert an incomplete deterministic baseline into an effective
+        # plan, and never grant execution authority from provider selection.
+        fallback = FallbackPolicy.RHI
         decision = select_plan(
             "emhass",
             {"rhi_deterministic": deterministic, **({"emhass": native} if native is not None else {})},
@@ -143,7 +144,11 @@ class EnergyRuntimeAuxiliary:
         return effective, {
             "requested_provider": "emhass",
             "effective_provider": decision.effective_provider,
-            "reason": decision.reason if native_valid else reject_reason,
+            "reason": (
+                f"fallback_to_rhi:{reject_reason}"
+                if decision.reason == "fallback_to_rhi"
+                else decision.reason if native_valid else reject_reason
+            ),
         }
 
     def _publish_emhass_shadow_status(self) -> None:

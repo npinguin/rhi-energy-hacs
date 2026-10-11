@@ -27,8 +27,11 @@ def canonical_device_info(asset: dict[str, Any]) -> dict[str, Any]:
         "model": f"Energy canonical object · {OBJECT_CLASS_LABELS.get(object_class, object_class.replace('_', ' ').title())}",
         "sw_version": RELEASE,
     }
+    # Canonical composition is not evidence of physical HA connectivity.
+    # Keep the domain hierarchy in the canonical contract; only publish
+    # a via_device edge for an explicitly verified physical gateway.
     parent_asset_id = canonical_parent_asset_id(asset)
-    if parent_asset_id:
+    if parent_asset_id and asset.get("topology_kind") == "physical_gateway_verified":
         info["via_device"] = canonical_device_identifier(parent_asset_id)
     return info
 
