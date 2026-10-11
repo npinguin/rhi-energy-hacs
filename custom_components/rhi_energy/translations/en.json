@@ -113,8 +113,9 @@
       },
       "planner": {
         "title": "Configure planning providers",
-        "description": "Configure technical planner connections here. Select the requested operational planner on the Energy Planning device in Home Assistant; only validated results can execute.",
+        "description": "Choose the active planner here, or configure an external provider connection. The built-in RHI Deterministic planner needs no connection; an external connection does not imply execution approval.",
         "menu_options": {
+          "planner_selection": "Active planner (RHI Deterministic / configured provider)",
           "emhass": "EMHASS connection (read-only until qualified)",
           "haeo": "HAEO integration binding (adapter not qualified)",
           "akkudoktor_eos": "Akkudoktor EOS endpoint (adapter not qualified)"
@@ -143,10 +144,17 @@
           "protocol": "EOS API contract",
           "timeout_seconds": "Request timeout (seconds)"
         }
+      },
+      "planner_selection": {
+        "title": "Energy Planning › Active planner",
+        "description": "RHI Deterministic is always available to select and needs no connection. Other providers only appear after configuration or when already selected. An unqualified or unavailable selected provider keeps execution on HOLD; the independent deterministic baseline remains visible.",
+        "data": {
+          "planner_provider": "Requested operational planner"
+        }
       }
     },
     "error": {
-      "invalid_configuration": "The setting could not be saved. Check the selected values and try again.",
+      "invalid_configuration": "Invalid or unsupported selection. Choose a known planner; configuring an endpoint alone does not authorize execution.",
       "canonical_runtime_unavailable": "Energy runtime is not available. Reload the integration and try again.",
       "emhass_activation_not_yet_supported": "EMHASS cannot be selected as primary until native optimization and safety validation pass.",
       "invalid_url": "Enter a valid EMHASS HTTP(S) service URL."

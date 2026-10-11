@@ -887,7 +887,9 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             asset for asset in flexible_assets
             if not (settings.get("holds") or {}).get(asset.get("asset_id"))
             and str(asset.get("participation_state") or "participating").strip().lower() == "participating"
-            and asset.get("planning_input_ready", True) is not False
+            # Unknown readiness is not a schedulable zero-energy request.
+            # Only a producer-qualified asset may enter the allocation ledger.
+            and asset.get("planning_input_ready") is True
             and asset.get("infrastructure_only", False) is not True
         ],
         key=_deadline_sort_key,
@@ -952,8 +954,17 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         home_curve = _baseload_bucket_curve(bucket_meta, baseload_profile, fallback_kw)
         demand = round(sum(v for v in home_curve if v is not None), 4) if home_curve and all(v is not None for v in home_curve) else None
         requested = round(sum(asset_remaining.values()), 4)
-        complete = solar_total is not None and demand is not None
-        warnings: list[str] = [] if complete else ["incomplete_forecast_or_demand_evidence"]
+        # A horizon must not advertise complete required/planned/still-to-plan
+        # totals while a participating flexible consumer's demand is unknown.
+        complete = (
+            solar_total is not None and demand is not None
+            and not incomplete_assets
+        )
+        warnings: list[str] = []
+        if solar_total is None or demand is None:
+            warnings.append("incomplete_forecast_or_demand_evidence")
+        if incomplete_assets:
+            warnings.append("incomplete_flexible_asset_planning_evidence")
         if bootstrap_kw is not None and number(planning_cfg.get("explicit_baseload_fallback_kw")) is None:
             warnings.append("baseload_bootstrap_from_metered_home_average")
         learned_fallback = _learned_baseload_fallback_kw(baseload_profile)

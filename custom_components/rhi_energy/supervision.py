@@ -116,6 +116,24 @@ class EnergyDomainSupervision:
         contract_status = "OK" if foundation_status == "OK" else "BLOCKED"
         build_status = _status(getattr(manager, "build_health", None))
         runtime_status = _status(runtime_snapshot.get("health"))
+        # Runtime telemetry can be healthy while a product-critical planning
+        # layer is incomplete. Supervision must report both truths consistently.
+        # Inspect already-materialized domain evidence only, never recompute.
+        layer_health = runtime_snapshot.get("layer_health") or {}
+        planning_layer_status = (
+            _status(layer_health.get("planning"))
+            if "planning" in layer_health else "OK"
+        )
+        selection = runtime_snapshot.get("planning_selection") or {}
+        requested_planner = selection.get("requested_provider")
+        effective_planner = selection.get("effective_provider")
+        planner_on_hold = bool(
+            requested_planner and requested_planner != effective_planner
+        )
+        if _PRIORITY[planning_layer_status] > _PRIORITY[runtime_status]:
+            runtime_status = planning_layer_status
+        if planner_on_hold and _PRIORITY["DEGRADED"] > _PRIORITY[runtime_status]:
+            runtime_status = "DEGRADED"
         mobility_available = bool(runtime_snapshot.get("mobility_publication_available"))
         mobility_expected = _mobility_runtime_expected(self.hass)
         canonical_coverage = runtime_snapshot.get("canonical_coverage") or {}
@@ -191,6 +209,21 @@ class EnergyDomainSupervision:
                 blocking=runtime_status in {"BLOCKED", "STALE"},
                 severity="ERROR" if runtime_status in {"BLOCKED", "STALE"} else "WARNING",
                 scope=["EnergyRuntime"],
+            ))
+        if planning_layer_status != "OK":
+            issues.append(_issue(
+                "energy:planning:layer_readiness", "RUNTIME",
+                f"ENERGY_PLANNING_{planning_layer_status}",
+                blocking=planning_layer_status in {"BLOCKED", "STALE"},
+                severity="ERROR" if planning_layer_status in {"BLOCKED", "STALE"} else "WARNING",
+                scope=["planning"],
+            ))
+        if planner_on_hold:
+            issues.append(_issue(
+                "energy:planning:provider_hold", "RUNTIME",
+                "ENERGY_PLANNING_PROVIDER_HOLD",
+                blocking=False, severity="WARNING",
+                scope=["planning_provider", str(requested_planner)],
             ))
         if canonical_coverage_status != "OK":
             scope = (

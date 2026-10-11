@@ -27,8 +27,7 @@ The version shown by HACS must match
 Energy owns Energy semantics, accepted Energy bindings, normalization, metering,
 planning, policy and intelligence. Foundation remains configuration-time active and
 runtime-passive. Energy consumes producer-domain truth and does not directly execute
-charger/OCPP services. The frozen R1 compatibility facade is projected from canonical V2
-truth; the UI is not used to compensate for backend parity gaps.
+charger/OCPP services. The aggregate Energy Public V2 runtime/facade is retired. Canonical native Home Assistant devices, entities and services carry user-facing facts, settings, supported commands, quality and readback; the UI must not infer missing domain meaning or use a legacy fallback.
 
 ## License
 
@@ -38,3 +37,9 @@ the public distribution repository.
 
 The separate private `npinguin/rhi-energy` engineering repository remains private and is
 not published by the HACS projection.
+
+## Current candidate versus runtime approval
+
+Current version is taken from the integration `manifest.json`, not an independent README assertion. The manifest-defined Energy candidate is an immutable **HACS test prerelease** built from validated private source. Foundation F1.8.44 and Mobility M0.10.44 are its coordinated test target. Clean install, config-entry upgrade/reload, physical command readback, price/strategy edit/write/confirmation, financial planning reconciliation and rollback still require target Home Assistant qualification. Until that evidence exists, a prerelease is not pilot/stable approval.
+
+For architecture, layer ownership and unresolved engineering gaps see the [private engineering README](https://github.com/npinguin/rhi-energy) and the [Foundation RHI system map](https://github.com/npinguin/rhi-foundation/blob/main/docs/architecture/RHI_BACKEND_SYSTEM_MAP.md) (access requires engineering repository authorization).

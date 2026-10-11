@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from typing import Any
-from .runtime.planner_providers import validate_planner_url
+from .runtime.planner_providers import (
+    available_selection_ids, provider_catalog, validate_planner_url,
+    validate_provider_id,
+)
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -239,11 +242,51 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
 
 
     async def async_step_planner(self, user_input=None):
-        """Configure available solver connections; active selection is a HA entity."""
+        """Select the operational planner or edit its independent connection."""
         return self.async_show_menu(
             step_id="planner",
-            menu_options=["emhass", "haeo", "akkudoktor_eos"],
+            menu_options=["planner_selection", "emhass", "haeo", "akkudoktor_eos"],
         )
+
+    async def async_step_planner_selection(self, user_input=None):
+        """Edit the same config-entry option as the native HA planner selector."""
+        options = dict(self.config_entry.options)
+        current = str(options.get("planner_provider") or "rhi_deterministic")
+        choices = available_selection_ids(options)
+        # An unknown previously persisted choice must not be silently replaced.
+        if current not in choices:
+            choices = (*choices, current)
+        catalog = provider_catalog()
+        schema = vol.Schema({
+            vol.Required("planner_provider", default=current):
+                SelectSelector(SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(
+                            value=provider_id,
+                            label=(catalog[provider_id].label
+                                   if provider_id in catalog else
+                                   f"Unknown provider ({provider_id})"),
+                        )
+                        for provider_id in choices
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                )),
+        })
+        if user_input is None:
+            return self.async_show_form(
+                step_id="planner_selection", data_schema=schema,
+            )
+        selected = str(user_input.get("planner_provider") or "")
+        if selected not in choices or selected not in catalog:
+            return self.async_show_form(
+                step_id="planner_selection", data_schema=schema,
+                errors={"planner_provider": "invalid_configuration"},
+            )
+        validate_provider_id(selected)
+        if selected == current:
+            return self.async_create_entry(title="", data=options)
+        options["planner_provider"] = selected
+        return self.async_create_entry(title="", data=options)
 
     def _connection_settings(self, provider_id: str) -> dict[str, Any]:
         options = dict(self.config_entry.options)
