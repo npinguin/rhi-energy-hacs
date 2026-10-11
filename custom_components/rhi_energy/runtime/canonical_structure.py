@@ -11,27 +11,27 @@ from typing import Any
 
 HA_MATERIALIZATION_POLICY: dict[str, dict[str, Any]] = {
     # HA projection is intentionally separate from canonical semantic composition.
-    # topology_kind describes the primitive actually used by this release.
+    # topology_kind describes the HA projection, never a second semantic parent graph.
     "energy_site": {"ha_materialization": True, "topology_kind": "root", "materialization_reason": "domain_navigation_root"},
-    "flexible_loads": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_logical_group"},
-    "grid_connection": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_site_boundary"},
-    "grid_phase": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_phase_surface"},
-    "generation_meter_phase": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_generation_meter_phase_surface"},
-    "solar_production": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_generation_subsystem"},
-    "solar_inverter": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_generation_device_projection"},
-    "solar_source": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "generic_energy_source_projection"},
-    "solar_inverter_phase": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_phase_surface"},
-    "battery_system": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_storage_subsystem"},
-    "battery": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_storage_unit_projection"},
-    "solar_optimizer_site": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_optimizer_subsystem"},
-    "solar_zone": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "diagnostic_topology_surface"},
-    "solar_optimizer": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_optimizer_projection"},
-    "solar_panel": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "physical_panel_projection"},
-    "home_consumption": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_derived_energy_surface"},
-    "flexible_load": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_cross_domain_energy_asset"},
-    "gas_meter": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_metering_surface"},
-    "solar_forecast": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_forecast_surface"},
-    "price_source": {"ha_materialization": True, "topology_kind": "via_device", "materialization_reason": "user_recognizable_price_surface"},
+    "flexible_loads": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_logical_group"},
+    "grid_connection": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_site_boundary"},
+    "grid_phase": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "diagnostic_phase_surface"},
+    "generation_meter_phase": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "diagnostic_generation_meter_phase_surface"},
+    "solar_production": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_generation_subsystem"},
+    "solar_inverter": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "physical_generation_device_projection"},
+    "solar_source": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "generic_energy_source_projection"},
+    "solar_inverter_phase": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "diagnostic_phase_surface"},
+    "battery_system": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_storage_subsystem"},
+    "battery": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "physical_storage_unit_projection"},
+    "solar_optimizer_site": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_optimizer_subsystem"},
+    "solar_zone": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "diagnostic_topology_surface"},
+    "solar_optimizer": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "physical_optimizer_projection"},
+    "solar_panel": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "physical_panel_projection"},
+    "home_consumption": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_derived_energy_surface"},
+    "flexible_load": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_cross_domain_energy_asset"},
+    "gas_meter": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_metering_surface"},
+    "solar_forecast": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_forecast_surface"},
+    "price_source": {"ha_materialization": True, "topology_kind": "semantic_object", "materialization_reason": "user_recognizable_price_surface"},
 }
 
 
@@ -44,10 +44,14 @@ def ha_projection_metadata(asset: dict[str, Any]) -> dict[str, Any]:
         # not remove the object from canonical semantic/public truth.
         base = dict(policy or {})
         base["ha_materialization"] = bool(asset.get("ha_materialization"))
-        base["topology_kind"] = str(
-            asset.get("topology_kind")
+        # Legacy inventories may still use "via_device" for semantic ancestry.
+        # Do not recreate old HA Device Registry parent edges from that label.
+        advertised_kind = str(asset.get("topology_kind") or "")
+        base["topology_kind"] = (
+            "semantic_object" if advertised_kind == "via_device"
+            else advertised_kind
             or base.get("topology_kind")
-            or ("via_device" if base["ha_materialization"] else "presentation_only")
+            or ("semantic_object" if base["ha_materialization"] else "presentation_only")
         )
         base["materialization_reason"] = str(
             asset.get("materialization_reason")
@@ -132,8 +136,9 @@ def canonical_projection_assets(assets: list[dict[str, Any]]) -> list[dict[str, 
         if asset_id:
             dedup[asset_id] = row
 
-    # The canonical graph is topology authority. HA DeviceInfo mirrors this graph
-    # declaratively for navigation; source-device topology remains untouched.
+    # Canonical ancestry is published on object entities. HA DeviceInfo owns only
+    # native device identity and independently verified physical gateway edges.
+    # Source-integration device topology is never copied or mutated here.
     children: dict[str, list[str]] = {asset_id: [] for asset_id in dedup}
     for asset_id, row in dedup.items():
         parent = str(row.get("parent_asset_id") or "")

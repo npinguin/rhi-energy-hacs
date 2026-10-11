@@ -183,11 +183,16 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
     rows = []
     mismatch_count = 0
     roots = [asset for asset in assets if not asset.get("parent_asset_id")]
+    # Canonical ancestry is evaluated against the full semantic object graph,
+    # including presentation-only parents. HA materialization is a separate fact.
+    all_asset_ids = {
+        str(asset.get("asset_id")) for asset in assets if asset.get("asset_id")
+    }
     orphan_ids = [
         str(asset.get("asset_id"))
         for asset in assets
         if asset.get("parent_asset_id")
-        and str(asset.get("parent_asset_id")) not in canonical_by_asset
+        and str(asset.get("parent_asset_id")) not in all_asset_ids
     ]
     optimizer_rows = [asset for asset in assets if asset.get("object_class") == "solar_optimizer"]
     optimizer_zone_parented = [
@@ -260,8 +265,13 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
         topology_kind = str(asset.get("topology_kind") or "")
         governed_parent = canonical_parent_asset_id(asset)
         parent_device = canonical_by_asset.get(str(governed_parent or ""))
+        # Only verified gateway communication belongs in HA via_device_id.
+        # All other parent_asset_id edges belong to the canonical object contract.
+        physical_gateway = topology_kind == "physical_gateway_verified"
         expected_parent_id = (
-            parent_device.id if governed_parent and parent_device is not None else None
+            parent_device.id
+            if physical_gateway and governed_parent and parent_device is not None
+            else None
         )
         actual_parent_id = device.via_device_id if device is not None else None
         matches = (
@@ -283,6 +293,8 @@ def _canonical_topology_diagnostics(hass: HomeAssistant, logical_assets) -> dict
                 "expected_via_device_id": expected_parent_id,
                 "actual_via_device_id": actual_parent_id,
                 "topology_matches": matches,
+                "semantic_parent_asset_id": governed_parent,
+                "physical_gateway_verified": physical_gateway,
                 "children": list(asset.get("children") or [])[:40],
                 "canonical_path": list(asset.get("canonical_path") or []),
                 "canonical_depth": asset.get("canonical_depth"),
