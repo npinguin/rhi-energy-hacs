@@ -1474,7 +1474,7 @@ def intelligence(plan: dict[str, Any], facts: dict[str, Any], settings: dict[str
     needs=[
         a for a in flexible_assets
         if str(a.get("participation_state") or "participating").strip().lower() == "participating"
-        and a.get("planning_input_ready", True) is not False
+        and a.get("planning_input_ready") is True
         and a.get("infrastructure_only", False) is not True
         and (number(a.get("energy_to_target_kwh")) or 0) > 0
     ]
