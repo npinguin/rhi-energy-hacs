@@ -174,6 +174,48 @@ class EnergyChargingButton(ButtonEntity):
     def available(self) -> bool:
         return _command(self._interaction, self._asset_id, self._role).get("availability") == "AVAILABLE"
 
+    @property
+    def extra_state_attributes(self):
+        """Canonical executable command publication, bound to one HA button.
+
+        UX must not guess command meaning or availability from entity IDs.
+        Publishing invoke is not authorization: the backend checks readiness
+        again at dispatch. Expose the exact canonical Energy service request.
+        """
+        row = _command(self._interaction, self._asset_id, self._role)
+        # Only advertise the exact command that this button actually dispatches.
+        # An inconsistent producer command ID must fail closed.
+        command_id = _ROLE_COMMANDS[self._role]
+        supported = (
+            bool(row)
+            and row.get("supported") is True
+            and row.get("command_id") == command_id
+        )
+        enabled = supported and row.get("availability") == "AVAILABLE"
+        return {
+            "canonical_contract": "RHI_ENERGY_CANONICAL_COMMAND_V1",
+            "asset_id": self._asset_id,
+            "target_asset_id": self._asset_id,
+            "role": self._role,
+            "command_id": command_id,
+            "command_key": command_id,
+            "label": _ROLE_LABELS[self._role],
+            "supported": supported,
+            "visible": supported,
+            "execution_allowed": enabled,
+            "availability": row.get("availability") or "UNAVAILABLE",
+            "blocked_reason": str(row.get("blocked_reason") or row.get("reason") or ""),
+            "invoke": {
+                "service": "rhi_energy.invoke_command",
+                "data": {"command_id": command_id, "target_asset_id": self._asset_id},
+            } if supported else {},
+        }
+
+    async def async_press(self) -> None:
+        await self._interaction.invoke_command(
+            _ROLE_COMMANDS[self._role], self._asset_id, {}
+        )
+
     async def async_press(self) -> None:
         await self._interaction.invoke_command(
             _ROLE_COMMANDS[self._role], self._asset_id, {}
@@ -208,7 +250,12 @@ class EnergyChargingButtonManager:
         for row in self._interaction.command_rows():
             role = str(row.get("role") or "")
             asset_id = str(row.get("target_asset_id") or "")
-            if role not in _ROLE_COMMANDS or not asset_id or row.get("supported") is not True:
+            if (
+                role not in _ROLE_COMMANDS
+                or not asset_id
+                or row.get("supported") is not True
+                or row.get("command_id") != _ROLE_COMMANDS[role]
+            ):
                 continue
             uid = f"rhi_energy:logical:{asset_id}:command:{role}"
             desired[uid] = (asset_id, role)

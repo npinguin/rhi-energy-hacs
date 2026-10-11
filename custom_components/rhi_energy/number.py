@@ -12,7 +12,7 @@ from homeassistant.helpers.entity import EntityCategory
 from .canonical_device import canonical_device_info
 from .const import DOMAIN
 from .logical_control import logical_asset, logical_property, source_state, supported_controls
-from .v2_configuration import configuration_device_info, canonical_configuration_row, canonical_editable_rows
+from .v2_configuration import configuration_device_info, canonical_configuration_row, canonical_editable_rows, canonical_configuration_entity_attributes
 
 
 def _asset(runtime, asset_id: str) -> dict:
@@ -369,21 +369,7 @@ class EnergyConfigurationNumber(NumberEntity):
 
     @property
     def extra_state_attributes(self):
-        row = self._row()
-        operation = row.get("operation") or {}
-        return {
-            "property_id": self._property_id,
-            "canonical_contract": "RHI_ENERGY_CANONICAL_PROPERTY_V2",
-            "availability": row.get("availability"),
-            "reason_code": row.get("reason_code"),
-            "quality": row.get("quality"),
-            "group": row.get("group"),
-            "editable": row.get("editable") is True,
-            "write": row.get("write") or {},
-            "write_status": row.get("write_status") or row.get("write_state"),
-            "operation": operation,
-            "readback_value": row.get("readback_value"),
-        }
+        return canonical_configuration_entity_attributes(self._row())
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

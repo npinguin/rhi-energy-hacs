@@ -109,3 +109,53 @@ def canonical_editable_rows(runtime, store, editor: str) -> list[dict[str, Any]]
         row for row in canonical_configuration_rows(runtime, store)
         if str(row.get("editor") or "") == editor
     ]
+
+
+def canonical_configuration_entity_attributes(row: dict[str, Any]) -> dict[str, Any]:
+    """Complete, unambiguous RHI_ENERGY_CANONICAL_PROPERTY_V2 publication.
+
+    Native select/number editors are the producer-owned configuration truth;
+    incomplete markers without asset_id/property_key/presentation metadata are
+    invalid and cause the UX to discard otherwise functional editors.
+    """
+    key = str(row.get("property_id") or "").strip()
+    owner = str((row.get("write") or {}).get("owner_operation_id") or "")
+    family = (
+        "pricing" if owner == "energy.pricing.set_property"
+        else "strategy" if owner == "energy.strategy.set_property"
+        else "metering" if owner == "energy.metering.set_property"
+        else ""
+    )
+    group = str(row.get("asset_id") or row.get("group") or family).strip()
+    if not key or not family or not group:
+        raise ValueError("invalid_canonical_configuration_identity")
+    return {
+        "canonical_contract": "RHI_ENERGY_CANONICAL_PROPERTY_V2",
+        "asset_id": f"configuration:{group}",
+        "logical_object_class": "energy_configuration",
+        "asset_display_name": f"Energy {group.replace('_', ' ').title()} Configuration",
+        "property_key": key,
+        "property_id": key,
+        "display_name": str(row.get("display_name") or row.get("label") or key),
+        "value": row.get("value"),
+        "availability": row.get("availability"),
+        "reason": row.get("reason_text") or row.get("reason_code"),
+        "reason_code": row.get("reason_code"),
+        "quality": row.get("quality"),
+        "unit": row.get("unit"),
+        "editor": row.get("editor"),
+        "constraints": dict(row.get("constraints") or {}),
+        "choices": list(row.get("choices") or []),
+        "editable": row.get("editable") is True,
+        "write_supported": row.get("write_supported") is True,
+        "write": dict(row.get("write") or {}),
+        "operation": dict(row.get("operation") or {}),
+        "group": group,
+        "presentation_family": family,
+        "presentation_role": "configuration",
+        "presentation_surface": "configuration",
+        "presentation_primary": False,
+        "presentation_technical": False,
+        "write_status": row.get("write_status") or row.get("write_state"),
+        "readback_value": row.get("readback_value"),
+    }
