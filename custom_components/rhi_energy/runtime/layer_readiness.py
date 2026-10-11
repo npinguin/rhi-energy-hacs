@@ -58,7 +58,10 @@ def evaluate_runtime_layers(
         and row.get("planning_input_ready", True) is not False
         and row.get("infrastructure_only", False) is not True
     ]
-    flex_ready = producer_available and all(row.get("power_kw") is not None for row in active_flexible)
+    # System electrical truth comes from Mobility-owned physical connections,
+    # already deduplicated into this canonical Energy fact. Vehicle-attributed
+    # power is not additive and must never gate electrical system readiness.
+    flex_ready = producer_available and facts.get("flexible_loads.power_kw") is not None
     battery_present = concept_present(model, "battery_system", logical_assets)
     pricing_present = concept_present(model, "price_source", logical_assets)
 

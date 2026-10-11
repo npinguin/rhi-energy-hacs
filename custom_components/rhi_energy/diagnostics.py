@@ -692,6 +692,19 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             },
             "flexible_asset_count": len(snap.get("flexible_assets") or []),
             "connection_asset_count": len(snap.get("connections") or []),
+            # Runtime-owned evidence of the one site-consumption split, not
+            # another calculation or truth store. Exposes why Home is blocked.
+            "consumption_split_evidence": deepcopy(snap.get("consumption_split_evidence") or {}),
+            "physical_connection_power_evidence": [
+                {
+                    "asset_id": row.get("asset_id"),
+                    "lifecycle_status": row.get("lifecycle_status"),
+                    "operating_state": row.get("operating_state"),
+                    "power_kw": row.get("power_kw"),
+                }
+                for row in (snap.get("connections") or [])[:40]
+                if isinstance(row, dict)
+            ],
             "producer_publication_availability": deepcopy(snap.get("producer_publication_availability") or {}),
             "producer_publication_metadata": deepcopy(snap.get("producer_publication_metadata") or {}),
             "runtime_issues": deepcopy(snap.get("runtime_issues") or []),
