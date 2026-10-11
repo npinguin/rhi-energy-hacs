@@ -26,6 +26,7 @@ from .migration_cleanup import async_cleanup_retired_entities
 from .profile_catalog import EnergyProfileCatalogProvider
 from .visual_catalog import EnergyVisualAssetCatalogProvider
 from .contracts.publication import EnergyBuildSpecificationProvider
+from .publication_inventory import EnergyPublicationInventoryProvider
 from .runtime.engine_base import EnergyRuntime
 from .services import async_register_services, async_unregister_services
 from .runtime.storage import EnergyStore
@@ -163,6 +164,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     services = None
     manager.add_model_callback(runtime.activate_model)
     try:
+        # Fail before partial platform setup when Foundation cannot expose
+        # the new structural publication contract to downstream UX consumers.
+        from custom_components.rhi_foundation.shared_registry import (
+            register_domain_publication_inventory_provider,
+        )
+        if not callable(register_domain_publication_inventory_provider):
+            raise ConfigEntryNotReady("foundation_inventory_api_missing")
+        from .runtime.capability_service import EnergyCapabilityService
+        from .semantic import PROPERTY_DEFINITIONS
+        from .presentation import property_presentation
+        from .runtime.planner_providers import PROVIDERS
+        inventory_provider = EnergyPublicationInventoryProvider(
+            RELEASE,
+            {section: EnergyCapabilityService.configuration_fields(section)
+             for section in ("pricing", "metering", "home", "battery", "solar",
+                             "grid", "ev_charging", "resilience")},
+            PROPERTY_DEFINITIONS, property_presentation, PROVIDERS,
+        )
+        inventory_unsub = None
+    except ImportError as exc:
+        raise ConfigEntryNotReady("foundation_inventory_api_missing") from exc
+    try:
         services = await async_register_services(hass, interaction, manager)
         state = {
             "provider": provider, "store": store, "build_manager": manager, "runtime": runtime,
@@ -172,11 +195,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "profile_catalog_provider": profile_catalog_provider,
             "visual_catalog_provider": visual_catalog_provider,
             "visual_registration_unsub": None,
+            "publication_inventory_provider": inventory_provider,
+            "publication_inventory_unsub": None,
             "setup_performance": setup_performance,
             "execution_model": "prebound_canonical_v2_runtime",
             "shared_baseline_version": SHARED_BASELINE_VERSION,
         }
         hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
+        inventory_unsub = register_domain_publication_inventory_provider(
+            hass, publisher_domain=DOMAIN, provider=inventory_provider,
+        )
+        state["publication_inventory_unsub"] = inventory_unsub
         interop[PROFILE_CATALOG_PROVIDER_ID] = profile_catalog_provider
         register_visual, _unregister_visual = _visual_registry_api()
         if callable(register_visual):
@@ -226,6 +255,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await manager.async_stop()
         await async_unregister_services(hass, services)
         state = (hass.data.get(DOMAIN) or {}).get(entry.entry_id) or {}
+        inventory_cleanup = state.get("publication_inventory_unsub")
+        if callable(inventory_cleanup):
+            inventory_cleanup()
         supervision_unsubscribe = state.get("supervision_unsubscribe")
         if callable(supervision_unsubscribe):
             supervision_unsubscribe()
@@ -302,6 +334,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not unloaded:
         return False
     state = hass.data.get(DOMAIN, {}).pop(entry.entry_id, {})
+    inventory_cleanup = state.get("publication_inventory_unsub")
+    if callable(inventory_cleanup):
+        inventory_cleanup()
     interop = hass.data.get(INTEROP_PROVIDER_REGISTRY_KEY, {})
     profile_catalog_provider = state.get("profile_catalog_provider")
     if interop.get(PROFILE_CATALOG_PROVIDER_ID) is profile_catalog_provider:

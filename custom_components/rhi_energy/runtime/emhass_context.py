@@ -70,6 +70,52 @@ def _hourly_map(rows: Any, *, key_label: str, value_label: str) -> dict[datetime
     return result
 
 
+def _canonical_hourly_import_prices(rows: Any) -> dict[datetime, float]:
+    """Map only complete native-market 15/30/60-minute slots to hourly EUR/kWh.
+
+    A constant hourly optimizer load pays exactly the arithmetic mean of
+    complete equal-duration subhourly prices. Partial, duplicate, off-grid
+    and missing slots cannot be treated as a valid forecast.
+    """
+    if isinstance(rows, Mapping):
+        evidence = list(rows.items())
+    elif isinstance(rows, list):
+        evidence = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise PlanningInputError("import_prices_invalid_row")
+            evidence.append((
+                row.get("time") or row.get("start") or row.get("start_time"),
+                row.get("price") if "price" in row else row.get("value"),
+            ))
+    else:
+        raise PlanningInputError("import_prices_missing")
+    buckets: dict[datetime, dict[int, float]] = {}
+    granularity_markers: set[int] = set()
+    for raw_at, raw_value in evidence:
+        stamp = _timestamp(raw_at, "import_prices")
+        if stamp.second or stamp.microsecond or stamp.minute not in {0, 15, 30, 45}:
+            raise PlanningInputError("import_prices_unaligned_interval")
+        start_hour = stamp.replace(minute=0)
+        slot = buckets.setdefault(start_hour, {})
+        if stamp.minute in slot:
+            raise PlanningInputError("import_prices_duplicate_slot")
+        slot[stamp.minute] = _finite(raw_value, "import_eur_kwh")
+        granularity_markers.add(stamp.minute)
+    if 15 in granularity_markers or 45 in granularity_markers:
+        expected = {0, 15, 30, 45}
+    elif 30 in granularity_markers:
+        expected = {0, 30}
+    else:
+        expected = {0}
+    hourly: dict[datetime, float] = {}
+    for hour, slots in buckets.items():
+        if set(slots) != expected:
+            raise PlanningInputError("import_prices_incomplete_hour:" + hour.isoformat())
+        hourly[hour] = sum(slots.values()) / len(expected)
+    return hourly
+
+
 def _hourly_baseload(profile: dict[str, Any], utc_at: datetime, zone: ZoneInfo) -> float:
     local_hour = utc_at.astimezone(zone).hour
     row = profile.get(f"{local_hour:02d}") if isinstance(profile, dict) else None
@@ -190,7 +236,7 @@ def build_emhass_context(
         raise PlanningInputError("unsupported_tariff_currency")
     zone = ZoneInfo(local_timezone)
     pv = _hourly_map(pv_watts, key_label="pv_forecast", value_label="pv_w")
-    prices = _hourly_map(import_price_intervals, key_label="import_prices", value_label="import_eur_kwh")
+    prices = _canonical_hourly_import_prices(import_price_intervals)
     export_price = _finite(export_price_eur_kwh, "export_eur_kwh")
     hours: list[CanonicalHour] = []
     for idx in range(horizon_hours * 60 // step_minutes):
@@ -236,13 +282,14 @@ def build_emhass_context(
         flexible_ids=tuple(row["asset_id"] for row in loads),
         timeline_utc=tuple(row.timestamp for row in hours),
         provenance={
-            "solar_forecast": "accepted_source_service_response",
+            "solar_forecast": "canonical_energy_d0_d1_estimated_hourly_curve",
             "native_step_minutes": step_minutes,
             "source_resolution_minutes": 60,
             "local_timezone": local_timezone,
             "home_baseload": "persistent_hourly_metered_profile",
             "import_prices": "canonical_timestamped_future_prices",
-            "export_price": "explicit_configured_fixed_price",
+            "import_price_alignment": "complete_15_30_60_minute_energy_weighted_hourly",
+            "export_price": "canonical_energy_export_compensation",
             "battery_configuration": "explicit_per_asset_limits",
             "flexible_loads": "mobility_public_producer",
             "flexible_constraints": {

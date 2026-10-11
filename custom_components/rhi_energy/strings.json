@@ -112,10 +112,36 @@
         }
       },
       "planner": {
-        "title": "Planning optimizer",
-        "description": "Choose how RHI Energy calculates the plan. RHI manages all sources, equipment, parameters, strategy and safety automatically.",
+        "title": "Configure planning providers",
+        "description": "Configure technical planner connections here. Select the requested operational planner on the Energy Planning device in Home Assistant; only validated results can execute.",
+        "menu_options": {
+          "emhass": "EMHASS connection (read-only until qualified)",
+          "haeo": "HAEO integration binding (adapter not qualified)",
+          "akkudoktor_eos": "Akkudoktor EOS endpoint (adapter not qualified)"
+        }
+      },
+      "emhass": {
+        "title": "Planner › EMHASS",
+        "description": "Configure the EMHASS service endpoint and timeout. All equipment, tariffs and forecasts remain managed by RHI Energy. Connection success does not authorize command execution.",
         "data": {
-          "planner_provider": "Planning provider"
+          "url": "EMHASS service URL",
+          "timeout_seconds": "Request timeout (seconds)"
+        }
+      },
+      "haeo": {
+        "title": "Planner › HAEO",
+        "description": "Link the installed HAEO Home Assistant integration. External input and result mapping is not yet qualified; selecting it in Energy puts execution on HOLD until verified.",
+        "data": {
+          "config_entry_id": "HAEO integration entry"
+        }
+      },
+      "akkudoktor_eos": {
+        "title": "Planner › Akkudoktor EOS",
+        "description": "Specify an EOS server and exact API protocol; /optimize and /v1/optimize are not interchangeable. Adapter is not yet execution-qualified.",
+        "data": {
+          "url": "EOS HTTP(S) URL",
+          "protocol": "EOS API contract",
+          "timeout_seconds": "Request timeout (seconds)"
         }
       }
     },
@@ -126,7 +152,8 @@
       "invalid_url": "Enter a valid EMHASS HTTP(S) service URL."
     },
     "abort": {
-      "canonical_configuration_unavailable": "Energy configuration is not available yet. Wait until the Energy runtime is ready and open Configure again."
+      "canonical_configuration_unavailable": "Energy configuration is not available yet. Wait until the Energy runtime is ready and open Configure again.",
+      "haeo_config_entry_missing": "No HAEO integration is installed. Install and configure HAEO before creating the Energy planner connection."
     }
   }
 }

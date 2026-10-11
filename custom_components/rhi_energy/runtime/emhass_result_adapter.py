@@ -149,7 +149,7 @@ def accept_shadow_plan(
                 if required_min_power is not None and power + 1e-3 < float(required_min_power) * 1000:
                     raise NativeCapabilityError("emhass_flexible_minimum_power_violated:" + aid)
                 flexible_active_slots[aid].append(position)
-            flex_energy[aid] += power / 1000
+            flex_energy[aid] += power * step_hours / 1000
             total_flexible_power += power
         if total_flexible_power > 1e-4 and total_battery_power > max_stationary_discharge_during_flexible_w + 1e-3:
             raise NativeCapabilityError("emhass_battery_discharge_guard_violated")
@@ -164,21 +164,21 @@ def accept_shadow_plan(
             or abs(export_price - float(context.payload["prod_price_forecast"][position])) > 1e-6
         ):
             raise NativeCapabilityError("emhass_canonical_tariff_mismatch")
-        step_value = (export_w * export_price - import_w * import_price) / 1000
+        step_value = (export_w * export_price - import_w * import_price) * step_hours / 1000
         net_result += step_value
-        imported += import_w / 1000
-        exported += export_w / 1000
+        imported += import_w * step_hours / 1000
+        exported += export_w * step_hours / 1000
         if zone is not None:
             slot_day = slots[position].astimezone(zone).date()
             horizon = "D0" if slot_day == first_day else "D1" if (slot_day - first_day).days == 1 else None
             if horizon:
                 bucket = horizon_totals[horizon]
                 bucket["covered_hours"] += step_hours
-                bucket["grid_import_kwh"] += import_w / 1000
-                bucket["grid_export_kwh"] += export_w / 1000
+                bucket["grid_import_kwh"] += import_w * step_hours / 1000
+                bucket["grid_export_kwh"] += export_w * step_hours / 1000
                 bucket["net_financial_result_eur"] += step_value
                 for index, asset_id in enumerate(context.flexible_ids):
-                    bucket["flexible_scheduled_kwh"][asset_id] += _finite(row, f"P_deferrable{index}", minimum=0) / 1000
+                    bucket["flexible_scheduled_kwh"][asset_id] += _finite(row, f"P_deferrable{index}", minimum=0) * step_hours / 1000
 
     for aid, active in flexible_active_slots.items():
         constraints = (context.provenance.get("flexible_constraints") or {}).get(aid) or {}

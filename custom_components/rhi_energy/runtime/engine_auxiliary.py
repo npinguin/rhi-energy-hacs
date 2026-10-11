@@ -68,11 +68,31 @@ class EnergyRuntimeAuxiliary:
             (runner.options.get("planner_provider") if runner else None)
             or getattr(self, "_selected_planner_provider", "rhi_deterministic")
         )
-        if requested != "emhass":
+        if requested == "rhi_deterministic":
             return deterministic, {
-                "requested_provider": "rhi_deterministic",
-                "effective_provider": "rhi_deterministic",
-                "reason": "default_deterministic_primary",
+                "requested_provider": requested,
+                "effective_provider": requested,
+                "reason": "selected_deterministic_primary",
+            }
+        if requested != "emhass":
+            # Future plugins may be configured in the HA wizard, but cannot
+            # obtain operational authority before input/output contract and
+            # source provenance acceptance are implemented and qualified.
+            from .planner_providers import provider_catalog
+            supported = provider_catalog().get(requested)
+            reason = (
+                supported.reason or "planner_execution_not_qualified"
+                if supported is not None else "unknown_planner_provider"
+            )
+            return {
+                "health": "UNAVAILABLE", "reason": "no_validated_plan_hold",
+                "planning_horizons": {}, "planning_horizons_json": [],
+                "execution_authorized": False,
+                "execution_policy": automation_control_policy(settings),
+            }, {
+                "requested_provider": requested,
+                "effective_provider": None,
+                "reason": reason,
             }
 
         valid_rhi = deterministic.get("health") == "OK"
@@ -96,14 +116,10 @@ class EnergyRuntimeAuxiliary:
                     reject_reason = f"native_projection_rejected:{type(exc).__name__}"
             else:
                 reject_reason = "native_version_or_generation_not_validated"
-        # Never silently switch a user-selected native Automatic controller to
-        # a different physical planner. Advisory fallback is permitted; an
-        # automatic run requires explicit provider authority and otherwise HOLD.
-        fallback = (
-            FallbackPolicy.HOLD
-            if automation_control_policy(settings)["autonomous_execution_allowed"]
-            else FallbackPolicy.RHI
-        )
+        # An explicit provider selection is never silently substituted,
+        # including advisory mode. Independent baseline remains separately
+        # visible without acquiring execution authority.
+        fallback = FallbackPolicy.HOLD
         decision = select_plan(
             "emhass",
             {"rhi_deterministic": deterministic, **({"emhass": native} if native is not None else {})},
@@ -138,11 +154,11 @@ class EnergyRuntimeAuxiliary:
         # against the unchanged tactical revision before publishing the snapshot.
         self._recompute()
 
-    def _schedule_emhass_shadow(self, facts, logical_assets, flexible, settings) -> None:
+    def _schedule_emhass_shadow(self, facts, logical_assets, flexible, settings, canonical_plan) -> None:
         if self._emhass_runner is None:
             return
         self._emhass_runner.request(
-            model=self.model, facts=dict(facts),
+            plan=canonical_plan, facts=dict(facts),
             batteries=self._battery_units(logical_assets), loads=flexible,
             metering_profile=(self.store.data.get("metering") or {}).get("baseload_profile") or {},
             strategy=settings.get("strategy") or {},

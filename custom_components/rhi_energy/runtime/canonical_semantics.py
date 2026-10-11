@@ -554,6 +554,23 @@ def strategy_properties(settings: dict[str, Any]) -> list[dict[str, Any]]:
     rows.append(_strategy_select(settings,"energy.operating_mode",_MODES,"home"))
     return rows
 
+def canonical_pricing_currency(
+    configured_currency: Any, normalized_unit: Any, current_price_eur_kwh: Any,
+) -> str | None:
+    """Derive EUR only from a materialized canonical EUR/kWh price property.
+
+    A missing currency from the physical integration must not block a proven
+    euro-denominated canonical price. Unknown currency or missing price stays
+    UNKNOWN; never guess from location or the optimizer configuration.
+    """
+    if isinstance(configured_currency, str) and configured_currency.strip():
+        return configured_currency.strip().upper()
+    unit = str(normalized_unit or "").replace(" ", "").lower()
+    if unit in {"€/kwh", "eur/kwh"} and number(current_price_eur_kwh) is not None:
+        return "EUR"
+    return None
+
+
 def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]]:
     cfg = settings.get("pricing") or {}
     import_live = number(facts.get("pricing.import_price_current_eur_kwh"))

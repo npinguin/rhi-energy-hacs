@@ -87,7 +87,7 @@
     },
     {
       "builder_id": "energy.price_source.entsoe.v1",
-      "builder_version": "1.2.3",
+      "builder_version": "1.2.4",
       "concept_id": "price_source",
       "integration_domains": [
         "entsoe"

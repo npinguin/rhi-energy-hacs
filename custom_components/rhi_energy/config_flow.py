@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+from .runtime.planner_providers import validate_planner_url
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -238,18 +239,114 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
 
 
     async def async_step_planner(self, user_input=None):
-        """One user choice; all optimization parameters belong to RHI domains."""
-        current = dict(self.config_entry.options)
+        """Configure available solver connections; active selection is a HA entity."""
+        return self.async_show_menu(
+            step_id="planner",
+            menu_options=["emhass", "haeo", "akkudoktor_eos"],
+        )
+
+    def _connection_settings(self, provider_id: str) -> dict[str, Any]:
+        options = dict(self.config_entry.options)
+        saved = options.get("planner_connections") or {}
+        row = saved.get(provider_id) if isinstance(saved, dict) else None
+        if isinstance(row, dict):
+            return dict(row)
+        if provider_id == "emhass" and options.get("emhass_url"):
+            return {
+                "url": options["emhass_url"],
+                "timeout_seconds": options.get("emhass_timeout_seconds", 30),
+            }
+        return {}
+
+    def _persist_planner_connection(self, provider_id: str, config: dict[str, Any]):
+        options = dict(self.config_entry.options)
+        connections = options.get("planner_connections") or {}
+        if not isinstance(connections, dict):
+            raise ValueError("planner_connections_invalid")
+        connections = dict(connections)
+        connections[provider_id] = dict(config)
+        options["planner_connections"] = connections
+        # One migration alias while the existing EMHASS runner reads flat keys.
+        # Both values are derived from the same technical source, never from a
+        # guessed Home Assistant endpoint.
+        if provider_id == "emhass":
+            options["emhass_url"] = config["url"]
+            options["emhass_timeout_seconds"] = config["timeout_seconds"]
+        # Intentional: do NOT touch options["planner_provider"] here.
+        return self.async_create_entry(title="", data=options)
+
+    async def async_step_emhass(self, user_input=None):
+        """EMHASS 0.18.5 technical connection; Energy owns all optimizer inputs."""
+        current = self._connection_settings("emhass")
         schema = vol.Schema({
-            vol.Required(
-                "planner_provider",
-                default=current.get("planner_provider", "rhi_deterministic"),
-            ): vol.In(["rhi_deterministic", "emhass"]),
+            vol.Required("url", default=current.get("url") or ""): str,
+            vol.Required("timeout_seconds", default=current.get("timeout_seconds", 30)):
+                vol.All(vol.Coerce(int), vol.Range(min=1, max=300)),
         })
         if user_input is None:
-            return self.async_show_form(step_id="planner", data_schema=schema)
-        provider = str(user_input["planner_provider"])
-        # Preserve legacy technical values during migration, never require
-        # the user to maintain them in the planner selection wizard.
-        current["planner_provider"] = provider
-        return self.async_create_entry(title="", data=current)
+            return self.async_show_form(step_id="emhass", data_schema=schema)
+        try:
+            url = validate_planner_url(user_input["url"])
+        except (KeyError, ValueError):
+            return self.async_show_form(
+                step_id="emhass", data_schema=schema,
+                errors={"url": "invalid_configuration"},
+            )
+        return self._persist_planner_connection("emhass", {
+            "url": url, "timeout_seconds": int(user_input["timeout_seconds"]),
+        })
+
+    async def async_step_haeo(self, user_input=None):
+        """Bind an existing HAEO integration; do not invent solver API access."""
+        entries = list(self.hass.config_entries.async_entries("haeo"))
+        candidates = {entry.entry_id: str(entry.title or entry.entry_id) for entry in entries}
+        if not candidates:
+            return self.async_abort(reason="haeo_config_entry_missing")
+        saved = self._connection_settings("haeo")
+        current = saved.get("config_entry_id")
+        schema = vol.Schema({
+            vol.Required("config_entry_id", default=current or next(iter(candidates))):
+                vol.In(list(candidates)),
+        })
+        if user_input is None:
+            return self.async_show_form(step_id="haeo", data_schema=schema)
+        selected = str(user_input["config_entry_id"])
+        if selected not in candidates:
+            return self.async_show_form(
+                step_id="haeo", data_schema=schema,
+                errors={"config_entry_id": "invalid_configuration"},
+            )
+        # Connection configuration exists, but a verified HAEO OptimizationContext
+        # ingestion/result adapter does NOT. The registry marks it DESIGN_ONLY.
+        return self._persist_planner_connection("haeo", {
+            "config_entry_id": selected,
+        })
+
+    async def async_step_akkudoktor_eos(self, user_input=None):
+        """Versioned EOS HTTP endpoint; protocol must be explicitly selected."""
+        saved = self._connection_settings("akkudoktor_eos")
+        schema = vol.Schema({
+            vol.Required("url", default=saved.get("url") or ""): str,
+            vol.Required(
+                "protocol",
+                default=saved.get("protocol") or "legacy_optimize_v0",
+            ): vol.In(["legacy_optimize_v0", "v1_optimize"]),
+            vol.Required("timeout_seconds", default=saved.get("timeout_seconds", 30)):
+                vol.All(vol.Coerce(int), vol.Range(min=1, max=300)),
+        })
+        if user_input is None:
+            return self.async_show_form(
+                step_id="akkudoktor_eos", data_schema=schema,
+            )
+        try:
+            url = validate_planner_url(user_input["url"])
+        except (ValueError, KeyError):
+            return self.async_show_form(
+                step_id="akkudoktor_eos", data_schema=schema,
+                errors={"url": "invalid_configuration"},
+            )
+        return self._persist_planner_connection("akkudoktor_eos", {
+            "url": url,
+            "protocol": str(user_input["protocol"]),
+            "timeout_seconds": int(user_input["timeout_seconds"]),
+        })

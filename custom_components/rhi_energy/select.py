@@ -198,6 +198,7 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities: AddEnt
         )
         for row in canonical_editable_rows(state["runtime"], state["store"], "select")
     ]
+    async_add_entities([EnergyOperationalPlannerSelect(hass, entry, state["runtime"])])
     if configuration_selects:
         async_add_entities(configuration_selects)
     manager = EnergyLogicalSelectManager(
@@ -205,3 +206,73 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities: AddEnt
     )
     state["select_projection"] = manager
     manager.start()
+
+
+class EnergyOperationalPlannerSelect(SelectEntity):
+    """Native HA selection of requested operational plan, independent of wizard config."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_name = "Energy Operational Planner"
+    _attr_icon = "mdi:source-branch"
+    _attr_unique_id = "rhi_energy:planning:requested_provider"
+
+    def __init__(self, hass, entry, runtime):
+        self._hass = hass
+        self._entry = entry
+        self._runtime = runtime
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "logical:planning")},
+            "name": "Energy Planning",
+            "manufacturer": "Robotix Home Intelligence",
+            "model": "Energy logical object · Planning",
+        }
+
+    @property
+    def current_option(self):
+        from .runtime.planner_providers import validate_provider_id
+        selected = str(self._entry.options.get("planner_provider") or "rhi_deterministic")
+        try:
+            return validate_provider_id(selected)
+        except ValueError:
+            # Explicit unknown legacy selection remains diagnostic, not a
+            # fabricated safe automatic fallback.
+            return None
+
+    @property
+    def options(self):
+        from .runtime.planner_providers import available_selection_ids
+        return list(available_selection_ids(dict(self._entry.options)))
+
+    @property
+    def extra_state_attributes(self):
+        from .runtime.planner_providers import CONTRACT, provider_states
+        snapshot = self._runtime.snapshot or {}
+        selection = snapshot.get("planning_selection") or {}
+        return {
+            "canonical_contract": CONTRACT,
+            "requested_provider": self._entry.options.get("planner_provider", "rhi_deterministic"),
+            "effective_provider": selection.get("effective_provider"),
+            "selection_reason": selection.get("reason"),
+            "execution_authorized": snapshot.get("plan", {}).get("execution_authorized") is True,
+            "provider_capabilities": provider_states(dict(self._entry.options)),
+            "write_authority": "rhi_energy.config_entry.options",
+            "readback": "native_config_entry_options",
+            "fallback_policy": "hold_on_invalid_selected_provider",
+        }
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self.options:
+            raise ValueError("planner_selection_not_configured")
+        if option == self.current_option:
+            return
+        # HA reload is triggered by the existing config-entry update listener;
+        # it aborts any prior runner before a different planner can take over.
+        options = dict(self._entry.options)
+        options["planner_provider"] = option
+        self._hass.config_entries.async_update_entry(self._entry, options=options)
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))

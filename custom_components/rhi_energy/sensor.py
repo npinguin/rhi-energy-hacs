@@ -57,6 +57,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         EnergyPlanningLayerSensor(entry, runtime, state["store"], "strategic"),
         EnergyPlanningLayerSensor(entry, runtime, state["store"], "tactical"),
         EnergyPlanningLayerSensor(entry, runtime, state["store"], "operational"),
+        EnergyPlannerSelectionSensor(entry, runtime),
+        EnergyNativePlanningHorizonSensor(entry, runtime, "D0", variant="effective"),
+        EnergyNativePlanningHorizonSensor(entry, runtime, "D1", variant="effective"),
+        EnergyNativePlanningHorizonSensor(entry, runtime, "D0", variant="baseline"),
+        EnergyNativePlanningHorizonSensor(entry, runtime, "D1", variant="baseline"),
         EnergyRetrospectiveSensor(entry, runtime, state["store"]),
         EnergyReleaseSensor(entry, state),
         EnergyHealthSensor(entry, manager, runtime),
@@ -203,6 +208,7 @@ class EnergyPlanningLayerSensor(SensorEntity):
         self.async_on_remove(self._store.add_callback(self.async_write_ha_state))
 
 
+
 _V2_METRICS = {
     "home_consumption_power_kw": ("Home Consumption", ("core", "home", "power_kw"), "kW", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "home"),
     "planning_today_required_kwh": ("Required Today", ("planning", "horizons", "D0", "required_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
@@ -219,6 +225,110 @@ _V2_METRICS = {
     "planning_tomorrow_flexible_still_to_plan_kwh": ("Flexible Still To Plan Tomorrow", ("planning", "horizons", "D1", "flexible_still_to_plan_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
     "net_financial_result_eur": ("Net Financial Result", ("value_accounting", "net_financial_result", "value"), "EUR", None, None, "planning"),
 }
+
+
+class EnergyNativePlanningHorizonSensor(SensorEntity):
+    """Native provider-neutral planning contract; no aggregate Public V2 transport."""
+
+    _attr_has_entity_name = False
+    _attr_should_poll = False
+
+    def __init__(self, entry, runtime, horizon_id: str, *, variant: str):
+        from .runtime.planning_publication import CONTRACTS
+        if horizon_id not in {"D0", "D1"} or variant not in CONTRACTS:
+            raise ValueError("native_planning_horizon_selector_invalid")
+        self._runtime = runtime
+        self._horizon_id = horizon_id
+        self._variant = variant
+        self._last_content = None
+        self._attr_name = (
+            f"Energy Planning {horizon_id}"
+            if variant == "effective" else f"Energy Baseline {horizon_id}"
+        )
+        self._attr_unique_id = f"rhi_energy:planning:{variant}:{horizon_id}"
+        self._attr_suggested_object_id = f"energy_planning_{variant}_{horizon_id.lower()}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "logical:planning")},
+            "name": "Energy Planning",
+            "manufacturer": "Robotix Home Intelligence",
+            "model": "Energy logical object · Planning",
+            "sw_version": RELEASE,
+        }
+
+    def _publication(self):
+        from .runtime.planning_publication import native_planning_horizon
+        return native_planning_horizon(
+            self._runtime.snapshot, self._horizon_id, variant=self._variant,
+        )
+
+    @property
+    def native_value(self):
+        return self._publication()["availability"]
+
+    @property
+    def extra_state_attributes(self):
+        return self._publication()
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self._last_content = self._publication()
+        self.async_on_remove(self._runtime.add_callback(self._changed))
+
+    def _changed(self):
+        next_content = self._publication()
+        if next_content != self._last_content:
+            self._last_content = next_content
+            self.async_write_ha_state()
+
+
+class EnergyPlannerSelectionSensor(SensorEntity):
+    """Native HA readback for requested/effective planner and command authority."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_name = "Energy Planner Status"
+    _attr_unique_id = "rhi_energy:planning:provider_status"
+    _attr_icon = "mdi:source-branch"
+
+    def __init__(self, entry, runtime):
+        self._entry = entry
+        self._runtime = runtime
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "logical:planning")},
+            "name": "Energy Planning",
+            "manufacturer": "Robotix Home Intelligence",
+            "model": "Energy logical object · Planning",
+            "sw_version": RELEASE,
+        }
+
+    @property
+    def native_value(self):
+        requested = self._entry.options.get("planner_provider", "rhi_deterministic")
+        selection = (self._runtime.snapshot or {}).get("planning_selection") or {}
+        effective = selection.get("effective_provider")
+        return "ACTIVE" if effective == requested else "HOLD"
+
+    @property
+    def extra_state_attributes(self):
+        from .runtime.planner_providers import CONTRACT, provider_states
+        snapshot = self._runtime.snapshot or {}
+        selection = snapshot.get("planning_selection") or {}
+        plan = snapshot.get("plan") or {}
+        return {
+            "canonical_contract": CONTRACT,
+            "requested_provider": self._entry.options.get("planner_provider", "rhi_deterministic"),
+            "effective_provider": selection.get("effective_provider"),
+            "selection_reason": selection.get("reason"),
+            "provider_states": provider_states(dict(self._entry.options)),
+            "execution_authorized": plan.get("execution_authorized") is True,
+            "effective_horizons": sorted((plan.get("planning_horizons") or {}).keys()),
+            "baseline_available": bool((snapshot.get("baseline_plan") or {}).get("planning_horizons")),
+            "physical_command_owner": "rhi_mobility",
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
 
 
 class EnergyV2MetricSensor(SensorEntity):

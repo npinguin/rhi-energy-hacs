@@ -28,11 +28,15 @@ def select_plan(
     plans: dict[str, dict[str, Any]],
     validated: dict[str, bool],
     *,
-    fallback: FallbackPolicy = FallbackPolicy.RHI,
+    fallback: FallbackPolicy = FallbackPolicy.HOLD,
 ) -> PlannerDecision:
     """Select only independently validated plans, never based on solver success alone."""
-    if selected not in ("rhi_deterministic", "emhass"):
+    from .planner_providers import provider_catalog
+    provider = provider_catalog().get(selected)
+    if provider is None:
         return PlannerDecision(selected, None, "unknown_provider", None)
+    if provider.contract_status == "DESIGN_ONLY":
+        return PlannerDecision(selected, None, "provider_adapter_not_implemented", None)
     if validated.get(selected) is True and selected in plans:
         return PlannerDecision(selected, selected, "selected_validated", plans[selected])
     if selected == "emhass" and fallback is FallbackPolicy.RHI:

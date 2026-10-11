@@ -6,9 +6,11 @@ Home Assistant EMHASS sensors and never issues physical commands.
 from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
+from copy import deepcopy
 from typing import Any
 
 from .emhass_client import VanillaEmhassClient
+from .forecast import canonical_hourly_solar_watts
 from .emhass_context import build_emhass_context
 from .emhass_result_adapter import accept_shadow_plan
 from .emhass_strategy import assess_emhass_strategy
@@ -31,39 +33,6 @@ _NATIVE_KEYS = frozenset({
 })
 
 
-def selected_solar_forecast_entry(model: dict[str, Any] | None) -> str:
-    """Resolve exact selected source, never scan HA or infer from entity names."""
-    matches = set()
-    for row in (model or {}).get("accepted_bindings") or []:
-        if not isinstance(row, dict):
-            continue
-        concept = str(row.get("object_class") or row.get("concept_id") or row.get("object_type") or "")
-        cap = row.get("technical_capability") or {}
-        source = row.get("source_identity") or {}
-        domain = str(source.get("integration_domain") or "")
-        if domain != "forecast_solar" or (concept and concept != "solar_forecast"):
-            continue
-        entry = source.get("config_entry_id") or (row.get("config_entry_relation") or {}).get("config_entry_id")
-        if entry:
-            matches.add(str(entry))
-    if len(matches) != 1:
-        raise ValueError("selected_solar_forecast_entry_missing_or_ambiguous")
-    return next(iter(matches))
-
-
-async def hourly_pv_from_accepted_forecast(hass: Any, config_entry_id: str) -> dict[str, float]:
-    if not hass.services.has_service("forecast_solar", "get_forecast"):
-        raise ValueError("forecast_solar_hourly_service_unavailable")
-    result = await hass.services.async_call(
-        "forecast_solar", "get_forecast",
-        {"config_entry": config_entry_id, "resolution": "hourly"},
-        blocking=True, return_response=True,
-    )
-    if not isinstance(result, dict) or not isinstance(result.get("watts"), dict):
-        raise ValueError("hourly_pv_response_missing")
-    return result["watts"]
-
-
 class EmhassShadowRunner:
     def __init__(self, hass: Any, *, url: str, options: dict[str, Any], notify):
         self.hass = hass
@@ -79,7 +48,7 @@ class EmhassShadowRunner:
         }
         self.result = None
 
-    def request(self, *, model: dict[str, Any] | None, facts: dict[str, Any],
+    def request(self, *, plan: dict[str, Any], facts: dict[str, Any],
                 batteries: list[dict[str, Any]], loads: list[dict[str, Any]],
                 metering_profile: dict[str, Any], strategy: dict[str, Any],
                 settings: dict[str, Any],
@@ -93,19 +62,20 @@ class EmhassShadowRunner:
         self.status["requested_cadence_revision"] = cadence_revision
         self.status.update(status="OPTIMIZING", result_status="PENDING")
         self._task = self.hass.async_create_task(self._run(
-            generation, model, dict(facts), [dict(row) for row in batteries],
+            generation, deepcopy(plan), dict(facts), [dict(row) for row in batteries],
             [dict(row) for row in loads], dict(metering_profile), dict(strategy),
             dict(settings),
         ))
 
-    async def _run(self, generation, model, facts, batteries, loads, metering_profile, strategy, settings):
+    async def _run(self, generation, plan, facts, batteries, loads, metering_profile, strategy, settings):
         try:
             requested_hours = self.options.get("emhass_horizon_hours", 24)
             if requested_hours not in (24, 48):
                 raise ValueError("unsupported_emhass_horizon")
             # Solver configuration is an external contract. Do not silently use
             # 30-minute steps with hourly inputs.
-            client = VanillaEmhassClient(self.hass, self.url)
+            client = VanillaEmhassClient(self.hass, self.url,
+                timeout_seconds=float(self.options.get("emhass_timeout_seconds", 30)))
             config = await client.probe()
             if not isinstance(config, dict):
                 raise ValueError("emhass_configuration_invalid")
@@ -127,12 +97,16 @@ class EmhassShadowRunner:
                 raise ValueError("emhass_optimization_step_invalid") from exc
             if native_step not in (30, 60) or str(float(optimization)) != str(float(native_step)):
                 raise ValueError("emhass_optimization_step_not_supported")
-            pv_source = selected_solar_forecast_entry(model)
-            pv = await hourly_pv_from_accepted_forecast(self.hass, pv_source)
             start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
             if start < datetime.now(timezone.utc):
                 from datetime import timedelta
                 start += timedelta(hours=1)
+            # One authoritative solar curve: the validated Energy D0/D1 plan.
+            # Never re-query source integrations behind the planner's back.
+            # Missing slots, partial buckets and unsupported D2 fail closed.
+            pv = canonical_hourly_solar_watts(
+                plan, start_utc=start, horizon_hours=requested_hours,
+            )
             strategy_coverage = assess_emhass_strategy(strategy)
             if strategy_coverage.blockers:
                 raise ValueError("native_strategy_constraints_unsupported:" + ",".join(strategy_coverage.blockers))

@@ -20,7 +20,7 @@ from .canonical_semantics import (
     battery_state_from_power,
     complete_numeric_sum, current_flexible_power_envelope, derive_consumption,
     derive_home_consumption,
-    grid_flow_direction,
+    grid_flow_direction, canonical_pricing_currency,
     intelligence,
     number,
     overview_snapshot,
@@ -139,7 +139,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             "battery_units": [],
             "flexible_assets": [],
             "connections": [],
-            "plan": {},
+            "plan": {}, "baseline_plan": {},
             "intelligence": {},
             "overview": {},
             "domain_model_revision": None,
@@ -534,9 +534,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
         Structural selection is complete before runtime activation. Runtime never
         arbitrates providers or reinterprets source ownership.
         """
-        # Aggregate concepts (Battery System and Solar Production) already publish
-        # canonical facts in _aggregate_objects.  Only directly-bound singleton
-        # concepts are projected here.  This prevents a second interpretation step.
+        # Aggregate parents are already published; project singleton source facts only.
         canonical_classes = ("grid_connection", "solar_forecast")
         for concept in canonical_classes:
             rows = [row for row in assets if row.get("object_class") == concept]
@@ -565,6 +563,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
                 optional = props.get(key) or {}
                 if optional.get("fact_key"):
                     facts[key] = facts.get(optional.get("fact_key"))
+            facts["pricing.currency"] = canonical_pricing_currency(facts.get("pricing.currency"), prop.get("unit"), facts.get("pricing.import_price_current_eur_kwh"))
             facts["price_source.source_id"] = row.get("asset_id")
             facts["price_source.source_integration"] = row.get("integration_domain")
         elif len(import_rows) > 1:
@@ -877,7 +876,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             "producer_publication_availability": producer_availability,
             "producer_publication_metadata": producer_metadata,
             "mobility_publication_available": producer_availability.get("mobility", False),
-            "plan": plan,
+            "plan": plan, "baseline_plan": deterministic,
             "planning_runtime": self.planning_cadence.diagnostics(),
             "planning_providers": planning_providers,
             "planning_selection": planner_selection,
@@ -906,7 +905,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
                 self.model, domain_assets, flexible, connections
             ),
         }
-        self._schedule_emhass_shadow(facts, logical_assets, flexible, settings)
+        self._schedule_emhass_shadow(facts, logical_assets, flexible, settings, deterministic)
         # Runtime telemetry updates values on already materialized entities only.
         # Topology/entity projection is activated exclusively by activate_model().
         changed_asset_ids = changed_logical_asset_ids(
