@@ -39,6 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         EnergyPlannerStatusSensor(entry, runtime, "emhass"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "home_consumption_power_kw"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "site_consumption_power_kw"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "flexible_loads_power_kw"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_required_kwh"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_planned_kwh"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_still_to_plan_kwh"),
@@ -135,6 +136,7 @@ class EnergyMeteringPeriodSensor(SensorEntity):
             "period_id": self._period_id,
             "availability": row["availability"],
             "quality": row["quality"],
+            "integrity_reason": row.get("integrity_reason"),
             "summary": {
                 "measured": measured,
                 "quality": {
@@ -198,6 +200,8 @@ class EnergyRetrospectiveSensor(SensorEntity):
         row = self._runtime.snapshot.get("retrospective") or {}
         return {
             "canonical_contract": row.get("contract_id"),
+            "canonical_source": "rhi_energy.runtime",
+            "publisher": DOMAIN,
             "selected_period": row.get("selected_period"),
             "availability": row.get("availability") or "UNAVAILABLE",
             "reason": row.get("reason") or "retrospective_evidence_unavailable",
@@ -297,6 +301,7 @@ class EnergyPlanningLayerSensor(SensorEntity):
 _V2_METRICS = {
     "home_consumption_power_kw": ("Home Consumption", ("core", "home", "power_kw"), "kW", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "home"),
     "site_consumption_power_kw": ("Site Consumption", ("core", "consumption", "power_kw"), "kW", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "site"),
+    "flexible_loads_power_kw": ("Flexible Loads Power", ("core", "consumption", "flexible_loads_power_kw"), "kW", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "site"),
     "planning_today_required_kwh": ("Required Today", ("planning", "horizons", "D0", "required_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
     "planning_today_planned_kwh": ("Planned Today", ("planning", "horizons", "D0", "planned_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
     "planning_today_still_to_plan_kwh": ("Still To Plan Today", ("planning", "horizons", "D0", "still_to_plan_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
@@ -400,11 +405,17 @@ class EnergyPlannerSelectionSensor(SensorEntity):
         snapshot = self._runtime.snapshot or {}
         selection = snapshot.get("planning_selection") or {}
         plan = snapshot.get("plan") or {}
+        requested = self._entry.options.get("planner_provider", "rhi_deterministic")
+        provider_runtime = (snapshot.get("planning_providers") or {}).get(requested) or {}
         return {
             "canonical_contract": CONTRACT,
-            "requested_provider": self._entry.options.get("planner_provider", "rhi_deterministic"),
+            "canonical_source": "rhi_energy.runtime",
+            "publisher": DOMAIN,
+            "requested_provider": requested,
             "effective_provider": selection.get("effective_provider"),
             "selection_reason": selection.get("reason"),
+            "requested_runtime_reason": provider_runtime.get("reason"),
+            "requested_runtime_status": provider_runtime.get("status"),
             "provider_states": provider_states(dict(self._entry.options)),
             "execution_authorized": plan.get("execution_authorized") is True,
             "effective_horizons": sorted((plan.get("planning_horizons") or {}).keys()),

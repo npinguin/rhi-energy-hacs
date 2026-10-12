@@ -431,11 +431,31 @@ def metering_rows(metering: dict[str, Any]) -> list[dict[str, Any]]:
         # never becomes available merely because a stale quality flag says OK.
         has_measurement = any(number(bucket.get(key)) is not None for key in measured_fields)
         availability = AVAILABLE if has_measurement else UNAVAILABLE
+        # Never publish a verified period when any observed sink alone exceeds
+        # the complete site-boundary total. Persisted integrals can span an old
+        # source binding; a stale 'OK' flag is not reconciliation evidence.
+        site_energy = number(bucket.get("site_consumption_kwh"))
+        flexible_energy = number(bucket.get("flexible_loads_energy_in_kwh"))
+        integrity_reason = (
+            "FLEXIBLE_ENERGY_EXCEEDS_SITE_CONSUMPTION"
+            if site_energy is not None and flexible_energy is not None
+            and flexible_energy > site_energy + 0.2
+            else None
+        )
+        field_quality = deepcopy(bucket.get("field_quality") or {})
+        if integrity_reason:
+            quality = "PARTIAL"
+        elif quality == "OK" and any(
+            field_quality.get(key) != "OK"
+            for key in measured_fields if number(bucket.get(key)) is not None
+        ):
+            quality = "PARTIAL"
         rows.append({
             "period_id": pid,
             "label": _period_label(pid),
             "availability": availability,
             "quality": quality,
+            "integrity_reason": integrity_reason,
             "solar_kwh": bucket.get("solar_kwh"),
             "grid_import_kwh": bucket.get("grid_import_kwh"),
             "grid_export_kwh": bucket.get("grid_export_kwh"),
@@ -495,6 +515,7 @@ def default_settings() -> dict[str, Any]:
         },
         "planning": {
             "explicit_baseload_fallback_kw": None,
+            "resolution_minutes": 60,
             "solar_window_start_hour": 7,
             "solar_window_end_hour": 20,
         },
@@ -646,13 +667,15 @@ def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[
     return rows
 
 
-def _planning_buckets(now: datetime, horizon_id: str) -> list[dict[str, Any]]:
+def _planning_buckets(now: datetime, horizon_id: str, resolution_minutes: int = 60) -> list[dict[str, Any]]:
     """Return real chronological local-day buckets, including DST transitions.
 
     Buckets are stepped on the UTC timeline and labelled in the Home Assistant local
     timezone. A spring-forward day therefore has 23 D1 buckets and a fall-back day 25;
     a repeated local hour is disambiguated by ``start_at``/``utc_offset``.
     """
+    if type(resolution_minutes) is not int or resolution_minutes not in (15, 30, 60):
+        raise ValueError("deterministic_planning_resolution_invalid")
     if now.tzinfo is None:
         now = now.astimezone()
     tz = now.tzinfo
@@ -670,7 +693,14 @@ def _planning_buckets(now: datetime, horizon_id: str) -> list[dict[str, Any]]:
     end_utc = end_local.astimezone(timezone.utc)
     buckets: list[dict[str, Any]] = []
     while cursor < end_utc:
-        next_boundary = cursor.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        # UTC stepping keeps each wall-clock/DST interval unique and preserves
+        # partial first D0 bucket without inventing rounded-up production.
+        step = timedelta(minutes=resolution_minutes)
+        epoch_minutes = int(cursor.timestamp() // 60)
+        next_boundary = datetime.fromtimestamp(
+            ((epoch_minutes // resolution_minutes) + 1) * resolution_minutes * 60,
+            timezone.utc,
+        )
         nxt = min(next_boundary, end_utc)
         if nxt <= cursor:
             break
@@ -679,6 +709,7 @@ def _planning_buckets(now: datetime, horizon_id: str) -> list[dict[str, Any]]:
         duration = (nxt - cursor).total_seconds() / 3600.0
         buckets.append({
             "hour": local_start.hour,
+            "resolution_minutes": resolution_minutes,
             "duration_hours": duration,
             "runtime_minutes": max(1, int(round(duration * 60))),
             "start_at": local_start.isoformat(),
@@ -695,7 +726,10 @@ def _solar_bucket_curve(total_kwh: float | None, buckets: list[dict[str, Any]], 
     for bucket in buckets:
         hour = int(bucket["hour"])
         duration = float(bucket["duration_hours"])
-        midpoint = hour + (1.0 - duration) + duration / 2.0 if duration < 1.0 else hour + 0.5
+        # A sub-hour bucket starts at its exact local timestamp; never guess
+        # midpoint from its hour or partial runtime (critical for 15/30min).
+        start_at = datetime.fromisoformat(str(bucket["start_at"]))
+        midpoint = hour + (start_at.minute * 60 + start_at.second) / 3600.0 + duration / 2.0
         if midpoint < start_hour or midpoint >= end_hour:
             weighted.append(0.0)
         else:
@@ -859,6 +893,9 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
     now = now or datetime.now().astimezone()
     strategy = settings.get("strategy") or {}
     planning_cfg = settings.get("planning") or {}
+    resolution_minutes = planning_cfg.get("resolution_minutes", 60)
+    if type(resolution_minutes) is not int or resolution_minutes not in (15, 30, 60):
+        raise ValueError("deterministic_planning_resolution_invalid")
     baseload_profile = settings.get("baseload_profile") or {}
     control_policy = automation_control_policy(settings)
     mode = control_policy["configured_mode"]
@@ -949,7 +986,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         asset_remaining: dict[str, float],
         battery_start: float | None,
     ) -> tuple[dict[str, Any], dict[str, float], float | None]:
-        bucket_meta = _planning_buckets(now, horizon_id)
+        bucket_meta = _planning_buckets(now, horizon_id, resolution_minutes)
         solar_curve = _solar_bucket_curve(solar_total, bucket_meta, window_start, window_end)
         home_curve = _baseload_bucket_curve(bucket_meta, baseload_profile, fallback_kw)
         demand = round(sum(v for v in home_curve if v is not None), 4) if home_curve and all(v is not None for v in home_curve) else None
@@ -1159,7 +1196,9 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                 ],
             ]
             buckets.append({
-                "bucket_id": f"{horizon_id}:{int(meta['hour']):02d}",
+                # Start instant, not local hour: 15-minute buckets and repeated
+                # fall-back DST hours must never collide in reconciliation.
+                "bucket_id": f"{horizon_id}:{meta['start_at']}",
                 "hour": int(meta["hour"]),
                 "start_time": meta.get("start_at"),
                 "end_time": meta.get("end_at"),
@@ -1208,6 +1247,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             "label": "Today" if horizon_id == "D0" else "Tomorrow",
             "mode": mode,
             "time_scope": "remaining_today" if horizon_id == "D0" else "full_day_tomorrow",
+            "resolution_minutes": resolution_minutes,
             # Canonical summary values belong to Planning itself. Public/UX
             # projections may select these fields but must never recalculate them.
             "required_kwh": required_kwh,
@@ -1379,7 +1419,8 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         },
     }
     return {
-        "plan_id": f"deterministic:{now.strftime('%Y%m%d%H%M')}",
+        "plan_id": f"deterministic:{now.strftime('%Y%m%d%H%M')}:{resolution_minutes}m",
+        "resolution_minutes": resolution_minutes,
         "generated_at": now.isoformat(),
         "planning_horizons": {"D0": d0, "D1": d1},
         "planning_horizons_json": [d0, d1],

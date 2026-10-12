@@ -272,6 +272,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # independent configuration-time contract and lets Foundation diagnose/configure.
         raise
     runtime._selected_planner_provider = str(entry.options.get("planner_provider") or "rhi_deterministic")
+    resolution = entry.options.get("planning_resolution_minutes", 60)
+    runtime._planning_resolution_minutes = resolution if type(resolution) is int else -1
     if entry.options.get("planner_provider") == "emhass":
         from .runtime.emhass_discovery import (
             EmhassDiscoveryError,

@@ -184,7 +184,10 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities: AddEnt
         )
         for row in canonical_editable_rows(state["runtime"], state["store"], "select")
     ]
-    async_add_entities([EnergyOperationalPlannerSelect(hass, entry, state["runtime"])])
+    async_add_entities([
+        EnergyOperationalPlannerSelect(hass, entry, state["runtime"]),
+        EnergyPlanningResolutionSelect(hass, entry, state["runtime"]),
+    ])
     if configuration_selects:
         async_add_entities(configuration_selects)
     manager = EnergyLogicalSelectManager(
@@ -257,6 +260,66 @@ class EnergyOperationalPlannerSelect(SelectEntity):
         # it aborts any prior runner before a different planner can take over.
         options = dict(self._entry.options)
         options["planner_provider"] = option
+        self._hass.config_entries.async_update_entry(self._entry, options=options)
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
+
+
+class EnergyPlanningResolutionSelect(SelectEntity):
+    """Single HA-owned tactical bucket resolution, shared by all planner providers."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_name = "Energy Planning Resolution"
+    _attr_icon = "mdi:clock-outline"
+    _attr_unique_id = "rhi_energy:planning:resolution_minutes"
+
+    def __init__(self, hass, entry, runtime):
+        self._hass = hass
+        self._entry = entry
+        self._runtime = runtime
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "logical:planning")},
+            "name": "Energy Planning",
+            "manufacturer": "Robotix Home Intelligence",
+            "model": "Energy logical object · Planning",
+        }
+
+    @property
+    def options(self):
+        return ["15", "30", "60"]
+
+    @property
+    def current_option(self):
+        selected = self._entry.options.get("planning_resolution_minutes", 60)
+        return str(selected) if type(selected) is int and selected in (15, 30, 60) else None
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "canonical_contract": "RHI_ENERGY_PLANNING_RESOLUTION_V1",
+            "canonical_source": "rhi_energy.config_entry.options",
+            "publisher": DOMAIN,
+            "resolution_minutes": (
+                int(self.current_option) if self.current_option is not None else None
+            ),
+            "supported_resolutions_minutes": [15, 30, 60],
+            "write_authority": "rhi_energy.config_entry.options",
+            "readback": "native_config_entry_options",
+        }
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self.options:
+            raise ValueError("deterministic_planning_resolution_invalid")
+        if option == self.current_option:
+            return
+        options = dict(self._entry.options)
+        options["planning_resolution_minutes"] = int(option)
+        # The existing update listener reloads the single runtime, invalidates
+        # the cached planner and publishes new native D0/D1 horizon contracts.
         self._hass.config_entries.async_update_entry(self._entry, options=options)
 
     async def async_added_to_hass(self):

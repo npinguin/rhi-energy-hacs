@@ -775,6 +775,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             (today_meter.get("field_coverage_seconds") or {}).get("home_consumption_kwh")
         )
         planning_settings = settings.setdefault("planning", {})
+        planning_settings["resolution_minutes"] = getattr(self, "_planning_resolution_minutes", 60)
         if (
             planning_settings.get("explicit_baseload_fallback_kw") is None
             and today_home_kwh is not None
