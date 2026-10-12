@@ -26,6 +26,7 @@ from .runtime.canonical_structure import canonical_parent_asset_id, canonical_pr
 from .source_topology import source_binding_index
 from .presentation import property_presentation
 from .runtime.value_accounting import native_metric_evidence
+from .runtime.canonical_semantics import metering_rows
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -37,6 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         EnergyPlannerStatusSensor(entry, runtime, "rhi_deterministic"),
         EnergyPlannerStatusSensor(entry, runtime, "emhass"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "home_consumption_power_kw"),
+        EnergyV2MetricSensor(entry, runtime, state["store"], "site_consumption_power_kw"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_required_kwh"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_planned_kwh"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_today_still_to_plan_kwh"),
@@ -50,6 +52,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_tomorrow_flexible_planned_kwh"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "planning_tomorrow_flexible_still_to_plan_kwh"),
         EnergyV2MetricSensor(entry, runtime, state["store"], "net_financial_result_eur"),
+        *(EnergyMeteringPeriodSensor(entry, runtime, state["store"], period) for period in ("hour", "today", "week", "month", "year")),
         EnergyBatteryMetricSensor(entry, runtime, "power_kw"),
         EnergyBatteryMetricSensor(entry, runtime, "soc_pct"),
         EnergyBatteryMetricSensor(entry, runtime, "capacity_kwh"),
@@ -76,6 +79,88 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     # Projection is intentionally deferred: canonical runtime and diagnostics must
     # become available before a large SolarEdge optimizer/panel graph is materialised.
     logical_projection.start_deferred()
+
+
+
+class EnergyMeteringPeriodSensor(SensorEntity):
+    """Exact persisted period integrals, field quality and attribution for HA UX."""
+
+    _attr_has_entity_name = False
+    _attr_should_poll = False
+
+    def __init__(self, entry, runtime, store, period_id: str):
+        if period_id not in {"hour", "today", "week", "month", "year"}:
+            raise ValueError("native_metering_period_invalid")
+        self._runtime = runtime
+        self._store = store
+        self._period_id = period_id
+        self._attr_unique_id = f"rhi_energy:metering:period:{period_id}"
+        self._attr_suggested_object_id = f"energy_metering_{period_id}"
+        self._attr_name = f"Energy Metering {period_id.title()}"
+
+    @property
+    def device_info(self):
+        return canonical_device_info({
+            "asset_id": "energy_site",
+            "object_class": "energy_site",
+            "display_name": "Energy",
+        })
+
+    def _row(self):
+        source = self._store.data.get("metering") or {}
+        return next(row for row in metering_rows(source) if row["period_id"] == self._period_id)
+
+    @property
+    def native_value(self):
+        row = self._row()
+        return row["quality"] if row["availability"] == "AVAILABLE" else "UNAVAILABLE"
+
+    @property
+    def extra_state_attributes(self):
+        row = self._row()
+        measured = {
+            "solar_production_kwh": row["solar_kwh"],
+            "grid_import_kwh": row["grid_import_kwh"],
+            "grid_export_kwh": row["grid_export_kwh"],
+            "site_consumption_kwh": row["site_consumption_kwh"],
+            "home_consumption_kwh": row["home_consumption_kwh"],
+            "battery_charge_kwh": row["battery_charge_kwh"],
+            "battery_discharge_kwh": row["battery_discharge_kwh"],
+            "flexible_loads_energy_in_kwh": row["flexible_loads_energy_in_kwh"],
+        }
+        return {
+            "contract_id": "RHI_ENERGY_METERING_PERIOD_V1",
+            "canonical_source": "rhi_energy.runtime",
+            "publisher": DOMAIN,
+            "period_id": self._period_id,
+            "availability": row["availability"],
+            "quality": row["quality"],
+            "summary": {
+                "measured": measured,
+                "quality": {
+                    "period": row["quality"],
+                    "field_quality": row["field_quality"],
+                    "field_coverage_seconds": row["field_coverage_seconds"],
+                    "financial": row["financial_quality"],
+                },
+                "cost": {
+                    "import_cost_eur": row["import_cost_eur"],
+                    "export_revenue_eur": row["export_revenue_eur"],
+                },
+            },
+            "flexible_assets_kwh": row["flexible_assets_kwh"],
+            "field_quality": row["field_quality"],
+            "field_coverage_seconds": row["field_coverage_seconds"],
+            "baseline_reset_required": row["baseline_reset_required"],
+            "can_be_used_for_remaining": row["can_be_used_for_remaining"],
+            "remaining_use_policy": row["remaining_use_policy"],
+            "observed_at": self._runtime.snapshot.get("observed_at"),
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
+        self.async_on_remove(self._store.add_callback(self.async_write_ha_state))
 
 
 class EnergyRetrospectiveSensor(SensorEntity):
@@ -211,6 +296,7 @@ class EnergyPlanningLayerSensor(SensorEntity):
 
 _V2_METRICS = {
     "home_consumption_power_kw": ("Home Consumption", ("core", "home", "power_kw"), "kW", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "home"),
+    "site_consumption_power_kw": ("Site Consumption", ("core", "consumption", "power_kw"), "kW", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "site"),
     "planning_today_required_kwh": ("Required Today", ("planning", "horizons", "D0", "required_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
     "planning_today_planned_kwh": ("Planned Today", ("planning", "horizons", "D0", "planned_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
     "planning_today_still_to_plan_kwh": ("Still To Plan Today", ("planning", "horizons", "D0", "still_to_plan_kwh"), "kWh", SensorDeviceClass.ENERGY, None, "planning"),
@@ -353,6 +439,12 @@ class EnergyV2MetricSensor(SensorEntity):
 
     @property
     def device_info(self):
+        if self._group == "site":
+            return canonical_device_info({
+                "asset_id": "energy_site",
+                "object_class": "energy_site",
+                "display_name": "Energy",
+            })
         if self._group == "home":
             return canonical_device_info({
                 "asset_id": "home_consumption",

@@ -77,6 +77,22 @@ def native_metric_evidence(
     store_data: dict[str, Any],
 ) -> dict[str, Any]:
     """Resolve one native HA metric directly from authoritative Energy evidence."""
+    if key == "site_consumption_power_kw":
+        value = (snapshot.get("facts") or {}).get("site_consumption.power_kw")
+        semantic_path = (
+            (snapshot.get("semantic_paths") or {}).get("site_consumption.power_kw")
+            or {}
+        )
+        return {
+            "value": value,
+            "availability": "AVAILABLE" if value is not None else "UNAVAILABLE",
+            "reason_code": (
+                None if value is not None else "SITE_CONSUMPTION_EVIDENCE_UNAVAILABLE"
+            ),
+            "source_fact": "site_consumption.power_kw",
+            "provenance": semantic_path,
+        }
+
     if key == "home_consumption_power_kw":
         value = (snapshot.get("facts") or {}).get("home_consumption.power_kw")
         semantic_path = (

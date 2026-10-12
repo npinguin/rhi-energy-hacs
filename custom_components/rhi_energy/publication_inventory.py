@@ -93,6 +93,17 @@ class EnergyPublicationInventoryProvider:
                 "metric_key": key, "canonical_source": "rhi_energy.runtime",
                 "unique_id": "rhi_energy:v2:metric:" + key,
             })
+        for period in ("hour", "today", "week", "month", "year"):
+            entries.append({
+                "id": f"metering.{period}",
+                "kind": "metering_period",
+                "authority": "rhi_energy",
+                "producer": "EnergyMeteringPeriodSensor",
+                "publication_status": "PUBLISHED",
+                "contract": "RHI_ENERGY_METERING_PERIOD_V1",
+                "period_id": period,
+                "unique_id": f"rhi_energy:metering:period:{period}",
+            })
         for variant, contract in (
             ("effective", "RHI_ENERGY_PLANNING_HORIZON_V1"),
             ("baseline", "RHI_ENERGY_BASELINE_PLANNING_HORIZON_V1"),
