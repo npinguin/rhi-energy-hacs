@@ -192,9 +192,11 @@ def normalize_mobility_consumers(
             "asset_id": str(asset["asset_id"]),
             "display_name": display_name,
             "asset_type": "flexible_asset",
-            "energy_asset_role": "flexible_load",
+            # Chargers are infrastructure/connection evidence, never a
+            # second scheduled flexible consumer beside the real vehicle.
+            "energy_asset_role": "connection_infrastructure" if infrastructure_only else "flexible_load",
             "visible": True,
-            "show_in_primary_ux": True,
+            "show_in_primary_ux": not infrastructure_only,
             "participation_state": participation_state,
             "planning_input_ready": False if infrastructure_only else planning_input_ready,
             "planning_eligible": planning_eligible,

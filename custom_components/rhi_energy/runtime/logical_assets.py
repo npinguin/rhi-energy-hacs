@@ -409,6 +409,15 @@ def _runtime_only_assets(flexible_assets: list[dict[str, Any]]) -> list[LogicalA
         asset["availability_state"] = item.get("availability_state")
         asset["visual_ref"] = item.get("visual_ref")
         asset["producer_asset_type"] = item.get("source_asset_kind") or item.get("asset_type")
+        # Preserve producer identity, without classifying by asset ID/display name.
+        asset["source_asset_kind"] = item.get("source_asset_kind") or None
+        asset["infrastructure_only"] = item.get("infrastructure_only") is True
+        asset["planning_input_ready"] = item.get("planning_input_ready") is True
+        blockers = item.get("planning_blockers") or []
+        asset["planning_input_reason"] = (
+            str(blockers[0]) if blockers and item.get("planning_input_ready") is not True
+            else None
+        )
         rows.append(asset)
     return rows
 def apply_runtime_values(
