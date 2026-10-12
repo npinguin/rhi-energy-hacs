@@ -913,11 +913,30 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
     if battery_policy in {"never", "avoid"} and usable_battery is not None:
         usable_battery = 0.0
 
+    def qualified_need(asset: dict[str, Any]) -> float | None:
+        # An explicit zero kWh need is valid. Unknown, invalid, negative or
+        # nonfinite demand must never become a synthetic zero-energy plan.
+        raw = asset.get("energy_to_target_kwh")
+        if isinstance(raw, bool):
+            return None
+        value = number(raw)
+        return value if value is not None and value >= 0 else None
+
+    def planning_blockers_for(asset: dict[str, Any]) -> list[str]:
+        blockers = list(asset.get("planning_blockers") or [])
+        if asset.get("planning_input_ready") is True and qualified_need(asset) is None:
+            if "energy_need_unavailable" not in blockers:
+                blockers.append("energy_need_unavailable")
+        return blockers or ["planning_input_incomplete"]
+
     incomplete_assets = [
         asset for asset in flexible_assets
         if str(asset.get("participation_state") or "participating").strip().lower() == "participating"
         and asset.get("infrastructure_only", False) is not True
-        and asset.get("planning_input_ready") is not True
+        and (
+            asset.get("planning_input_ready") is not True
+            or qualified_need(asset) is None
+        )
     ]
     active_assets = sorted(
         [
@@ -927,11 +946,12 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             # Unknown readiness is not a schedulable zero-energy request.
             # Only a producer-qualified asset may enter the allocation ledger.
             and asset.get("planning_input_ready") is True
+            and qualified_need(asset) is not None
             and asset.get("infrastructure_only", False) is not True
         ],
         key=_deadline_sort_key,
     )
-    original_need = {str(asset.get("asset_id")): max(0.0, number(asset.get("energy_to_target_kwh")) or 0.0) for asset in active_assets}
+    original_need = {str(asset.get("asset_id")): qualified_need(asset) for asset in active_assets}
 
     price_by = by_key(pricing_properties(facts, settings))
     import_price = number((price_by.get("pricing.import_price_current_eur_kwh") or {}).get("value"))
@@ -1341,9 +1361,9 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         if not aid:
             continue
         participating = str(asset.get("participation_state") or "participating").strip().lower() == "participating"
-        ready = asset.get("planning_input_ready") is True
+        ready = asset.get("planning_input_ready") is True and qualified_need(asset) is not None
         eligible = bool(participating and ready)
-        known_need = number(asset.get("energy_to_target_kwh")) if ready else None
+        known_need = qualified_need(asset) if ready else None
         d0_scheduled = asset_scheduled_kwh(d0, aid) if eligible else None
         d1_scheduled = asset_scheduled_kwh(d1, aid) if eligible else None
         still_after_today = (
@@ -1356,7 +1376,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             if known_need is not None and eligible
             else None
         )
-        blockers = list(asset.get("planning_blockers") or [])
+        blockers = planning_blockers_for(asset) if participating else list(asset.get("planning_blockers") or [])
         if not participating and not blockers:
             blockers = ["participation_disabled"]
         if eligible:
@@ -1394,7 +1414,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             {
                 "asset_id": str(asset.get("asset_id") or ""),
                 "display_name": asset.get("display_name"),
-                "blockers": list(asset.get("planning_blockers") or ["planning_input_incomplete"]),
+                "blockers": planning_blockers_for(asset),
                 "current_soc_pct": asset.get("current_soc_pct"),
                 "target_soc_pct": asset.get("target_soc_pct"),
                 "ready_by": asset.get("ready_by"),

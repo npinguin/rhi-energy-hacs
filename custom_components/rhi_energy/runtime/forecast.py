@@ -37,7 +37,8 @@ def canonical_hourly_solar_watts(
     The native optimizer consumes the same canonical solar estimate as the
     deterministic planner. No forecast provider API, config-entry selection,
     interpolation, missing-to-zero coercion or fabricated D2 horizon is allowed.
-    A partial D0 bucket cannot stand in for a full future hourly interval.
+    A partial D0 bucket cannot stand in for a full future hourly interval;
+    a complete hour of 15/30-minute buckets can be summed without interpolation.
     """
     if (
         start_utc.tzinfo is None or start_utc.utcoffset() is None
@@ -50,7 +51,11 @@ def canonical_hourly_solar_watts(
     horizons = (plan or {}).get("planning_horizons")
     if not isinstance(horizons, dict):
         raise ValueError("canonical_solar_forecast_plan_missing")
-    available: dict[datetime, float] = {}
+    # The deterministic planner may publish 15/30/60-minute buckets. The
+    # advisory native optimizer needs hourly energy: sum fully covered child
+    # intervals, never interpolate or infer a missing portion of an hour.
+    requested_end = start + timedelta(hours=horizon_hours)
+    segments: dict[datetime, list[tuple[datetime, datetime, float]]] = {}
     for horizon_id in ("D0", "D1"):
         horizon = horizons.get(horizon_id)
         if not isinstance(horizon, dict):
@@ -70,27 +75,42 @@ def canonical_hourly_solar_watts(
                 raise ValueError("canonical_solar_forecast_bucket_timezone_missing")
             left = left.astimezone(timezone.utc)
             right = right.astimezone(timezone.utc)
-            # A partial bucket may be valid for today's remaining energy, but
-            # it cannot cover the optimizer's *full* future hourly slot.
-            if right - left != timedelta(hours=1):
+            if right <= left:
+                raise ValueError("canonical_solar_forecast_bucket_duration_invalid")
+            if right <= start or left >= requested_end:
                 continue
-            if left.minute or left.second or left.microsecond:
+            hour = left.replace(minute=0, second=0, microsecond=0)
+            # A requested hour needs complete native evidence. A partial D0
+            # bucket before the hourly window is harmless; an overlapping
+            # partial bucket inside it is not.
+            if left < start or right > requested_end or right > hour + timedelta(hours=1):
+                raise ValueError("canonical_solar_forecast_partial_slot:" + hour.isoformat())
+            duration_minutes = (right - left).total_seconds() / 60
+            if duration_minutes not in (15.0, 30.0, 60.0):
+                # The D0 first partial bucket is not a complete segment in
+                # the requested hourly interval; no zero-fill is permitted.
                 continue
-            watts_kwh = bucket.get("solar_forecast_kwh")
+            kwh = bucket.get("solar_forecast_kwh")
             if (
-                isinstance(watts_kwh, bool) or not isinstance(watts_kwh, (int, float))
-                or not isfinite(watts_kwh) or watts_kwh < 0
+                isinstance(kwh, bool) or not isinstance(kwh, (int, float))
+                or not isfinite(kwh) or kwh < 0
             ):
-                # Outside the requested horizon this does not matter. Within
-                # the horizon it must produce an explicit missing-evidence error.
                 continue
-            if left in available:
-                raise ValueError("canonical_solar_forecast_duplicate_slot:" + left.isoformat())
-            available[left] = float(watts_kwh) * 1000
+            segments.setdefault(hour, []).append((left, right, float(kwh)))
     result: dict[str, float] = {}
-    for hour in range(horizon_hours):
-        stamp = start + timedelta(hours=hour)
-        if stamp not in available:
+    for offset in range(horizon_hours):
+        stamp = start + timedelta(hours=offset)
+        pieces = sorted(segments.get(stamp, ()), key=lambda part: part[0])
+        cursor = stamp
+        kwh = 0.0
+        for left, right, energy_kwh in pieces:
+            if left < cursor:
+                raise ValueError("canonical_solar_forecast_duplicate_slot:" + stamp.isoformat())
+            if left > cursor:
+                break
+            cursor = right
+            kwh += energy_kwh
+        if cursor != stamp + timedelta(hours=1):
             raise ValueError("canonical_solar_forecast_missing_slot:" + stamp.isoformat())
-        result[stamp.isoformat()] = available[stamp]
+        result[stamp.isoformat()] = kwh * 1000
     return result

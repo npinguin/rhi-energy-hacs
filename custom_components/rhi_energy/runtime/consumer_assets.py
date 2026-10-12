@@ -113,7 +113,21 @@ def normalize_mobility_consumers(
         planning_input_value = first("planning_input_ready")
         if planning_input_value is None:
             planning_input_value = asset.get("planning_input_ready")
-        planning_input_ready = None if planning_input_value is None else bool(planning_input_value)
+        # Only producer-published boolean True is authoritative readiness.
+        # In particular bool("false") must never admit a consumer to planning.
+        raw_energy_need = first("energy_to_target_kwh", "required_energy_kwh", "energy_need_kwh")
+        # Python float(True) == 1.0, but booleans are not physical kWh evidence.
+        energy_need = None if isinstance(raw_energy_need, bool) else number(raw_energy_need)
+        valid_energy_need = energy_need is not None and energy_need >= 0
+        planning_blockers = list(asset.get("planning_blockers") or (
+            (asset.get("planning_readiness") or {}).get("blockers")
+            if isinstance(asset.get("planning_readiness"), dict) else []
+        ) or [])
+        if planning_input_value is True and not valid_energy_need:
+            if "energy_need_unavailable" not in planning_blockers:
+                planning_blockers.append("energy_need_unavailable")
+        # Producer blockers outweigh a contradictory planning_input_ready=True.
+        planning_input_ready = planning_input_value is True and valid_energy_need and not planning_blockers
         infrastructure_only = (
             source_asset_kind == "charger"
             or consumer_fallback == "unassigned_charger"
@@ -182,15 +196,15 @@ def normalize_mobility_consumers(
             "visible": True,
             "show_in_primary_ux": True,
             "participation_state": participation_state,
-            "planning_input_ready": False if infrastructure_only else (False if planning_input_ready is None else planning_input_ready),
+            "planning_input_ready": False if infrastructure_only else planning_input_ready,
             "planning_eligible": planning_eligible,
             "user_status": user_status,
             "technical_status": {
                 "relationship_status": asset.get("relationship_status"),
                 "relationship_reason": asset.get("relationship_reason"),
-                "planning_blockers": list(asset.get("planning_blockers") or []),
+                "planning_blockers": list(planning_blockers),
             },
-            "planning_blockers": list(asset.get("planning_blockers") or ((asset.get("planning_readiness") or {}).get("blockers") if isinstance(asset.get("planning_readiness"), dict) else []) or []),
+            "planning_blockers": list(planning_blockers),
             "producer_runtime_revision": asset.get("runtime_revision"),
             "producer_observed_at": asset.get("source_observed_at"),
             "infrastructure_only": infrastructure_only,
@@ -213,7 +227,7 @@ def normalize_mobility_consumers(
             "physical_connection_id": physical_connection_id or None,
             "physical_connection_display_name": asset.get("physical_connection_display_name"),
             "physical_identity_proven": physical_identity_proven,
-            "energy_to_target_kwh": number(first("energy_to_target_kwh", "required_energy_kwh", "energy_need_kwh")),
+            "energy_to_target_kwh": energy_need if valid_energy_need else None,
             "requested_power_kw": number(first("requested_power_kw", "requested_charge_power_kw")),
             "min_power_kw": envelope_min_kw,
             "max_power_kw": envelope_max_kw,
