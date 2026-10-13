@@ -58,6 +58,19 @@ def validate_provider_id(provider_id: str) -> str:
         raise ValueError("unknown_planner_provider")
     return provider_id
 
+def validate_primary_provider_id(provider_id: str) -> str:
+    """Admit only providers qualified for operational plan selection.
+
+    Connection configuration, shadow evaluation and historic user intent do not
+    grant an external optimizer physical planning authority. The provider
+    catalog is the one existing source of qualification truth.
+    """
+    selected = validate_provider_id(provider_id)
+    if not provider_catalog()[selected].execution_qualified:
+        raise ValueError("planner_primary_not_qualified:" + selected)
+    return selected
+
+
 def validate_planner_url(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("planner_endpoint_required")

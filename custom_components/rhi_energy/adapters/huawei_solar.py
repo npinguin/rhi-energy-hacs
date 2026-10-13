@@ -79,9 +79,9 @@ def normalization_semantics(role: str) -> dict[str, str]:
     if role == "battery.power_kw":
         return {
             "source_semantics": "signed storage-unit power",
-            "source_sign_convention": "positive=discharge, negative=charge",
+            "source_sign_convention": "positive=charge, negative=discharge",
             "canonical_sign_convention": "positive=discharge, negative=charge",
-            "transform": "identity",
+            "transform": "invert_sign",
         }
     if role == "solar.power_kw":
         return {
@@ -101,5 +101,13 @@ def normalization_semantics(role: str) -> dict[str, str]:
 
 
 def normalize(role: str, value: Any, _context: dict[str, Any]) -> Any:
-    """Normalize Huawei source values after provider-specific role selection."""
+    """Normalize Huawei source values after provider-specific role selection.
+
+    Huawei storage charge/discharge power is positive for charging and
+    negative for discharging, the inverse of Energy canonical battery power.
+    Preserve unknown/non-numeric values so the runtime's existing quality
+    checks reject them; never coerce missing evidence into a numeric zero.
+    """
+    if role == "battery.power_kw" and not isinstance(value, bool) and isinstance(value, (int, float)):
+        return -value
     return value

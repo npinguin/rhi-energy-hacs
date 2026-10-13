@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 from .runtime.planner_providers import (
     available_selection_ids, provider_catalog, validate_planner_url,
-    validate_provider_id,
+    validate_provider_id, validate_primary_provider_id,
 )
 
 import voluptuous as vol
@@ -282,7 +282,23 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
                 step_id="planner_selection", data_schema=schema,
                 errors={"planner_provider": "invalid_configuration"},
             )
-        validate_provider_id(selected)
+        # A configured native optimizer may only provide shadow advice until
+        # its existing provider-catalog execution gate is qualified. Keep the
+        # historic request visible (and connection settings intact), but do not
+        # silently accept or rewrite it as an operational planner on Save.
+        try:
+            validate_provider_id(selected)
+            validate_primary_provider_id(selected)
+        except ValueError:
+            error = (
+                "emhass_activation_not_yet_supported"
+                if selected == "emhass"
+                else "invalid_configuration"
+            )
+            return self.async_show_form(
+                step_id="planner_selection", data_schema=schema,
+                errors={"planner_provider": error},
+            )
         if selected == current:
             return self.async_create_entry(title="", data=options)
         options["planner_provider"] = selected
