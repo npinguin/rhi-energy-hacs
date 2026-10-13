@@ -50,8 +50,11 @@ def selected_forecast_entries(bindings: Any, registry_lookup: Callable[[str], An
         key = row.get("raw_capability_id") or row.get("input_id") or row.get("concept_id")
         if key and key not in FORECAST_CAPABILITIES and key != "solar_forecast":
             continue
-        bound_entity = row.get("current_entity_id") or source.get("entity_id")
-        expected_registry_id = row.get("entity_registry_id") or source.get("entity_registry_id")
+        # V2 AcceptedSourceBinding places exact HA source identity inside
+        # source_identity. Flat rows remain supported for established tests,
+        # but the current nested authority must take precedence.
+        bound_entity = source.get("current_entity_id") or row.get("current_entity_id") or source.get("entity_id")
+        expected_registry_id = source.get("entity_registry_id") or row.get("entity_registry_id")
         selected = source.get("config_entry_id") or row.get("config_entry_id")
         if not selected:
             relation = row.get("config_entry_relation") or {}
