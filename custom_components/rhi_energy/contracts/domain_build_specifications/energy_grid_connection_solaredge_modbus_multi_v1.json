@@ -352,19 +352,7 @@
         "integration_matches": [
           {
             "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "grid_phase_power",
-            "source_kind": "entity",
-            "all_of": [
-              {
-                "field": "source_identity.unique_id",
-                "operator": "contains",
-                "value": "phase_power"
-              }
-            ]
-          },
-          {
-            "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l1",
             "source_kind": "entity",
             "all_of": [
               {
@@ -376,7 +364,7 @@
           },
           {
             "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l2",
             "source_kind": "entity",
             "all_of": [
               {
@@ -388,7 +376,7 @@
           },
           {
             "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l3",
             "source_kind": "entity",
             "all_of": [
               {
@@ -400,7 +388,7 @@
           },
           {
             "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l1",
             "source_kind": "entity",
             "all_of": [
               {
@@ -412,7 +400,7 @@
           },
           {
             "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l2",
             "source_kind": "entity",
             "all_of": [
               {
@@ -424,7 +412,7 @@
           },
           {
             "integration_domain": "solaredge_modbus_multi",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l3",
             "source_kind": "entity",
             "all_of": [
               {

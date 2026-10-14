@@ -357,6 +357,7 @@
         "input_id": "battery_energy_import",
         "technical_capabilities": {
           "any_of": [
+            "energy_counter",
             "energy_capacity"
           ]
         },
@@ -401,6 +402,7 @@
         "input_id": "battery_energy_export",
         "technical_capabilities": {
           "any_of": [
+            "energy_counter",
             "energy_capacity"
           ]
         },

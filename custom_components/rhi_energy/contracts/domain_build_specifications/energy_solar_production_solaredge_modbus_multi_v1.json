@@ -389,7 +389,8 @@
         "input_id": "solar_ac_energy",
         "technical_capabilities": {
           "any_of": [
-            "energy_capacity"
+            "energy_capacity",
+            "energy_counter"
           ]
         },
         "allowed_source_kinds": [

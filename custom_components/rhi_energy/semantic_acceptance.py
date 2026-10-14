@@ -577,7 +577,7 @@ def _accept_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
     # by the build specification (e.g. grid_phase_current_l1), never from mutable
     # HA entity ids, friendly names or device display names.
     def _phase_rows(prefix: str, definitions: dict[str, str]) -> list[dict[str, Any]]:
-        phase_candidates: dict[str, dict[str, dict[str, Any]]] = {}
+        phase_candidates: dict[str, dict[str, dict[str, Any] | None]] = {}
         for input_id, role in definitions.items():
             rows, local = _safe_for(build_input, input_id)
             issues.extend(local)
@@ -586,10 +586,26 @@ def _accept_grid(build_input: dict[str, Any], previous: dict[str, dict[str, Any]
                 match = re.search(r"_(l[123])$", raw_id)
                 if not match:
                     continue
-                phase_candidates.setdefault(match.group(1).upper(), {})[role] = candidate
+                phase = match.group(1).upper()
+                candidates = phase_candidates.setdefault(phase, {})
+                previous_candidate = candidates.get(role)
+                if role not in candidates:
+                    candidates[role] = candidate
+                elif previous_candidate is not None and (
+                    previous_candidate.get("candidate_id") != candidate.get("candidate_id")
+                ):
+                    # Distinct physical sources for the same phase/role are
+                    # ambiguous. Never let arbitrary candidate iteration order
+                    # silently select one of them as the canonical measurement.
+                    candidates[role] = None
+                    issues.append(f"{input_id}:ambiguous:phase_{phase.lower()}:{role}")
         result: list[dict[str, Any]] = []
         for phase in ("L1", "L2", "L3"):
-            candidates = phase_candidates.get(phase) or {}
+            candidates = {
+                role: candidate
+                for role, candidate in (phase_candidates.get(phase) or {}).items()
+                if candidate is not None
+            }
             if not candidates:
                 continue
             phase_id = f"{prefix}_{_hash([asset_id, phase], 10)}"

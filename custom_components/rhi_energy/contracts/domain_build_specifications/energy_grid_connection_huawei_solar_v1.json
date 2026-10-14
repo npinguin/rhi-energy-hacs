@@ -124,7 +124,7 @@
         "integration_matches": [
           {
             "integration_domain": "huawei_solar",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l1",
             "source_kind": "entity",
             "all_of": [
               {
@@ -136,7 +136,7 @@
           },
           {
             "integration_domain": "huawei_solar",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l2",
             "source_kind": "entity",
             "all_of": [
               {
@@ -148,13 +148,166 @@
           },
           {
             "integration_domain": "huawei_solar",
-            "raw_capability_id": "grid_phase_power",
+            "raw_capability_id": "grid_phase_power_l3",
             "source_kind": "entity",
             "all_of": [
               {
                 "field": "source_identity.unique_id",
                 "operator": "ends_with",
                 "value": "_active_grid_C_power"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_phase_current",
+        "technical_capabilities": {
+          "any_of": [
+            "current_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_current_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_grid_A_current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_current_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_grid_B_current"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_current_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_grid_C_current"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_phase_voltage_ln",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_voltage_ln_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_grid_A_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_voltage_ln_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_grid_B_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_voltage_ln_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_grid_C_voltage"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "input_id": "grid_phase_voltage_ll",
+        "technical_capabilities": {
+          "any_of": [
+            "voltage_measurement"
+          ]
+        },
+        "allowed_source_kinds": [
+          "entity"
+        ],
+        "required": false,
+        "cardinality": "zero_or_more",
+        "integration_matches": [
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_voltage_ll_l1",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_grid_A_B_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_voltage_ll_l2",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_grid_B_C_voltage"
+              }
+            ]
+          },
+          {
+            "integration_domain": "huawei_solar",
+            "raw_capability_id": "grid_phase_voltage_ll_l3",
+            "source_kind": "entity",
+            "all_of": [
+              {
+                "field": "source_identity.unique_id",
+                "operator": "ends_with",
+                "value": "_active_grid_C_A_voltage"
               }
             ]
           }
@@ -173,7 +326,11 @@
       "grid.export_power_kw",
       "grid.import_energy_kwh",
       "grid.export_energy_kwh",
-      "grid.health"
+      "grid.health",
+      "grid_phase.current_a",
+      "grid_phase.voltage_ln_v",
+      "grid_phase.voltage_ll_v",
+      "grid_phase.power_kw"
     ],
     "possible_editable_properties": [
       "grid.connection_limit_kw"

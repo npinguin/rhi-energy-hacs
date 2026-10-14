@@ -1257,6 +1257,48 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         if deferred > 0:
             warnings.append("flexible_need_deferred_by_strategy_or_capacity")
         lane_totals = _lane_totals(buckets, complete=complete, solar=solar_total, demand=demand)
+        # An unknown participating vehicle blocks the complete site plan, but
+        # it must not erase independent, evidenced solar and home baseload truth.
+        # Publish the known-loads-only projection separately so UX cannot
+        # mistake it for total future demand or autonomous execution authority.
+        known_projection_ready = solar_total is not None and demand is not None
+        # Use only measured/learned home demand and the independent solar
+        # outlook. Flexible allocations and battery dispatch from the full plan
+        # cannot be relabelled as a known-load baseline.
+        baseline_home = [number(bucket.get("base_demand_forecast_kwh")) for bucket in buckets]
+        baseline_solar = [number(bucket.get("solar_forecast_kwh")) for bucket in buckets]
+        baseline_ready = known_projection_ready and all(
+            home is not None and solar is not None
+            for home, solar in zip(baseline_home, baseline_solar)
+        ) and len(baseline_home) == len(baseline_solar) and bool(buckets)
+        known_import = (
+            round(sum(max(0.0, home - solar) for home, solar in zip(baseline_home, baseline_solar)), 4)
+            if baseline_ready else None
+        )
+        known_export = (
+            round(sum(max(0.0, solar - home) for home, solar in zip(baseline_home, baseline_solar)), 4)
+            if baseline_ready else None
+        )
+        known_supply = (
+            round(sum(baseline_solar) + known_import, 4)
+            if baseline_ready else None
+        )
+        known_demand_projection = {
+            "basis": "solar_plus_home_baseload_only_no_battery_dispatch",
+            "complete": bool(baseline_ready and not incomplete_assets and not active_assets),
+            "unknown_flexible_load_count": len(incomplete_assets),
+            "home_consumption_forecast_kwh": demand,
+            "solar_forecast_kwh": solar_total,
+            "expected_grid_import_kwh": known_import,
+            "expected_grid_export_kwh": known_export,
+            "grid_balance_kwh": (
+                round(known_import - known_export, 4)
+                if known_import is not None and known_export is not None else None
+            ),
+            "total_usable_supply_kwh": known_supply,
+            "excluded_unknown_loads": bool(incomplete_assets),
+            "execution_authorized": False,
+        }
         grid_import = number((lane_totals.get("sources") or {}).get("grid_in_kwh"))
         grid_export = number((lane_totals.get("boundary") or {}).get("grid_out_kwh"))
         battery_support = number((lane_totals.get("sources") or {}).get("battery_out_kwh"))
@@ -1296,6 +1338,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                 "total_expected_demand_kwh": round(demand + scheduled, 4) if demand is not None else None,
                 "expected_demand_kwh": round(demand + scheduled, 4) if demand is not None else None,
             },
+            "known_demand_projection": known_demand_projection,
             "baseline_demand": {"home_kwh": demand},
             "flexible_demand": {"known_need_kwh": requested},
             "scheduled": {"flexible_kwh": scheduled},
