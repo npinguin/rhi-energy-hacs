@@ -21,17 +21,12 @@ from .canonical_semantics import (
     complete_numeric_sum, current_flexible_power_envelope, derive_consumption,
     derive_home_consumption,
     grid_flow_direction, canonical_pricing_currency,
-    intelligence,
-    number,
-    overview_snapshot,
-    pricing_properties,
-    strategy_properties,
-    split_battery_power,
+    intelligence, number, overview_snapshot,
+    pricing_properties, strategy_properties, split_battery_power,
 )
 from ..semantic import property_definitions
 from .consumer_assets import flexible_power_total, normalize_mobility_consumers, physical_connection_power_total
 from .event_flow import SourceEventCoalescer
-from .forecast import dark_zero, needs_sun_tracking
 from .logical_assets import apply_runtime_values
 from .incremental import build_entity_targets, update_optimizer_entity
 from .grid_power import apply_grid_power_facts
@@ -198,8 +193,6 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             if isinstance(row, dict)
         ]
         ids.extend(mobility_entity_ids())
-        if needs_sun_tracking((self.model or {}).get("logical_assets", [])):
-            ids.append("sun.sun")
         return sorted({str(value) for value in ids if value})
     def _hydrate_active_model(self) -> None:
         """Hydrate current sources and only then enable telemetry listeners."""
@@ -391,7 +384,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
                 "property_id": f"logical:{asset.get('asset_id')}:{key}",
                 "readback_property": key,
             }
-        value = dark_zero(self.hass, key, value)
+        # Missing selected-source forecast remains unknown, even after sunset.
         integration_domain = asset.get("integration_domain")
         normalizer = get_normalizer(integration_domain)
         prop["normalization_semantics"] = get_normalization_semantics(
@@ -544,6 +537,8 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             if not rows:
                 continue
             selected = rows[0]
+            if concept == "grid_connection":
+                facts["grid_connection.flow_direction"] = grid_flow_direction(facts.get("grid_connection.net_power_kw"))
             for prop in selected.get("properties") or []:
                 key = str(prop.get("property_key") or "")
                 if key:

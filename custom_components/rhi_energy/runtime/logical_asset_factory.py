@@ -149,7 +149,21 @@ def _properties(
             many=bool(spec.get("many")),
         )
         derived_from_bound = bool(spec.get("derived") and role and roles.get(role))
-        supported = bool(binding_ids or derived_from_bound or (role and aggregate_roles and role in aggregate_roles))
+        # Domain-owned derivations can be projected only when their declared
+        # physical prerequisite roles exist. This avoids an empty optional
+        # capability or accidental source selection at runtime.
+        participating_roles = set(roles) | (aggregate_roles or set())
+        derived_from_inputs = bool(
+            spec.get("derived")
+            and any(
+                all(dependency in participating_roles for dependency in group)
+                for group in (spec.get("derived_from_roles") or ())
+            )
+        )
+        supported = bool(
+            binding_ids or derived_from_bound or derived_from_inputs
+            or (role and aggregate_roles and role in aggregate_roles)
+        )
         # Optional capabilities that a concrete asset does not publish are not
         # properties of that asset.  Keeping them as empty rows created misleading
         # UNKNOWN/UNAVAILABLE surfaces throughout diagnostics and HA projection.

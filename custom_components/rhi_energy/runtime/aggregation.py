@@ -3,13 +3,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from .canonical_semantics import (
-    aggregate_battery_power,
-    aggregate_battery_soc,
-    battery_state_from_power,
-    complete_numeric_sum,
-)
-from .solar_accounting import aggregate_solar_system
+try:
+    from .canonical_semantics import (
+        aggregate_battery_power,
+        aggregate_battery_soc,
+        battery_state_from_power,
+        complete_numeric_sum,
+    )
+    from .solar_accounting import aggregate_solar_system
+except ImportError:  # Pure regression tests without Home Assistant installed.
+    from pathlib import Path as _Path
+    import runpy as _runpy
+    _root = _Path(__file__).resolve().parent
+    _semantics = _runpy.run_path(str(_root / "canonical_semantics.py"))
+    _solar = _runpy.run_path(str(_root / "solar_accounting.py"))
+    aggregate_battery_power = _semantics["aggregate_battery_power"]
+    aggregate_battery_soc = _semantics["aggregate_battery_soc"]
+    battery_state_from_power = _semantics["battery_state_from_power"]
+    complete_numeric_sum = _semantics["complete_numeric_sum"]
+    aggregate_solar_system = _solar["aggregate_solar_system"]
 
 
 def aggregate_objects(
@@ -88,6 +100,9 @@ def aggregate_objects(
             if units and all(value is not None for value in svals)
             else None
         )
+        # Publish the same derived state on the logical system object as
+        # its signed power, with no extra provider or UX-side resolver.
+        facts[f"{sid}.state"] = battery_state_from_power(facts[f"{sid}.power_kw"])
         facts["battery.power_kw"] = facts[f"{sid}.power_kw"]
         facts["battery.capacity_kwh"] = facts[f"{sid}.capacity_kwh"]
         facts["battery.available_kwh"] = facts[f"{sid}.available_kwh"]

@@ -60,7 +60,13 @@ class TacticalPlanningCadence:
         settings: dict[str, Any],
         flexible_assets: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        if self._refresh_requested or not self._plan:
+        # A changed planning bucket resolution changes the complete horizon
+        # contract and must invalidate the cached tactical plan immediately.
+        # Keep the existing deterministic planner as the sole authority.
+        resolution = (settings.get("planning") or {}).get("resolution_minutes", 60)
+        if type(resolution) is not int or resolution not in (15, 30, 60):
+            raise ValueError("deterministic_planning_resolution_invalid")
+        if self._refresh_requested or not self._plan or self._plan.get("resolution_minutes") != resolution:
             now_local = datetime.now(self._local_timezone)
             self._plan = deterministic_plan(facts, settings, flexible_assets, now_local)
             self._refresh_requested = False
