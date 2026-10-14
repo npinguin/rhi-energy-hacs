@@ -8,6 +8,7 @@ try:
         aggregate_battery_power,
         aggregate_battery_soc,
         battery_state_from_power,
+        split_battery_power,
         complete_numeric_sum,
     )
     from .solar_accounting import aggregate_solar_system
@@ -20,6 +21,7 @@ except ImportError:  # Pure regression tests without Home Assistant installed.
     aggregate_battery_power = _semantics["aggregate_battery_power"]
     aggregate_battery_soc = _semantics["aggregate_battery_soc"]
     battery_state_from_power = _semantics["battery_state_from_power"]
+    split_battery_power = _semantics["split_battery_power"]
     complete_numeric_sum = _semantics["complete_numeric_sum"]
     aggregate_solar_system = _solar["aggregate_solar_system"]
 
@@ -103,6 +105,34 @@ def aggregate_objects(
         # Publish the same derived state on the logical system object as
         # its signed power, with no extra provider or UX-side resolver.
         facts[f"{sid}.state"] = battery_state_from_power(facts[f"{sid}.power_kw"])
+        # Preserve physical throughput even if one unit charges while another
+        # discharges: net sign alone cannot reconstruct these two flows.
+        # Missing child readings and conflicting controller evidence are UNKNOWN.
+        direct_conflict = (
+            bool(units) and child_power is not None
+            and isinstance(direct_power, (int, float))
+            and not isinstance(direct_power, bool)
+            and abs(float(direct_power) - float(child_power)) > 0.10
+        )
+        source_powers = pvals if units else [facts[f"{sid}.power_kw"]]
+        complete = (
+            bool(source_powers) and not direct_conflict
+            and all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                    for value in source_powers)
+        )
+        directional = [split_battery_power(float(value)) for value in source_powers] if complete else []
+        charge = (
+            complete_numeric_sum([pair[0] for pair in directional], expected_count=len(source_powers))
+            if directional else None
+        )
+        discharge = (
+            complete_numeric_sum([pair[1] for pair in directional], expected_count=len(source_powers))
+            if directional else None
+        )
+        facts[f"{sid}.charge_power_kw"] = charge
+        facts[f"{sid}.discharge_power_kw"] = discharge
+        facts["battery.charge_power_kw"] = charge
+        facts["battery.discharge_power_kw"] = discharge
         facts["battery.power_kw"] = facts[f"{sid}.power_kw"]
         facts["battery.capacity_kwh"] = facts[f"{sid}.capacity_kwh"]
         facts["battery.available_kwh"] = facts[f"{sid}.available_kwh"]

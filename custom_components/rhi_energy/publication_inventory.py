@@ -67,7 +67,7 @@ class EnergyPublicationInventoryProvider:
                     "presentation": dict(placement) if placement is not None else None,
                     "unique_id_pattern": f"rhi_energy:logical:{{asset_id}}:{identity_type}:{key}",
                 })
-        if len(groups) != 20 or len(entries) != 215:
+        if len(groups) != 20 or len(entries) != 217:
             raise ValueError("energy_publication_inventory_model_incomplete")
         self._entries = entries
         self._meta = meta

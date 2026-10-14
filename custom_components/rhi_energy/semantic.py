@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Final, TypedDict
 
 
-DOMAIN_MODEL_VERSION: Final[str] = "1.4.4"
+DOMAIN_MODEL_VERSION: Final[str] = "1.4.5"
 
 
 class SemanticDefinition(TypedDict, total=False):
@@ -172,6 +172,8 @@ PROPERTY_DEFINITIONS: Final[dict[str, tuple[SemanticDefinition, ...]]] = {
 
     "battery_system": (
         {"input_id":None,"role":"power","property_key":"battery.power_kw","fact_key":"battery.power_kw","name":"Power","unit":"kW","kind":"power","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+        {"input_id":None,"role":"charge_power","derived_from_roles":(("power",),),"property_key":"battery.charge_power_kw","fact_key":"battery.charge_power_kw","name":"Charging power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
+        {"input_id":None,"role":"discharge_power","derived_from_roles":(("power",),),"property_key":"battery.discharge_power_kw","fact_key":"battery.discharge_power_kw","name":"Discharging power","unit":"kW","kind":"power","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"soc","property_key":"battery.soc_pct","fact_key":"battery.soc_pct","name":"State of charge","unit":"%","kind":"battery","required":True,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"capacity","property_key":"battery.capacity_kwh","fact_key":"battery.capacity_kwh","name":"Capacity","unit":"kWh","kind":"energy","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},
         {"input_id":None,"role":"capacity","property_key":"battery.available_kwh","fact_key":"battery.available_kwh","name":"Available energy","unit":"kWh","kind":"energy","required":False,"derived":True,"platform":"sensor","object_scope":"aggregate","many":False},

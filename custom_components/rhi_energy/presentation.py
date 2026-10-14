@@ -21,7 +21,7 @@ except ImportError:  # direct runpy regression tests
 FAMILY_ROLES: Final[dict[str, frozenset[str]]] = {
     "flow": frozenset({
         "power","ac_power","dc_power","reactive_power","apparent_power","attributed_power",
-        "available_power","measured_charge_power","measured_discharge_power",
+        "available_power","charge_power","discharge_power","measured_charge_power","measured_discharge_power",
         "measured_export_power","measured_home_consumption","measured_import_power",
         "net_power","site_consumption","site_consumption_meter_power",
         "solar_generation_direct_power","solar_generation_meter_power","tracker_a_power",
@@ -67,7 +67,7 @@ FAMILY_ROLES: Final[dict[str, frozenset[str]]] = {
 }
 
 KEY_ROLES: Final[frozenset[str]] = frozenset({
-    "power","net_power","site_consumption","soc","available_energy","capacity","state","status",
+    "power","charge_power","discharge_power","net_power","site_consumption","soc","available_energy","capacity","state","status",
     "flow_direction","energy_today","today_energy","tomorrow_energy","current","tariff",
 })
 DIAGNOSTIC_FAMILIES: Final[frozenset[str]] = frozenset({"engineering"})
