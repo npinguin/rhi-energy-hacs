@@ -27,11 +27,13 @@ from .canonical_semantics import (
     by_key,
     command_state_key,
     number,
+    pricing_properties,
     protective_execution_decision,
     strategy_properties,
 )
 from ..const import COMMAND_IDEMPOTENCY_WINDOW_SECONDS, COMMAND_TIMEOUT_SECONDS
 from .producers import resolve_mobility_command
+from .configuration_write import checked_pricing_write
 
 _LOGGER = logging.getLogger(__name__)
 _TERMINAL = {"CONFIRMED", "REJECTED", "TIMED_OUT"}
@@ -488,9 +490,13 @@ class EnergyInteractionEngine:
                     reason=f"property_write_exception:{type(exc).__name__}",
                 )
         elif property_id in pricing_map:
-            numeric = number(value)
-            if numeric is None:
-                result["reason"] = "invalid_number"
+            # The authoritative property row is the admission gate. In particular,
+            # a live source makes spot fallback read-only and persisted writes may
+            # not bypass the exact published number limits through the HA service.
+            price_rows = by_key(pricing_properties(self.runtime.snapshot.get("facts") or {}, settings))
+            rejection, numeric = checked_pricing_write(price_rows.get(property_id), value)
+            if rejection is not None:
+                result["reason"] = rejection
             else:
                 pricing[pricing_map[property_id]] = numeric
                 result.update(status="CONFIRMED", reason="persisted_pricing_intent", readback_value=numeric)
