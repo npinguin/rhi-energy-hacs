@@ -882,6 +882,76 @@ def automation_control_policy(settings: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _planning_price_for_bucket(
+    meta: dict[str, Any], future_intervals: list[dict[str, Any]],
+    current_price: float | None, now: datetime,
+) -> float | None:
+    """Return a price only if its evidenced interval covers the whole bucket.
+
+    The accepted ENTSO-E prices attribute provides timestamped market quotes,
+    not a daily average. Consecutive 15/30/60-minute quotes establish their
+    interval width; the final quote may use the last observed consistent
+    cadence. An explicit end timestamp takes precedence. A current spot
+    observation is valid only for the current bucket, never for D1 or a
+    future bucket after a series gap.
+    """
+    def instant(value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return dt.astimezone(timezone.utc) if dt.tzinfo is not None and dt.utcoffset() is not None else None
+
+    start = instant(meta.get("start_at") or meta.get("start_time"))
+    end = instant(meta.get("end_at") or meta.get("end_time"))
+    now_utc = now.astimezone(timezone.utc) if now.tzinfo is not None and now.utcoffset() is not None else None
+    if start is None or end is None or end <= start or now_utc is None:
+        return None
+
+    quotations: list[tuple[datetime, datetime | None, float]] = []
+    seen: set[datetime] = set()
+    for row in future_intervals:
+        if not isinstance(row, dict):
+            continue
+        at = instant(row.get("time") or row.get("start") or row.get("start_time"))
+        raw = row.get("price") if "price" in row else row.get("value")
+        price = number(raw) if not isinstance(raw, bool) else None
+        unit = str(row.get("unit") or "EUR/kWh").strip()
+        if at is None or price is None or unit not in {"EUR/kWh", "€/kWh"}:
+            continue
+        if at in seen:
+            # Multiple accepted sources claiming one market instant are
+            # ambiguous even if their floating-point values happen to match.
+            return None
+        seen.add(at)
+        raw_end = row.get("end") or row.get("end_at") or row.get("end_time")
+        at_end = instant(raw_end) if raw_end is not None else None
+        if raw_end is not None and at_end is None:
+            continue
+        quotations.append((at, at_end, price))
+    quotations.sort(key=lambda quote: quote[0])
+    permitted = {timedelta(minutes=15), timedelta(minutes=30), timedelta(minutes=60)}
+    for index, (at, explicit_end, price) in enumerate(quotations):
+        if explicit_end is not None:
+            until = explicit_end
+        elif index + 1 < len(quotations):
+            until = quotations[index + 1][0]
+        elif index and at - quotations[index - 1][0] in permitted:
+            until = at + (at - quotations[index - 1][0])
+        else:
+            continue
+        if until <= at or until - at not in permitted:
+            continue
+        if at <= start and end <= until:
+            return price
+    # Current live price never stands in for unobserved future market prices.
+    if start <= now_utc < end:
+        return current_price if current_price is not None and math.isfinite(current_price) else None
+    return None
+
+
 def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible_assets: list[dict[str, Any]], now: datetime | None = None) -> dict[str, Any]:
     """Deterministic D0/D1 advisory plan with chronological evidence semantics.
 
@@ -965,23 +1035,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
     solar_policy = strategy.get("flexible_loads.solar_policy", "prefer")
 
     def price_for_bucket(meta: dict[str, Any]) -> float | None:
-        try:
-            start = datetime.fromisoformat(str(meta.get("start_at") or meta.get("start_time")).replace("Z", "+00:00"))
-            end = datetime.fromisoformat(str(meta.get("end_at") or meta.get("end_time")).replace("Z", "+00:00"))
-        except (TypeError, ValueError):
-            return import_price
-        for row in future_intervals:
-            try:
-                at = datetime.fromisoformat(str(row.get("time") or row.get("start") or row.get("start_time")).replace("Z", "+00:00"))
-            except (TypeError, ValueError):
-                continue
-            if at.tzinfo is None and start.tzinfo is not None:
-                at = at.replace(tzinfo=start.tzinfo)
-            if start <= at < end:
-                price = number(row.get("price") if "price" in row else row.get("value"))
-                if price is not None:
-                    return price
-        return import_price
+        return _planning_price_for_bucket(meta, future_intervals, import_price, now)
 
     def grid_allowed(price: float | None) -> bool:
         if solar_policy == "only" or grid_policy in {"never", "not_applicable", "avoid_or_unavailable"}:
@@ -1302,6 +1356,23 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         grid_import = number((lane_totals.get("sources") or {}).get("grid_in_kwh"))
         grid_export = number((lane_totals.get("boundary") or {}).get("grid_out_kwh"))
         battery_support = number((lane_totals.get("sources") or {}).get("battery_out_kwh"))
+        # Pricing a whole D0/D1 horizon at the *current* spot rate creates
+        # fictitious financial outcomes. Every nonzero imported bucket needs
+        # its own observed, time-covered market rate. Zero import costs zero
+        # regardless of whether the tariff for that idle bucket is available.
+        import_costs = [
+            (number(bucket.get("expected_grid_import_kwh")),
+             number(bucket.get("import_price_eur_kwh")))
+            for bucket in buckets
+        ]
+        priced = complete and bool(import_costs) and all(
+            kwh is not None and kwh >= 0 and (kwh == 0 or price is not None)
+            for kwh, price in import_costs
+        )
+        planned_import_cost = (
+            round(sum(kwh * price for kwh, price in import_costs if kwh is not None and price is not None), 4)
+            if priced else None
+        )
         required_kwh = round(demand + requested, 4) if complete and demand is not None else None
         planned_kwh = round(demand + scheduled, 4) if complete and demand is not None else None
         return ({
@@ -1345,8 +1416,8 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             "remaining": {"flexible_kwh": deferred},
             "price_value": {
                 "import_price_eur_kwh": import_price,
-                "planned_import_cost_eur": round(grid_import * import_price, 4) if grid_import is not None and import_price is not None else None,
-                "quality": "estimated" if grid_import is not None and import_price is not None else "incomplete",
+                "planned_import_cost_eur": planned_import_cost,
+                "quality": "estimated" if planned_import_cost is not None else "incomplete",
             },
             "balance": {
                 "expected_grid_import_kwh": grid_import,
