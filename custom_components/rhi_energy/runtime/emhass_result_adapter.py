@@ -61,7 +61,10 @@ def accept_shadow_plan(
     native_step = context.provenance.get("native_step_minutes", resolution_minutes)
     if native_step not in (30, 60) or resolution_minutes not in (30, 60):
         raise NativeCapabilityError("emhass_timestep_unsupported")
-    if native_step != resolution_minutes and resolution_minutes != 60:
+    # Both the accepted Energy context and the result's declared timestep
+    # must agree. Previously 30-minute native output slipped through with the
+    # default 60-minute validator path, risking a wrong energy/cost integral.
+    if native_step != resolution_minutes:
         raise NativeCapabilityError("emhass_timestep_context_mismatch")
     step_hours = native_step / 60
     if last_run.get("action") != "naive-mpc-optim":

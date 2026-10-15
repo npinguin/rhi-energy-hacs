@@ -134,7 +134,7 @@ class EmhassShadowRunner:
                 supported_native_parameters=set(_NATIVE_KEYS),
             )
             run = await client.optimize_shadow(context.payload, action="naive-mpc-optim")
-            accepted = accept_shadow_plan(run.plan, run.last_run, context)
+            accepted = accept_shadow_plan(run.plan, run.last_run, context, resolution_minutes=native_step)
             runtime_version = str(run.last_run.get("emhass_version") or version or "")
             if runtime_version and runtime_version != "0.18.5":
                 raise ValueError("native_optimizer_version_mismatch:" + runtime_version)
