@@ -1,5 +1,6 @@
 """Pure value accounting from timestamp-matched interval integrals."""
 from __future__ import annotations
+from math import isfinite
 from typing import Any
 
 
@@ -7,9 +8,21 @@ def _number(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
+        numeric = float(value) if value is not None else None
+    except (TypeError, ValueError, OverflowError):
         return None
+    return numeric if numeric is not None and isfinite(numeric) else None
+
+
+def _nonnegative_power(value: Any) -> float | None:
+    """Accept measured zero but never publish nonphysical consumption."""
+    numeric = _number(value)
+    return numeric if numeric is not None and numeric >= 0 else None
+
+
+def _nonnegative_energy(value: Any) -> float | None:
+    """Canonical planned kWh must be finite; invalid means unavailable."""
+    return _nonnegative_power(value)
 
 
 def interval_actuals(meter: dict[str, Any]) -> dict[str, Any]:
@@ -78,7 +91,7 @@ def native_metric_evidence(
 ) -> dict[str, Any]:
     """Resolve one native HA metric directly from authoritative Energy evidence."""
     if key == "site_consumption_power_kw":
-        value = (snapshot.get("facts") or {}).get("site_consumption.power_kw")
+        value = _nonnegative_power((snapshot.get("facts") or {}).get("site_consumption.power_kw"))
         semantic_path = (
             (snapshot.get("semantic_paths") or {}).get("site_consumption.power_kw")
             or {}
@@ -94,7 +107,7 @@ def native_metric_evidence(
         }
 
     if key == "flexible_loads_power_kw":
-        value = (snapshot.get("facts") or {}).get("flexible_loads.power_kw")
+        value = _nonnegative_power((snapshot.get("facts") or {}).get("flexible_loads.power_kw"))
         semantic_path = (
             (snapshot.get("semantic_paths") or {}).get("flexible_loads.power_kw")
             or {}
@@ -110,7 +123,7 @@ def native_metric_evidence(
         }
 
     if key == "home_consumption_power_kw":
-        value = (snapshot.get("facts") or {}).get("home_consumption.power_kw")
+        value = _nonnegative_power((snapshot.get("facts") or {}).get("home_consumption.power_kw"))
         semantic_path = (
             (snapshot.get("semantic_paths") or {}).get("home_consumption.power_kw")
             or {}
@@ -156,11 +169,16 @@ def native_metric_evidence(
     quality = raw.get("quality") or {}
     available = quality.get("availability") == "AVAILABLE"
     metric_value = raw.get(field) if available else None
+    if metric_value is not None:
+        metric_value = _nonnegative_energy(metric_value)
+    # A producer availability flag alone cannot authorize a missing or
+    # nonphysical metric. Keep the selected horizon's reason where provided.
+    metric_available = available and metric_value is not None
     return {
         "value": metric_value,
         "availability": (
             "AVAILABLE"
-            if available and metric_value is not None
+            if metric_available
             else "UNAVAILABLE"
             if available
             else str(quality.get("availability") or "UNAVAILABLE")

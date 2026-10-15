@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 try:
     from .consumer_assets import physical_connection_power_total
     from .battery_metering import battery_gross_metering_powers
+    from .metering_source import finite_nonnegative_source_power, finite_signed_money_rate
 except ImportError:  # Direct runpy/static regression execution.
     from pathlib import Path as _Path
     import runpy as _runpy
@@ -27,6 +28,11 @@ except ImportError:  # Direct runpy/static regression execution.
     battery_gross_metering_powers = _runpy.run_path(
         str(_Path(__file__).resolve().parent / "battery_metering.py")
     )["battery_gross_metering_powers"]
+    _power_quality = _runpy.run_path(
+        str(_Path(__file__).resolve().parent / "metering_source.py")
+    )
+    finite_nonnegative_source_power = _power_quality["finite_nonnegative_source_power"]
+    finite_signed_money_rate = _power_quality["finite_signed_money_rate"]
 
 BASELOAD_SAMPLE_MINUTES = 15
 PERSIST_DEBOUNCE_SECONDS = 10
@@ -293,8 +299,8 @@ class EnergyMetering:
         return start
 
     def _learn_baseload(self, now: datetime, facts: dict[str, Any]) -> None:
-        home = facts.get("home_consumption.power_kw")
-        if not isinstance(home, (int, float)):
+        home = finite_nonnegative_source_power(facts.get("home_consumption.power_kw"))
+        if home is None:
             return
         state = self.store.data.setdefault("metering", {})
         bucket = _baseload_bucket(now)
@@ -303,7 +309,7 @@ class EnergyMetering:
         state["baseload_last_sample_bucket"] = bucket
         # home_consumption.power_kw is already the canonical residual excluding
         # physical flexible loads; subtracting them again corrupts the baseline.
-        base = max(0.0, float(home))
+        base = home
         profile = state.setdefault("baseload_profile", {})
         key = f"{now.hour:02d}"
         row = profile.get(key) if isinstance(profile.get(key), dict) else {"avg_kw": 0.0, "samples": 0}
@@ -343,9 +349,9 @@ class EnergyMetering:
             not in {"disabled", "inactive"}
         ]
         flexible_powers = {
-            str(a["asset_id"]): a.get("power_kw")
+            str(a["asset_id"]): finite_nonnegative_source_power(a.get("power_kw"))
             for a in active_flexible_rows
-            if isinstance(a.get("power_kw"), (int, float))
+            if finite_nonnegative_source_power(a.get("power_kw")) is not None
         }
         producer_available = bool(snap.get("mobility_publication_available"))
         physical_flexible_total = physical_connection_power_total(
@@ -354,14 +360,14 @@ class EnergyMetering:
         )
         battery_charge, battery_discharge = battery_gross_metering_powers(facts)
         current = {
-            "solar_kwh": facts.get("solar.power_kw"),
-            "grid_import_kwh": facts.get("grid_import.power_kw"),
-            "grid_export_kwh": facts.get("grid_export.power_kw"),
-            "site_consumption_kwh": facts.get("site_consumption.power_kw"),
-            "home_consumption_kwh": facts.get("home_consumption.power_kw"),
+            "solar_kwh": finite_nonnegative_source_power(facts.get("solar.power_kw")),
+            "grid_import_kwh": finite_nonnegative_source_power(facts.get("grid_import.power_kw")),
+            "grid_export_kwh": finite_nonnegative_source_power(facts.get("grid_export.power_kw")),
+            "site_consumption_kwh": finite_nonnegative_source_power(facts.get("site_consumption.power_kw")),
+            "home_consumption_kwh": finite_nonnegative_source_power(facts.get("home_consumption.power_kw")),
             "battery_charge_kwh": battery_charge,
             "battery_discharge_kwh": battery_discharge,
-            "flexible_loads_energy_in_kwh": physical_flexible_total,
+            "flexible_loads_energy_in_kwh": finite_nonnegative_source_power(physical_flexible_total),
         }
         last_at = state.get("last_update")
         last = state.get("last_powers") or {}
@@ -381,17 +387,20 @@ class EnergyMetering:
                     continue
                 hours = seconds / 3600.0
                 for field in self.FIELDS:
-                    kw = last.get(field)
-                    if isinstance(kw, (int, float)):
-                        self._accumulate(row, field, float(kw), hours, seconds)
-                for asset_id, kw in last_flexible.items():
-                    if isinstance(kw, (int, float)):
+                    # Old HA store snapshots may predate the source-quality
+                    # gate. Never integrate invalid previously persisted power.
+                    kw = finite_nonnegative_source_power(last.get(field))
+                    if kw is not None:
+                        self._accumulate(row, field, kw, hours, seconds)
+                for asset_id, sample in last_flexible.items():
+                    kw = finite_nonnegative_source_power(sample)
+                    if kw is not None:
                         per = row.setdefault("flexible_assets_kwh", {})
-                        per[asset_id] = round(float(per.get(asset_id) or 0.0) + max(0.0, float(kw)) * hours, 6)
+                        per[asset_id] = round(float(per.get(asset_id) or 0.0) + kw * hours, 6)
                 for field in ("import_cost_eur", "export_revenue_eur"):
-                    rate = last_financial.get(field)
-                    if isinstance(rate, (int, float)):
-                        self._accumulate_financial(row, field, float(rate), hours)
+                    rate = finite_signed_money_rate(last_financial.get(field))
+                    if rate is not None:
+                        self._accumulate_financial(row, field, rate, hours)
                 row["quality"] = _overall_quality(row, self.FIELDS)
         elif prev is not None and dt > 300:
             for row in state["periods"].values():
