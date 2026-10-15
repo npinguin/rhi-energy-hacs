@@ -6,6 +6,7 @@ authority. A failed optimizer may not erase the independent baseline evidence.
 from __future__ import annotations
 
 from copy import deepcopy
+from math import isfinite
 from typing import Any
 
 CONTRACTS = {
@@ -52,9 +53,15 @@ def native_planning_horizon(
         "flexible_required_kwh", "flexible_planned_kwh",
         "flexible_still_to_plan_kwh",
     )
+    # Only finite, physical nonnegative energy totals are valid. A NaN/Infinity
+    # from a failed optimiser would otherwise be marked AVAILABLE and published
+    # into native HA/UX as an apparently complete plan.
     complete = all(
         isinstance(horizon.get(key), (int, float))
-        and not isinstance(horizon.get(key), bool) for key in totals
+        and not isinstance(horizon.get(key), bool)
+        and isfinite(horizon[key])
+        and horizon[key] >= 0
+        for key in totals
     )
     quality = horizon.get("quality") or {}
     available = quality.get("availability") == "AVAILABLE" and complete
@@ -69,7 +76,7 @@ def native_planning_horizon(
         "source_lanes": deepcopy(lanes.get("sources")),
         "consumer_lanes": deepcopy(lanes.get("consumers")),
         "execution_policy": deepcopy(plan.get("execution_policy")),
-        "execution_authorized": result["execution_authorized"],
+        "execution_authorized": result["execution_authorized"] and available,
     })
     return {
         **result,
@@ -79,6 +86,7 @@ def native_planning_horizon(
             else "planning_horizon_quality_incomplete"
         ),
         "totals_complete": complete,
+        "execution_authorized": result["execution_authorized"] and available,
         "quality": deepcopy(quality),
         "details": details,
     }
