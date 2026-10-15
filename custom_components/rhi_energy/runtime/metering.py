@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 
 try:
     from .consumer_assets import physical_connection_power_total
+    from .battery_metering import battery_gross_metering_powers
 except ImportError:  # Direct runpy/static regression execution.
     from pathlib import Path as _Path
     import runpy as _runpy
@@ -23,6 +24,9 @@ except ImportError:  # Direct runpy/static regression execution.
         str(_Path(__file__).resolve().parent / "consumer_assets.py")
     )
     physical_connection_power_total = _consumer_assets["physical_connection_power_total"]
+    battery_gross_metering_powers = _runpy.run_path(
+        str(_Path(__file__).resolve().parent / "battery_metering.py")
+    )["battery_gross_metering_powers"]
 
 BASELOAD_SAMPLE_MINUTES = 15
 PERSIST_DEBOUNCE_SECONDS = 10
@@ -348,14 +352,15 @@ class EnergyMetering:
             snap.get("connections") or [],
             producer_available=producer_available,
         )
+        battery_charge, battery_discharge = battery_gross_metering_powers(facts)
         current = {
             "solar_kwh": facts.get("solar.power_kw"),
             "grid_import_kwh": facts.get("grid_import.power_kw"),
             "grid_export_kwh": facts.get("grid_export.power_kw"),
             "site_consumption_kwh": facts.get("site_consumption.power_kw"),
             "home_consumption_kwh": facts.get("home_consumption.power_kw"),
-            "battery_charge_kwh": max(0.0, -facts.get("battery.power_kw")) if isinstance(facts.get("battery.power_kw"), (int, float)) else None,
-            "battery_discharge_kwh": max(0.0, facts.get("battery.power_kw")) if isinstance(facts.get("battery.power_kw"), (int, float)) else None,
+            "battery_charge_kwh": battery_charge,
+            "battery_discharge_kwh": battery_discharge,
             "flexible_loads_energy_in_kwh": physical_flexible_total,
         }
         last_at = state.get("last_update")
