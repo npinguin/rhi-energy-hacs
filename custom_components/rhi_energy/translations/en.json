@@ -158,7 +158,8 @@
       "canonical_runtime_unavailable": "Energy runtime is not available. Reload the integration and try again.",
       "emhass_activation_not_yet_supported": "EMHASS cannot be selected as primary until native optimization and safety validation pass.",
       "invalid_url": "Enter a valid EMHASS HTTP(S) service URL.",
-      "write_not_confirmed": "The write was not confirmed by the Energy backend. Check the property's operation status and readback before retrying."
+      "write_not_confirmed": "The write was not confirmed by the Energy backend. Check the property's operation status and readback before retrying.",
+      "partial_write": "Some settings were saved, but a later change was not confirmed. Review the displayed readback before retrying; the form was not applied atomically."
     },
     "abort": {
       "canonical_configuration_unavailable": "Energy configuration is not available yet. Wait until the Energy runtime is ready and open Configure again.",

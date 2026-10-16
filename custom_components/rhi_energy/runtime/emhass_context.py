@@ -116,6 +116,56 @@ def _canonical_hourly_import_prices(rows: Any) -> dict[datetime, float]:
     return hourly
 
 
+
+def _native_import_price_slots(
+    rows: Any, *,
+    step_minutes: int,
+) -> dict[datetime, float]:
+    """Preserve observed half-hour prices in native 30-minute MPC.
+
+    A 60-minute native solver legitimately uses a complete weighted hourly
+    average; a 30-minute solver cannot be fed that same hour average when the
+    original selected-source prices contained different 30/15-minute rates.
+    """
+    hourly = _canonical_hourly_import_prices(rows)
+    if step_minutes == 60:
+        return hourly
+    if step_minutes != 30:
+        raise PlanningInputError("unsupported_native_timestep")
+    if isinstance(rows, Mapping):
+        entries = list(rows.items())
+    else:
+        entries = [
+            (row.get("time") or row.get("start") or row.get("start_time"),
+             row.get("price") if "price" in row else row.get("value"))
+            for row in rows
+        ]
+    source_slots = {
+        _timestamp(at, "import_prices"): _finite(value, "import_eur_kwh")
+        for at, value in entries
+    }
+    minute_markers = {at.minute for at in source_slots}
+    output: dict[datetime, float] = {}
+    for hour, average in hourly.items():
+        if minute_markers == {0}:
+            output[hour] = average
+            output[hour + timedelta(minutes=30)] = average
+        elif minute_markers == {0, 30}:
+            output[hour] = source_slots[hour]
+            output[hour + timedelta(minutes=30)] = source_slots[hour + timedelta(minutes=30)]
+        elif minute_markers == {0, 15, 30, 45}:
+            output[hour] = (
+                source_slots[hour] + source_slots[hour + timedelta(minutes=15)]
+            ) / 2
+            output[hour + timedelta(minutes=30)] = (
+                source_slots[hour + timedelta(minutes=30)]
+                + source_slots[hour + timedelta(minutes=45)]
+            ) / 2
+        else:
+            raise PlanningInputError("import_prices_mixed_native_resolution")
+    return output
+
+
 def _hourly_baseload(profile: dict[str, Any], utc_at: datetime, zone: ZoneInfo) -> float:
     local_hour = utc_at.astimezone(zone).hour
     row = profile.get(f"{local_hour:02d}") if isinstance(profile, dict) else None
@@ -236,7 +286,7 @@ def build_emhass_context(
         raise PlanningInputError("unsupported_tariff_currency")
     zone = ZoneInfo(local_timezone)
     pv = _hourly_map(pv_watts, key_label="pv_forecast", value_label="pv_w")
-    prices = _canonical_hourly_import_prices(import_price_intervals)
+    prices = _native_import_price_slots(import_price_intervals, step_minutes=step_minutes)
     export_price = _finite(export_price_eur_kwh, "export_eur_kwh")
     hours: list[CanonicalHour] = []
     for idx in range(horizon_hours * 60 // step_minutes):
@@ -244,13 +294,13 @@ def build_emhass_context(
         # An authoritative hourly power/price estimate is a piecewise constant
         # estimate over its proven hour, NOT an invented extra forecast hour.
         source_hour = stamp.replace(minute=0, second=0, microsecond=0)
-        if source_hour not in pv or source_hour not in prices:
+        if source_hour not in pv or stamp not in prices:
             missing = "pv_forecast" if source_hour not in pv else "import_prices"
-            raise PlanningInputError(missing + "_missing_slot:" + source_hour.isoformat())
+            raise PlanningInputError(missing + "_missing_slot:" + stamp.isoformat())
         hours.append(CanonicalHour(
             stamp.isoformat(), pv[source_hour] / 1000,
             _hourly_baseload(baseload_profile, stamp, zone),
-            prices[source_hour], export_price,
+            prices[stamp], export_price,
         ))
     reserve = _finite(reserve_target_pct, "reserve_target_pct", nonnegative=True) if reserve_target_pct is not None else None
     batteries, soc = _battery_rows(battery_units, battery_configuration, reserve_target_pct=reserve)
@@ -288,7 +338,11 @@ def build_emhass_context(
             "local_timezone": local_timezone,
             "home_baseload": "persistent_hourly_metered_profile",
             "import_prices": "canonical_timestamped_future_prices",
-            "import_price_alignment": "complete_15_30_60_minute_energy_weighted_hourly",
+            "import_price_alignment": (
+                "complete_15_minute_weighted_native_half_hour"
+                if step_minutes == 30
+                else "complete_15_30_60_minute_energy_weighted_hourly"
+            ),
             "export_price": "canonical_energy_export_compensation",
             "battery_configuration": "explicit_per_asset_limits",
             "flexible_loads": "mobility_public_producer",

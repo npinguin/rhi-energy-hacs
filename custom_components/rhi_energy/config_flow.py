@@ -21,7 +21,9 @@ from homeassistant.helpers.selector import (
 from .const import DOMAIN
 from .v2_configuration import canonical_configuration_rows
 from .runtime.capability_service import EnergyCapabilityService
-from .runtime.configuration_write import confirmed_configuration_readback
+from .runtime.configuration_write import (
+    confirmed_configuration_readback, preflight_configuration_writes,
+)
 
 
 class RhiEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -129,19 +131,15 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
         interaction = self._interaction()
         if interaction is None:
             raise RuntimeError("canonical_runtime_unavailable")
-        for field_name, property_id in fields.items():
-            if field_name not in user_input:
-                continue
-            row = rows.get(property_id)
-            if not EnergyCapabilityService.editable_definition(row):
-                # A live source may make an initially editable field read-only
-                # while its OptionsFlow form is open. Never silently skip Save.
-                raise ValueError("canonical_property_not_editable")
-            value = user_input[field_name]
-            if value == row.get("value"):
-                continue
+        # Validate the entire submitted form before the first persisted write.
+        # Canonical write admission is rechecked independently by the producer.
+        pending = preflight_configuration_writes(rows, fields, user_input)
+        confirmed_count = 0
+        for property_id, value in pending:
             result = await interaction.write_property(property_id, value)
             if not isinstance(result, dict) or result.get("status") != "CONFIRMED":
+                if confirmed_count:
+                    raise RuntimeError("canonical_partial_configuration_write")
                 if isinstance(result, dict) and result.get("status") == "REJECTED":
                     raise ValueError("canonical_property_write_rejected")
                 raise RuntimeError("canonical_property_write_not_confirmed")
@@ -149,7 +147,11 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
             # may complete the editor. Returning from a service call is not proof.
             current_row = self._row_map().get(property_id)
             if not confirmed_configuration_readback(result, value, current_row):
-                raise RuntimeError("canonical_property_readback_mismatch")
+                raise RuntimeError(
+                    "canonical_partial_configuration_write"
+                    if confirmed_count else "canonical_property_readback_mismatch"
+                )
+            confirmed_count += 1
 
     async def _edit(
         self,
@@ -172,6 +174,8 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
                 errors={"base": (
                     "canonical_runtime_unavailable"
                     if str(exc) == "canonical_runtime_unavailable"
+                    else "partial_write"
+                    if str(exc) == "canonical_partial_configuration_write"
                     else "write_not_confirmed"
                 )},
             )

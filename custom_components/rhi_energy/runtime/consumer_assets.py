@@ -333,10 +333,20 @@ def physical_connection_power_total(
     if not active:
         return 0.0
     values: list[float] = []
+    seen: set[str] = set()
     for row in active:
-        value = number(row.get("power_kw"))
+        # One physical charger contributes once; a duplicate or anonymous
+        # connection is ambiguous physical truth, not additional site demand.
+        identity = str(row.get("asset_id") or "")
+        if not identity or identity in seen:
+            return None
+        seen.add(identity)
+        raw = row.get("power_kw")
+        value = None if isinstance(raw, bool) else number(raw)
         if value is not None:
-            values.append(max(0.0, float(value)))
+            if value < 0:
+                return None
+            values.append(float(value))
             continue
         # A producer-owned canonical idle state is authoritative evidence that the
         # connection is not drawing charging power. This is not "unknown = 0":

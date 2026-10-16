@@ -8,7 +8,7 @@ command admission uses the store directly and is therefore not delayed by this m
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -42,8 +42,17 @@ ENERGY_BALANCE_SEMANTICS_VERSION = 2
 
 def _period_keys(now: datetime) -> dict[str, str]:
     iso = now.isocalendar()
+    # The 02:00 hour is repeated during the autumn DST transition. Distinguish
+    # the two physical periods without rotating existing keys on ordinary days.
+    ambiguous_hour = (
+        now.tzinfo is not None
+        and now.replace(fold=0).utcoffset() != now.replace(fold=1).utcoffset()
+    )
+    hour_key = now.strftime("%Y-%m-%dT%H")
+    if ambiguous_hour:
+        hour_key += now.strftime("%z")
     return {
-        "hour": now.strftime("%Y-%m-%dT%H"),
+        "hour": hour_key,
         "today": now.strftime("%Y-%m-%d"),
         "week": f"{iso.year}-W{iso.week:02d}",
         "month": now.strftime("%Y-%m"),
@@ -62,6 +71,18 @@ def _period_start(now: datetime, period_id: str) -> datetime:
     if period_id == "month":
         return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _utc_seconds_between(start: datetime, end: datetime) -> float:
+    """Integrate physical elapsed seconds, not wall-clock hours across DST."""
+    if start.tzinfo is None or end.tzinfo is None:
+        raise ValueError("metering_interval_timezone_missing")
+    return (end.astimezone(timezone.utc) - start.astimezone(timezone.utc)).total_seconds()
+
+
+def _latest_instant(*values: datetime) -> datetime:
+    """Compare aware instants even when fold differs on the same ZoneInfo."""
+    return max(values, key=lambda value: value.astimezone(timezone.utc))
 
 
 def _sticky_field_quality(previous: str | None, *, observed: bool, gap: bool = False) -> str:
@@ -100,6 +121,7 @@ def _new_period(period_key: str) -> dict[str, Any]:
             "import_cost_eur": "UNKNOWN",
             "export_revenue_eur": "UNKNOWN",
         },
+        "financial_coverage_seconds": {"import_cost_eur": 0, "export_revenue_eur": 0},
         "import_cost_eur": None,
         "export_revenue_eur": None,
         "baseline_reset_at": None,
@@ -189,6 +211,10 @@ class EnergyMetering:
                     "financial_quality",
                     {"import_cost_eur": "UNKNOWN", "export_revenue_eur": "UNKNOWN"},
                 )
+                # Never infer historical priced-time evidence on an old period.
+                row.setdefault("financial_coverage_seconds", {
+                    "import_cost_eur": 0, "export_revenue_eur": 0,
+                })
                 row.setdefault("import_cost_eur", None)
                 row.setdefault("export_revenue_eur", None)
                 row.setdefault("baseline_reset_at", None)
@@ -230,19 +256,23 @@ class EnergyMetering:
         )
         quality = row.setdefault("financial_quality", {})
         quality[field] = _sticky_field_quality(quality.get(field), observed=True)
+        coverage = row.setdefault("financial_coverage_seconds", {})
+        coverage[field] = int(coverage.get(field, 0)) + int(max(0.0, hours * 3600))
 
     def _financial_rates(self, facts: dict[str, Any]) -> dict[str, float | None]:
         from .canonical_semantics import by_key, number, pricing_properties
 
         prices = by_key(pricing_properties(facts, self.store.data.get("settings") or {}))
-        import_price = number(
-            (prices.get("pricing.import_effective_price_eur_kwh") or {}).get("value")
-        )
-        export_price = number(
-            (prices.get("pricing.export_effective_price_eur_kwh") or {}).get("value")
-        )
-        grid_import = number(facts.get("grid_import.power_kw"))
-        grid_export = number(facts.get("grid_export.power_kw"))
+        import_raw = (prices.get("pricing.import_effective_price_eur_kwh") or {}).get("value")
+        export_raw = (prices.get("pricing.export_effective_price_eur_kwh") or {}).get("value")
+        # bool is a Python int but not an authenticated EUR/kWh tariff.
+        import_price = finite_signed_money_rate(number(import_raw)) if not isinstance(import_raw, bool) else None
+        export_price = finite_signed_money_rate(number(export_raw)) if not isinstance(export_raw, bool) else None
+        # Monetary rates must use the *same* accepted physical grid source
+        # as kWh metering. Negative/invalid import/export measurements are not
+        # evidence for a cost or credit, including missing tariff + false zero.
+        grid_import = finite_nonnegative_source_power(facts.get("grid_import.power_kw"))
+        grid_export = finite_nonnegative_source_power(facts.get("grid_export.power_kw"))
         return {
             "import_cost_eur": (
                 0.0
@@ -286,14 +316,14 @@ class EnergyMetering:
 
     @staticmethod
     def _effective_start(row: dict[str, Any], natural_start: datetime, prev: datetime) -> datetime:
-        start = max(prev, natural_start)
+        start = _latest_instant(prev, natural_start)
         reset_at = row.get("baseline_reset_at")
         if reset_at:
             try:
                 reset = datetime.fromisoformat(str(reset_at))
                 if reset.tzinfo is None and prev.tzinfo is not None:
                     reset = reset.replace(tzinfo=prev.tzinfo)
-                start = max(start, reset)
+                start = _latest_instant(start, reset)
             except (TypeError, ValueError):
                 pass
         return start
@@ -375,14 +405,18 @@ class EnergyMetering:
         last_financial = state.get("last_financial_rates") or {}
         try:
             prev = datetime.fromisoformat(last_at) if last_at else None
+            # A naive legacy timestamp does not prove the prior physical instant;
+            # never assume an offset or integrate its interval as actual energy.
+            if prev is not None and prev.tzinfo is None:
+                prev = None
         except (TypeError, ValueError):
             prev = None
-        dt = (now - prev).total_seconds() if prev else 0
+        dt = _utc_seconds_between(prev, now) if prev else 0
 
         if prev is not None and 0 < dt <= 300:
             for period_id, row in state["periods"].items():
                 start = self._effective_start(row, _period_start(now, period_id), prev)
-                seconds = max(0.0, (now - start).total_seconds())
+                seconds = max(0.0, _utc_seconds_between(start, now))
                 if seconds <= 0:
                     continue
                 hours = seconds / 3600.0
@@ -392,6 +426,13 @@ class EnergyMetering:
                     kw = finite_nonnegative_source_power(last.get(field))
                     if kw is not None:
                         self._accumulate(row, field, kw, hours, seconds)
+                    elif row.get(field) is not None:
+                        # A missing measurement inside an otherwise observed
+                        # period cannot silently leave its quality at OK.
+                        field_quality = row.setdefault("field_quality", {})
+                        field_quality[field] = _sticky_field_quality(
+                            field_quality.get(field), observed=True, gap=True
+                        )
                 for asset_id, sample in last_flexible.items():
                     kw = finite_nonnegative_source_power(sample)
                     if kw is not None:
@@ -401,6 +442,14 @@ class EnergyMetering:
                     rate = finite_signed_money_rate(last_financial.get(field))
                     if rate is not None:
                         self._accumulate_financial(row, field, rate, hours)
+                    elif row.get(field) is not None:
+                        # Rates can disappear while physical metering continues.
+                        # Preserve an explicit PARTIAL financial period rather
+                        # than publishing an understated net EUR as complete.
+                        financial_quality = row.setdefault("financial_quality", {})
+                        financial_quality[field] = _sticky_field_quality(
+                            financial_quality.get(field), observed=True, gap=True
+                        )
                 row["quality"] = _overall_quality(row, self.FIELDS)
         elif prev is not None and dt > 300:
             for row in state["periods"].values():
@@ -431,6 +480,9 @@ class EnergyMetering:
         }
         row["import_cost_eur"] = None
         row["export_revenue_eur"] = None
+        row["financial_coverage_seconds"] = {
+            "import_cost_eur": 0, "export_revenue_eur": 0,
+        }
         row["quality"] = "UNKNOWN"
         row["baseline_reset_at"] = now.isoformat()
         row["gap_count"] = 0

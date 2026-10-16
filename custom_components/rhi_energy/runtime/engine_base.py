@@ -22,7 +22,7 @@ from .canonical_semantics import (
     derive_home_consumption,
     grid_flow_direction, canonical_pricing_currency,
     intelligence, number, overview_snapshot,
-    pricing_properties, strategy_properties, split_battery_power,
+    pricing_properties, strategy_properties,
 )
 from ..semantic import property_definitions
 from .consumer_assets import flexible_power_total, normalize_mobility_consumers, physical_connection_power_total
@@ -31,7 +31,9 @@ from .logical_assets import apply_runtime_values
 from .incremental import build_entity_targets, update_optimizer_entity
 from .grid_power import apply_grid_power_facts
 from .producers import mobility_entity_ids, read_mobility_energy_assets
-from .presence import experience_presence, physical_input
+from .presence import experience_presence, physical_input, concept_present
+from .battery_metering import qualified_battery_balance_powers
+from .metering_source import finite_nonnegative_source_power
 from .aggregation import aggregate_objects
 from .semantic_authority import CanonicalFactStore
 from .pilot_readiness import operational_readiness
@@ -637,10 +639,17 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             resolves_from={"source_materialization", "domain_aggregation"},
         ):
             self._canonicalize(domain_assets, facts, runtime_issues)
+        battery_power_for_balance = physical_input(self.model, "battery_system", "battery.power_kw", facts, domain_assets)
+        battery_charge_power, battery_discharge_power, balance_issue = qualified_battery_balance_powers(
+            facts, net_power_kw=battery_power_for_balance,
+            battery_present=concept_present(self.model, "battery_system", domain_assets))
+        if balance_issue: runtime_issues.append(balance_issue)
+        qualified_battery_net = battery_power_for_balance if not balance_issue else None
         consumption = derive_consumption(
             physical_input(self.model, "solar_production", "solar.power_kw", facts, domain_assets),
             physical_input(self.model, "grid_connection", "grid.net_power_kw", facts, domain_assets),
-            physical_input(self.model, "battery_system", "battery.power_kw", facts, domain_assets),
+            qualified_battery_net,
+            gross_discharge_kw=battery_discharge_power,
         )
         # Physical balance yields Site Consumption. Home Consumption is the
         # residual after the complete Mobility-owned flexible-load publication.
@@ -662,17 +671,12 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             connections,
             producer_available=producer_available,
         )
-        battery_power_for_balance = physical_input(
-            self.model, "battery_system", "battery.power_kw", facts, domain_assets
-        )
-        battery_charge_power, battery_discharge_power = split_battery_power(
-            battery_power_for_balance
-        )
-        measured_home_power = number(facts.get("home_consumption.measured_power_kw"))
+        measured_home_power = finite_nonnegative_source_power(facts.get("home_consumption.measured_power_kw"))
         home = derive_home_consumption(
             consumption["power_kw"],
             flexible_power,
-            battery_power_for_balance,
+            qualified_battery_net,
+            gross_charge_kw=battery_charge_power,
         )
         # Selected direct home-consumption measurement is authoritative; balance remains a cross-check.
         home_power = measured_home_power if measured_home_power is not None else home["power_kw"]

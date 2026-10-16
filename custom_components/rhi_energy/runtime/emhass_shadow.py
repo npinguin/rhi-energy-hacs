@@ -40,6 +40,7 @@ class EmhassShadowRunner:
         self.options = dict(options)
         self.notify = notify
         self._task: asyncio.Task | None = None
+        self._pending: tuple[Any, ...] | None = None
         self._generation = 0
         self._stopped = False
         self.status: dict[str, Any] = {
@@ -53,19 +54,49 @@ class EmhassShadowRunner:
                 metering_profile: dict[str, Any], strategy: dict[str, Any],
                 settings: dict[str, Any],
                 cadence_revision: Any) -> None:
-        if self._stopped or (self._task is not None and not self._task.done()):
+        if self._stopped or cadence_revision is None:
             return
-        if cadence_revision is None or cadence_revision == self.status.get("requested_cadence_revision"):
+        if cadence_revision == self.status.get("requested_cadence_revision"):
             return
+        # The latest immutable Energy revision wins. Never drop a new input
+        # just because an older native solver run is still awaiting HTTP.
+        inputs = (
+            deepcopy(plan), deepcopy(facts), deepcopy(batteries),
+            deepcopy(loads), deepcopy(metering_profile), deepcopy(strategy),
+            deepcopy(settings),
+        )
         self._generation += 1
-        generation = self._generation
         self.status["requested_cadence_revision"] = cadence_revision
-        self.status.update(status="OPTIMIZING", result_status="PENDING")
-        self._task = self.hass.async_create_task(self._run(
-            generation, deepcopy(plan), dict(facts), [dict(row) for row in batteries],
-            [dict(row) for row in loads], dict(metering_profile), dict(strategy),
-            dict(settings),
-        ))
+        self.result = None
+        self.status.update(
+            status="OPTIMIZING", readiness="INPUTS_NOT_VALIDATED",
+            result_status="PENDING", version_verified=False, reason=None,
+        )
+        if self._task is not None and not self._task.done():
+            # The external optimizer may still be working. Serialize native
+            # requests, discard its obsolete result and run only the newest
+            # input immediately after it completes; no unbounded task queue.
+            self._pending = inputs
+            return
+        self._pending = None
+        self._launch(inputs)
+
+    def _launch(self, inputs: tuple[Any, ...]) -> None:
+        task = self.hass.async_create_task(self._run(self._generation, *inputs))
+        self._task = task
+        task.add_done_callback(self._run_finished)
+
+    def _run_finished(self, task: asyncio.Task) -> None:
+        if task is not self._task:
+            return
+        self._task = None
+        if self._stopped:
+            self._pending = None
+            return
+        newest = self._pending
+        self._pending = None
+        if newest is not None:
+            self._launch(newest)
 
     async def _run(self, generation, plan, facts, batteries, loads, metering_profile, strategy, settings):
         try:
@@ -136,16 +167,18 @@ class EmhassShadowRunner:
             run = await client.optimize_shadow(context.payload, action="naive-mpc-optim")
             accepted = accept_shadow_plan(run.plan, run.last_run, context, resolution_minutes=native_step)
             runtime_version = str(run.last_run.get("emhass_version") or version or "")
-            if runtime_version and runtime_version != "0.18.5":
-                raise ValueError("native_optimizer_version_mismatch:" + runtime_version)
-            version_verified = runtime_version == "0.18.5"
+            if runtime_version != "0.18.5":
+                raise ValueError(
+                    "native_optimizer_version_unverified" if not runtime_version
+                    else "native_optimizer_version_mismatch:" + runtime_version
+                )
             if self._stopped or generation != self._generation:
                 return
             self.result = accepted
             self.status.update({
-                "status": "SHADOW_PLAN_ACCEPTED" if version_verified else "SHADOW_VERSION_UNVERIFIED",
-                "readiness": "SHADOW_VALIDATED" if version_verified else "VERSION_UNVERIFIED",
-                "version_verified": version_verified, "emhass_version": runtime_version or None,
+                "status": "SHADOW_PLAN_ACCEPTED",
+                "readiness": "SHADOW_VALIDATED",
+                "version_verified": True, "emhass_version": runtime_version,
                 "optimization_time_step": native_step,
                 "result_status": "ACCEPTED_READ_ONLY", "reason": None,
                 "generated_at": accepted.generated_at,
@@ -175,6 +208,10 @@ class EmhassShadowRunner:
     async def async_stop(self):
         self._stopped = True
         self._generation += 1
+        self._pending = None
+        self.result = None
+        self.status.update(status="STOPPED", readiness="UNAVAILABLE",
+                           result_status="UNAVAILABLE", version_verified=False)
         if self._task is not None:
             self._task.cancel()
             try:

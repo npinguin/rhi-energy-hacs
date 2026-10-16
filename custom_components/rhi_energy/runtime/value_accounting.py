@@ -3,6 +3,15 @@ from __future__ import annotations
 from math import isfinite
 from typing import Any
 
+try:
+    from .planning_publication import native_planning_horizon
+except ImportError:  # Pure source regression runner without HA package import.
+    from pathlib import Path as _Path
+    import runpy as _runpy
+    native_planning_horizon = _runpy.run_path(
+        str(_Path(__file__).resolve().parent / "planning_publication.py")
+    )["native_planning_horizon"]
+
 
 def _number(value: Any) -> float | None:
     if isinstance(value, bool):
@@ -31,23 +40,73 @@ def interval_actuals(meter: dict[str, Any]) -> dict[str, Any]:
     numeric_complete = import_cost is not None and export_revenue is not None
 
     financial_quality = meter.get("financial_quality")
+    # Modern meter records publish independent quality for both EUR integrals.
+    # A bare numeric value, including zero, cannot replace a missing tariff
+    # or missing grid-interval proof. Legacy rows retain the existing
+    # conservative period-quality admission boundary below.
     financial_complete = (
-        not isinstance(financial_quality, dict)
-        or not financial_quality
-        or all(
+        all(
             financial_quality.get(field) == "OK"
             for field in ("import_cost_eur", "export_revenue_eur")
         )
+        if isinstance(financial_quality, dict) and financial_quality
+        else False
+        if meter.get("field_quality")
+        else True
     )
+
+    # Current metering records account for paid hours separately from physical
+    # grid kWh hours. A missing tariff can leave a convincing numeric EUR total
+    # behind, but it cannot certify the entire measured grid interval.
+    financial_coverage = meter.get("financial_coverage_seconds")
+    grid_coverage = meter.get("field_coverage_seconds") or {}
+    coverage_complete = None
+    if isinstance(financial_coverage, dict):
+        aligned = [
+            (_number(financial_coverage.get(money)), _number(grid_coverage.get(energy)))
+            for money, energy in (
+                ("import_cost_eur", "grid_import_kwh"),
+                ("export_revenue_eur", "grid_export_kwh"),
+            )
+        ]
+        coverage_complete = all(
+            paid is not None and physical is not None and paid > 0
+            and physical > 0 and abs(paid - physical) <= 1
+            for paid, physical in aligned
+        )
+        financial_complete = financial_complete and coverage_complete
 
     raw_period_quality = meter.get("quality")
     period_quality = str(raw_period_quality or "UNKNOWN")
-    # Legacy persisted buckets without an explicit period quality remain readable,
-    # but E0.14 only calls them actual-complete when Metering explicitly proves OK.
-    period_readable = raw_period_quality in (None, "", "OK")
+    field_quality = meter.get("field_quality") or {}
+    grid_fields = ("grid_import_kwh", "grid_export_kwh")
+    if field_quality:
+        # Financial result is derived from measured grid import/export and
+        # tariff intervals. Unrelated missing battery/solar/household telemetry
+        # must not suppress a complete grid financial result.
+        grid_quality_ok = all(field_quality.get(field) == "OK" for field in grid_fields)
+        grid_quality_partial = any(field_quality.get(field) == "PARTIAL" for field in grid_fields)
+        period_readable = grid_quality_ok
+        quality_authority = "grid_import_export_field_quality"
+    else:
+        # Older records lack per-field provenance and cannot be upgraded by
+        # inference. Preserve their legacy period-quality admission rules.
+        grid_quality_ok = False
+        grid_quality_partial = False
+        period_readable = raw_period_quality in (None, "", "OK")
+        quality_authority = "legacy_period_quality"
     available = numeric_complete and financial_complete and period_readable
-    actual_complete = available and period_quality == "OK"
-    partial_evidence = numeric_complete and (not financial_complete or not period_readable)
+    # The financial grid/time integrals may be complete while solar or
+    # battery telemetry makes the *site period* PARTIAL. The EUR figure is
+    # readable with independent proof, but the whole period is not verified.
+    actual_complete = available and (grid_quality_ok or period_quality == "OK")
+    # Keep financial completeness independent from broader site telemetry.
+    # An unavailable battery/solar sensor may make the site period PARTIAL
+    # while the grid and priced money integrals are fully proven.
+    site_period_complete = actual_complete and period_quality == "OK"
+    partial_evidence = numeric_complete and (
+        not financial_complete or not period_readable or grid_quality_partial
+    )
 
     net_energy_cost = round(import_cost - export_revenue, 4) if available else None
     # Product-facing financial result uses the intuitive accounting sign:
@@ -59,6 +118,7 @@ def interval_actuals(meter: dict[str, Any]) -> dict[str, Any]:
     return {
         "available": available,
         "actual_complete": actual_complete,
+        "site_period_complete": site_period_complete,
         "import_cost_eur": import_cost if available else None,
         "export_revenue_eur": export_revenue if available else None,
         "net_energy_cost_eur": net_energy_cost,
@@ -68,9 +128,17 @@ def interval_actuals(meter: dict[str, Any]) -> dict[str, Any]:
             "OK" if actual_complete else "PARTIAL" if partial_evidence else "UNKNOWN"
         ),
         "period_quality": period_quality,
+        "quality_authority": quality_authority,
+        "financial_coverage_complete": coverage_complete,
         "reason": (
+            "financial_grid_priced_interval_coverage_incomplete"
+            if coverage_complete is False
+            else
             "period_and_financial_evidence_complete"
+            if site_period_complete
+            else "grid_financial_evidence_complete_site_period_partial"
             if actual_complete
+            else "financial_evidence_partial" if available
             else "metering_period_evidence_incomplete"
             if numeric_complete and financial_complete
             else "financial_evidence_incomplete"
@@ -151,6 +219,7 @@ def native_metric_evidence(
             "reason_code": evidence.get("reason"),
             "quality": evidence.get("quality"),
             "actual_complete": evidence.get("actual_complete") is True,
+            "site_period_complete": evidence.get("site_period_complete") is True,
             "period": period,
             "evidence_method": evidence.get("evidence_method"),
         }
@@ -165,9 +234,13 @@ def native_metric_evidence(
 
     horizon = _PLANNING_PREFIXES[prefix]
     field = key.removeprefix(prefix)
+    # The native D0/D1/D2 horizon applies the complete six-total balance,
+    # quality and finite-value contract. Individual "AVAILABLE" field flags
+    # cannot bypass that gate on the older numeric HA sensors.
+    public = native_planning_horizon(snapshot, horizon)
     raw = ((snapshot.get("plan") or {}).get("planning_horizons") or {}).get(horizon) or {}
-    quality = raw.get("quality") or {}
-    available = quality.get("availability") == "AVAILABLE"
+    quality = public.get("quality") or {}
+    available = public.get("availability") == "AVAILABLE"
     metric_value = raw.get(field) if available else None
     if metric_value is not None:
         metric_value = _nonnegative_energy(metric_value)
@@ -184,7 +257,8 @@ def native_metric_evidence(
             else str(quality.get("availability") or "UNAVAILABLE")
         ),
         "reason_code": (
-            quality.get("reason_code")
+            public.get("reason_code")
+            or quality.get("reason_code")
             or quality.get("reason")
             or raw.get("reason")
             or (
@@ -198,5 +272,6 @@ def native_metric_evidence(
         "quality": quality.get("status") or quality.get("availability"),
         "horizon": horizon,
         "source_field": field,
-        "totals_complete": raw.get("totals_complete"),
+        "totals_complete": public.get("totals_complete") is True,
+        "validated_horizon_contract": public.get("canonical_contract"),
     }

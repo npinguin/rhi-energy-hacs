@@ -90,11 +90,11 @@ def jload(value: Any, default: Any) -> Any:
 
 def number(value: Any) -> float | None:
     try:
-        if value is None or str(value).lower() in {"unknown", "unavailable", "none", ""}:
+        if isinstance(value, bool) or value is None or str(value).lower() in {"unknown", "unavailable", "none", ""}:
             return None
         v = float(value)
         return v if math.isfinite(v) else None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -272,7 +272,7 @@ def grid_flow_direction(net_power_kw: float | None, *, deadband_kw: float = 0.05
     return "balanced"
 
 
-def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, battery_kw: float | None, max_home_kw: float | None = None) -> dict[str, Any]:
+def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, battery_kw: float | None, max_home_kw: float | None = None, *, gross_discharge_kw: float | None = None) -> dict[str, Any]:
     """Derive canonical Site Consumption from the site-boundary energy balance.
 
     Canonical semantics:
@@ -285,7 +285,11 @@ def derive_consumption(solar_kw: float | None, grid_net_kw: float | None, batter
     """
     if solar_kw is None or grid_net_kw is None or battery_kw is None:
         return {"power_kw": None, "health": "UNAVAILABLE", "reason": "required_energy_balance_input_missing", "raw_balance_kw": None}
-    _, battery_discharge = split_battery_power(float(battery_kw))
+    # A signed battery-system net cannot reveal simultaneous charge/discharge.
+    # The active runtime supplies independently verified gross discharge; callers
+    # without gross evidence retain the pure legacy single-flow API.
+    _, net_discharge = split_battery_power(float(battery_kw))
+    battery_discharge = gross_discharge_kw if gross_discharge_kw is not None else net_discharge
     raw = float(solar_kw) + float(grid_net_kw) + float(battery_discharge or 0.0)
     deadband = 0.08
     if raw < -deadband:
@@ -302,8 +306,12 @@ def derive_home_consumption(
     battery_kw: float | None,
     *,
     deadband_kw: float = 0.08,
+    gross_charge_kw: float | None = None,
 ) -> dict[str, Any]:
-    """Derive non-flexible Home Consumption from canonical internal sinks."""
+    """Derive non-flexible Home Consumption from canonical internal sinks.
+
+    Runtime supplies authoritative gross charge, preserving opposing battery flows.
+    """
     if site_consumption_kw is None or flexible_loads_kw is None or battery_kw is None:
         return {
             "power_kw": None,
@@ -311,7 +319,8 @@ def derive_home_consumption(
             "reason": "required_internal_consumption_input_missing",
             "raw_residual_kw": None,
         }
-    battery_charge, _ = split_battery_power(float(battery_kw))
+    net_charge, _ = split_battery_power(float(battery_kw))
+    battery_charge = gross_charge_kw if gross_charge_kw is not None else net_charge
     raw = (
         float(site_consumption_kw)
         - float(flexible_loads_kw)
@@ -345,7 +354,13 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
     ge = number(facts.get("grid_export.power_kw"))
     bp = number(facts.get("battery.power_kw"))
     soc = number(facts.get("battery.soc_pct"))
-    charge, discharge = split_battery_power(bp)
+    # Prefer the canonical gross direction pair whenever published. Net battery
+    # power alone hides physically opposing batteries and must not repaint Flow.
+    if "battery_charge.power_kw" in facts or "battery_discharge.power_kw" in facts:
+        charge = number(facts.get("battery_charge.power_kw"))
+        discharge = number(facts.get("battery_discharge.power_kw"))
+    else:
+        charge, discharge = split_battery_power(bp)
     supply_total = (
         solar + gi + (discharge or 0.0)
         if all(v is not None for v in (solar, gi, discharge))
@@ -361,7 +376,8 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
         if supply_total is not None and consumption_total is not None
         else None
     )
-    complete = all(v is not None for v in (solar, site, gi, ge))
+    # Overview must not claim complete Energy truth while Home Consumption is unknown.
+    complete = all(v is not None for v in (solar, site, home, gi, ge))
     if not complete:
         code, title, primary, key = "unavailable", "Energy data unavailable", None, "site_consumption.power_kw"
     elif ge > 0.05:
@@ -405,7 +421,7 @@ def overview_snapshot(facts: dict[str, Any], demand_breakdown: list[dict[str, An
             "physical_facts": "energy:canonical:properties",
             "ux_recalculation_allowed": False,
         },
-        "optional_battery_flow_available": bp is not None,
+        "optional_battery_flow_available": charge is not None and discharge is not None,
         "complete": complete,
     }
 
@@ -468,6 +484,7 @@ def metering_rows(metering: dict[str, Any]) -> list[dict[str, Any]]:
             "import_cost_eur": bucket.get("import_cost_eur"),
             "export_revenue_eur": bucket.get("export_revenue_eur"),
             "financial_quality": deepcopy(bucket.get("financial_quality") or {}),
+            "financial_coverage_seconds": deepcopy(bucket.get("financial_coverage_seconds") or {}),
             "baseline_reset_required": False,
             "can_be_used_for_remaining": quality == "OK" and availability == AVAILABLE,
             "remaining_use_policy": "allowed" if quality == "OK" and availability == AVAILABLE else "not_available",
@@ -594,22 +611,24 @@ def canonical_pricing_currency(
 
 def pricing_properties(facts: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]]:
     cfg = settings.get("pricing") or {}
-    import_live = number(facts.get("pricing.import_price_current_eur_kwh"))
+    # Python float(True)==1, but boolean states are not valid monetary rates.
+    tariff_number = lambda raw: None if isinstance(raw, bool) else number(raw)
+    import_live = tariff_number(facts.get("pricing.import_price_current_eur_kwh"))
     if import_live is None:
-        import_live = number(facts.get("pricing.spot_eur_kwh"))
-    spot_fallback = number(cfg.get("spot_fallback_eur_kwh"))
+        import_live = tariff_number(facts.get("pricing.spot_eur_kwh"))
+    spot_fallback = tariff_number(cfg.get("spot_fallback_eur_kwh"))
     import_market = import_live if import_live is not None else spot_fallback
     import_market_av = AVAILABLE if import_market is not None else CONFIGURATION_REQUIRED
 
-    export_live = number(facts.get("pricing.export_price_current_eur_kwh"))
+    export_live = tariff_number(facts.get("pricing.export_price_current_eur_kwh"))
     if export_live is None:
-        export_live = number(facts.get("pricing.export_spot_eur_kwh"))
+        export_live = tariff_number(facts.get("pricing.export_spot_eur_kwh"))
     export_market_av = AVAILABLE if export_live is not None else UNAVAILABLE
 
-    network = number(cfg.get("import_network_eur_kwh"))
-    levies = number(cfg.get("import_levies_eur_kwh"))
-    vat = number(cfg.get("import_vat_pct"))
-    export_fee = number(cfg.get("export_fee_eur_kwh"))
+    network = tariff_number(cfg.get("import_network_eur_kwh"))
+    levies = tariff_number(cfg.get("import_levies_eur_kwh"))
+    vat = tariff_number(cfg.get("import_vat_pct"))
+    export_fee = tariff_number(cfg.get("export_fee_eur_kwh"))
     tariff_components = (network, levies, vat)
     tariff_component_count = sum(value is not None for value in tariff_components)
     # Market-only accounting is useful and truthful before optional retail tariff
@@ -1458,6 +1477,10 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         },
     }
     def asset_scheduled_kwh(horizon: dict[str, Any], asset_id: str) -> float | None:
+        # No bucket allocation in an incomplete forecast is NOT evidence of a
+        # real zero-kWh schedule for that vehicle and calendar horizon.
+        if str((horizon.get("quality") or {}).get("availability") or "") != AVAILABLE:
+            return None
         values = [
             number(allocation.get("planned_energy_kwh"))
             for bucket in horizon.get("buckets") or []
@@ -1481,13 +1504,14 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         d0_scheduled = asset_scheduled_kwh(d0, aid) if eligible else None
         d1_scheduled = asset_scheduled_kwh(d1, aid) if eligible else None
         still_after_today = (
-            round(max(0.0, known_need - (d0_scheduled or 0.0)), 4)
-            if known_need is not None and eligible
+            round(max(0.0, known_need - d0_scheduled), 4)
+            if known_need is not None and eligible and d0_scheduled is not None
             else None
         )
         still_to_plan = (
-            round(max(0.0, known_need - (d0_scheduled or 0.0) - (d1_scheduled or 0.0)), 4)
+            round(max(0.0, known_need - d0_scheduled - d1_scheduled), 4)
             if known_need is not None and eligible
+            and d0_scheduled is not None and d1_scheduled is not None
             else None
         )
         blockers = planning_blockers_for(asset) if participating else list(asset.get("planning_blockers") or [])

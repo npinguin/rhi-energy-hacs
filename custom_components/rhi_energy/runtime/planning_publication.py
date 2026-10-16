@@ -18,7 +18,7 @@ CONTRACTS = {
 def native_planning_horizon(
     snapshot: dict[str, Any], horizon_id: str, *, variant: str = "effective",
 ) -> dict[str, Any]:
-    if horizon_id not in {"D0", "D1"} or variant not in CONTRACTS:
+    if horizon_id not in {"D0", "D1", "D2"} or variant not in CONTRACTS:
         raise ValueError("native_planning_horizon_selector_invalid")
     selection = snapshot.get("planning_selection") or {}
     plan = snapshot.get("plan" if variant == "effective" else "baseline_plan") or {}
@@ -63,8 +63,44 @@ def native_planning_horizon(
         and horizon[key] >= 0
         for key in totals
     )
+    # A solver can produce six finite but mathematically impossible totals.
+    # Never publish "Need < Planned" or a nonzero difference hidden from Still.
+    # At four-decimal kWh precision, 0.001 kWh covers independent rounding.
+    consistent = complete and (
+        abs(horizon["required_kwh"] -
+            horizon["planned_kwh"] - horizon["still_to_plan_kwh"]) <= 0.001
+        and abs(horizon["flexible_required_kwh"] -
+                horizon["flexible_planned_kwh"] -
+                horizon["flexible_still_to_plan_kwh"]) <= 0.001
+        and horizon["planned_kwh"] + 0.001 >= horizon["flexible_planned_kwh"]
+        and horizon["required_kwh"] + 0.001 >= horizon["flexible_required_kwh"]
+    )
     quality = horizon.get("quality") or {}
-    available = quality.get("availability") == "AVAILABLE" and complete
+    available = quality.get("availability") == "AVAILABLE" and consistent
+    # Preserve the producer's explicit source/HOLD blocker on an incomplete
+    # horizon. A generic missing-total reason must not obscure the real cause
+    # (e.g. a missing selected forecast), but no reason may authorize values.
+    stated_reason = (
+        quality.get("reason_code") or quality.get("reason")
+        if quality.get("availability") != "AVAILABLE" else None
+    )
+    if not complete:
+        reason = stated_reason or "planning_horizon_required_totals_missing"
+    elif not consistent:
+        reason = stated_reason or "planning_horizon_totals_inconsistent"
+    elif not available:
+        reason = stated_reason or "planning_horizon_quality_incomplete"
+    else:
+        reason = None
+    out_quality = deepcopy(quality)
+    degraded_availability = (
+        quality.get("availability")
+        if quality.get("availability") in {"UNAVAILABLE", "STALE", "INVALID"}
+        else "INCOMPLETE"
+    )
+    if not available:
+        out_quality["availability"] = degraded_availability
+        out_quality["reason_code"] = reason
     details = deepcopy(horizon)
     flexible = plan.get("flexible_plan") or {}
     lanes = (horizon.get("summary") or {}).get("lane_totals") or {}
@@ -80,13 +116,10 @@ def native_planning_horizon(
     })
     return {
         **result,
-        "availability": "AVAILABLE" if available else "INCOMPLETE",
-        "reason_code": None if available else (
-            "planning_horizon_required_totals_missing" if not complete
-            else "planning_horizon_quality_incomplete"
-        ),
-        "totals_complete": complete,
+        "availability": "AVAILABLE" if available else degraded_availability,
+        "reason_code": reason,
+        "totals_complete": consistent,
         "execution_authorized": result["execution_authorized"] and available,
-        "quality": deepcopy(quality),
+        "quality": out_quality,
         "details": details,
     }

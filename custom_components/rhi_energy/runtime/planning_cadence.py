@@ -7,6 +7,7 @@ from typing import Any, Callable
 from homeassistant.helpers.event import async_track_time_interval
 
 from .canonical_semantics import deterministic_plan
+from .planning_input_revision import planning_input_revision
 
 
 TACTICAL_PLANNING_INTERVAL_MINUTES = 5
@@ -25,6 +26,7 @@ class TacticalPlanningCadence:
         self._plan: dict[str, Any] = {}
         self._refresh_count = 0
         self._last_refresh_at: str | None = None
+        self._last_input_revision: str | None = None
 
     def start(self) -> None:
         self.request_refresh()
@@ -66,9 +68,15 @@ class TacticalPlanningCadence:
         resolution = (settings.get("planning") or {}).get("resolution_minutes", 60)
         if type(resolution) is not int or resolution not in (15, 30, 60):
             raise ValueError("deterministic_planning_resolution_invalid")
-        if self._refresh_requested or not self._plan or self._plan.get("resolution_minutes") != resolution:
-            now_local = datetime.now(self._local_timezone)
+        now_local = datetime.now(self._local_timezone)
+        revision = planning_input_revision(
+            facts, settings, flexible_assets, day_key=now_local.date().isoformat()
+        )
+        if (self._refresh_requested or not self._plan
+                or self._plan.get("resolution_minutes") != resolution
+                or self._last_input_revision != revision):
             self._plan = deterministic_plan(facts, settings, flexible_assets, now_local)
+            self._last_input_revision = revision
             self._refresh_requested = False
             self._refresh_count += 1
             self._last_refresh_at = datetime.now(UTC).isoformat()
@@ -81,4 +89,5 @@ class TacticalPlanningCadence:
             "last_tactical_refresh_at": self._last_refresh_at,
             "operational_interval_minutes": OPERATIONAL_EXECUTION_INTERVAL_MINUTES,
             "tactical_refresh_pending": self._refresh_requested,
+            "planning_input_revision": self._last_input_revision,
         }

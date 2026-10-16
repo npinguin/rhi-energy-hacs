@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Any
 
 from .canonical_semantics import jload
+from .mobility_transport import mobility_energy_transport_ready
 from ..const import MOBILITY_COMMAND_V2_ENTITY, MOBILITY_ENERGY_V2_ENTITY
 
 
@@ -14,15 +15,18 @@ def mobility_entity_ids() -> tuple[str, str]:
 
 def read_mobility_energy_assets(hass: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     state = hass.states.get(MOBILITY_ENERGY_V2_ENTITY)
-    if not state:
+    if not mobility_energy_transport_ready(state):
         return [], [], {}
     attrs = state.attributes
     if attrs.get("contract_id") != "MOBILITY_ENERGY_V2":
         return [], [], {}
     if attrs.get("publisher") != "rhi_mobility" or attrs.get("command_provider_id") != "mobility.command.v2" or attrs.get("contains_physical_bindings") is True:
         return [], [], {}
-    consumers = jload(attrs.get("consumer_assets"), [])
-    connections = jload(attrs.get("connection_assets"), [])
+    if "consumer_assets" not in attrs or "connection_assets" not in attrs: return [], [], {}
+    consumers = jload(attrs["consumer_assets"], None)
+    connections = jload(attrs["connection_assets"], None)
+    if not isinstance(consumers, list) or not isinstance(connections, list) or any(not isinstance(row, dict) for row in consumers + connections):
+        return [], [], {}
     metadata = {
         "contract_id": attrs.get("contract_id"),
         "publisher": attrs.get("publisher"),
@@ -45,7 +49,7 @@ def read_mobility_energy_assets(hass: Any) -> tuple[list[dict[str, Any]], list[d
 
 def _mobility_commands(hass: Any) -> list[dict[str, Any]]:
     state = hass.states.get(MOBILITY_COMMAND_V2_ENTITY)
-    if not state or state.attributes.get("contract_id") != "MOBILITY_COMMAND_V2":
+    if not state or str(state.state).strip().lower() != "ready" or state.attributes.get("contract_id") != "MOBILITY_COMMAND_V2":
         return []
     rows = jload(state.attributes.get("commands"), [])
     return deepcopy(rows) if isinstance(rows, list) else []

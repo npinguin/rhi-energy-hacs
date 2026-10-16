@@ -25,7 +25,7 @@ from .canonical_device import canonical_device_info, source_device_ids
 from .runtime.canonical_structure import canonical_parent_asset_id, canonical_projection_assets
 from .source_topology import source_binding_index
 from .presentation import property_presentation
-from .runtime.value_accounting import native_metric_evidence
+from .runtime.value_accounting import interval_actuals, native_metric_evidence
 from .runtime.canonical_semantics import metering_rows
 
 
@@ -64,6 +64,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         EnergyPlannerSelectionSensor(entry, runtime),
         EnergyNativePlanningHorizonSensor(entry, runtime, "D0", variant="effective"),
         EnergyNativePlanningHorizonSensor(entry, runtime, "D1", variant="effective"),
+        EnergyNativePlanningHorizonSensor(entry, runtime, "D2", variant="effective"),
         EnergyNativePlanningHorizonSensor(entry, runtime, "D0", variant="baseline"),
         EnergyNativePlanningHorizonSensor(entry, runtime, "D1", variant="baseline"),
         EnergyRetrospectiveSensor(entry, runtime, state["store"]),
@@ -119,6 +120,7 @@ class EnergyMeteringPeriodSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         row = self._row()
+        financial = interval_actuals(row)
         measured = {
             "solar_production_kwh": row["solar_kwh"],
             "grid_import_kwh": row["grid_import_kwh"],
@@ -146,13 +148,23 @@ class EnergyMeteringPeriodSensor(SensorEntity):
                     "financial": row["financial_quality"],
                 },
                 "cost": {
-                    "import_cost_eur": row["import_cost_eur"],
-                    "export_revenue_eur": row["export_revenue_eur"],
+                    "import_cost_eur": financial["import_cost_eur"],
+                    "export_revenue_eur": financial["export_revenue_eur"],
+                    "net_financial_result_eur": financial["net_financial_result_eur"],
+                    "net_energy_cost_eur": financial["net_energy_cost_eur"],
+                    "available": financial["available"],
+                    "actual_complete": financial["actual_complete"],
+                    "site_period_complete": financial["site_period_complete"],
+                    "financial_coverage_complete": financial["financial_coverage_complete"],
+                    "quality": financial["quality"],
+                    "reason_code": financial["reason"],
+                    "evidence_method": financial["evidence_method"],
                 },
             },
             "flexible_assets_kwh": row["flexible_assets_kwh"],
             "field_quality": row["field_quality"],
             "field_coverage_seconds": row["field_coverage_seconds"],
+            "financial_coverage_seconds": row["financial_coverage_seconds"],
             "baseline_reset_required": row["baseline_reset_required"],
             "can_be_used_for_remaining": row["can_be_used_for_remaining"],
             "remaining_use_policy": row["remaining_use_policy"],
@@ -326,7 +338,7 @@ class EnergyNativePlanningHorizonSensor(SensorEntity):
 
     def __init__(self, entry, runtime, horizon_id: str, *, variant: str):
         from .runtime.planning_publication import CONTRACTS
-        if horizon_id not in {"D0", "D1"} or variant not in CONTRACTS:
+        if horizon_id not in {"D0", "D1", "D2"} or variant not in CONTRACTS:
             raise ValueError("native_planning_horizon_selector_invalid")
         self._runtime = runtime
         self._horizon_id = horizon_id

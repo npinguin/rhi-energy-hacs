@@ -6,7 +6,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.exceptions import HomeAssistantError
 
+from .runtime.configuration_write import confirmed_configuration_readback
 from .canonical_device import canonical_device_info
 from .const import DOMAIN
 from .logical_control import logical_asset, logical_property, source_state, supported_controls
@@ -159,7 +161,11 @@ class EnergyConfigurationSelect(SelectEntity):
         return self._row().get("editable") is True and bool(self.options)
 
     async def async_select_option(self, option: str) -> None:
-        await self._interaction.write_property(self._property_id, option)
+        result = await self._interaction.write_property(self._property_id, option)
+        if not confirmed_configuration_readback(result, option, self._row()):
+            status = str((result or {}).get("status") or "UNKNOWN") if isinstance(result, dict) else "UNKNOWN"
+            reason = str((result or {}).get("reason") or "readback_unconfirmed") if isinstance(result, dict) else "invalid_response"
+            raise HomeAssistantError(f"Energy configuration write not confirmed ({status}): {reason}")
 
     @property
     def extra_state_attributes(self):

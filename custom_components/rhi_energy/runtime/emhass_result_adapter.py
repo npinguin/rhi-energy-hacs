@@ -116,6 +116,7 @@ def accept_shadow_plan(
         if source_pv > expected_pv + 1 or abs(source_load - expected_load) > 1:
             raise NativeCapabilityError("emhass_canonical_power_mismatch")
         total_battery_power = 0.0
+        gross_stationary_discharge_w = 0.0
         for idx, aid in enumerate(context.battery_ids):
             p_key = "P_batt" if battery_count == 1 else f"P_batt_{idx}"
             soc_key = "SOC_opt" if battery_count == 1 else f"SOC_opt_{idx}"
@@ -134,6 +135,7 @@ def accept_shadow_plan(
             if -power > (charge_max if battery_count == 1 else charge_max[idx]) + 1e-3:
                 raise NativeCapabilityError("emhass_battery_charge_limit:" + aid)
             total_battery_power += power
+            gross_stationary_discharge_w += max(0.0, power)
             battery_discharge[aid] += max(0, power) * step_hours / 1000
         total_flexible_power = 0.0
         for idx, aid in enumerate(context.flexible_ids):
@@ -154,7 +156,11 @@ def accept_shadow_plan(
                 flexible_active_slots[aid].append(position)
             flex_energy[aid] += power * step_hours / 1000
             total_flexible_power += power
-        if total_flexible_power > 1e-4 and total_battery_power > max_stationary_discharge_during_flexible_w + 1e-3:
+        # Safety admission must use GROSS stationary discharge per physical
+        # unit. A charging battery must not cancel another battery's discharge
+        # and hide it from the flexible-load interlock.
+        if (total_flexible_power > 1e-4
+                and gross_stationary_discharge_w > max_stationary_discharge_during_flexible_w + 1e-3):
             raise NativeCapabilityError("emhass_battery_discharge_guard_violated")
         # The provider must not omit demand or use a different supply balance.
         if abs((source_pv + max(total_battery_power, 0) + import_w)

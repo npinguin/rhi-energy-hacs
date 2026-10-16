@@ -33,7 +33,7 @@ from .canonical_semantics import (
 )
 from ..const import COMMAND_IDEMPOTENCY_WINDOW_SECONDS, COMMAND_TIMEOUT_SECONDS
 from .producers import resolve_mobility_command
-from .configuration_write import checked_pricing_write
+from .configuration_write import checked_pricing_write, checked_strategy_write, checked_flexible_power_write
 
 _LOGGER = logging.getLogger(__name__)
 _TERMINAL = {"CONFIRMED", "REJECTED", "TIMED_OUT"}
@@ -502,25 +502,15 @@ class EnergyInteractionEngine:
                 result.update(status="CONFIRMED", reason="persisted_pricing_intent", readback_value=numeric)
         elif property_id in {r["property_id"] for r in strategy_properties({"strategy": strategy})}:
             rows = by_key(strategy_properties({"strategy": strategy}))
-            row = rows[property_id]
-            if property_id == "battery.reserve_target_pct":
-                numeric = number(value)
-                constraints = row.get("constraints") or {}
-                if numeric is None or numeric < float(constraints.get("min", 5)) or numeric > float(constraints.get("max", 80)):
-                    result["reason"] = "outside_constraints"
-                else:
-                    strategy[property_id] = numeric
-                    result.update(status="CONFIRMED", reason="persisted_strategy_intent", readback_value=numeric)
+            rejection, admitted = checked_strategy_write(rows.get(property_id), value, property_id)
+            if rejection is not None:
+                result["reason"] = rejection
             else:
-                normalized = str(value).lower()
-                if property_id == "energy.operating_mode":
-                    normalized = {"off": "disabled", "recommend": "advice"}.get(normalized, normalized)
-                allowed = (row.get("constraints") or {}).get("allowed") or []
-                if allowed and normalized not in allowed:
-                    result["reason"] = "outside_constraints"
-                else:
-                    strategy[property_id] = normalized
-                    result.update(status="CONFIRMED", reason="persisted_strategy_intent", readback_value=normalized)
+                strategy[property_id] = admitted
+                result.update(
+                    status="CONFIRMED", reason="persisted_strategy_intent",
+                    readback_value=admitted,
+                )
         elif property_id in {"metering.selected_period_id", "metering.selected_period"}:
             normalized = str(value).lower()
             if normalized not in {"hour", "today", "week", "month", "year"}:
@@ -549,14 +539,10 @@ class EnergyInteractionEngine:
                 )
         elif property_id.endswith(".requested_power_kw"):
             asset_id = property_id[: -len(".requested_power_kw")]
-            numeric = number(value)
             asset = self._find_asset(asset_id)
-            if numeric is None or asset is None:
-                result["reason"] = "asset_or_value_invalid"
-            elif asset.get("min_power_kw") is not None and numeric > 0 and numeric < float(asset["min_power_kw"]):
-                result["reason"] = "below_min_power"
-            elif asset.get("max_power_kw") is not None and numeric > float(asset["max_power_kw"]):
-                result["reason"] = "above_max_power"
+            rejection, numeric = checked_flexible_power_write(asset, value)
+            if rejection is not None:
+                result["reason"] = rejection
             else:
                 command = await self.invoke_command(
                     "energy.command.set_flexible_load_power",

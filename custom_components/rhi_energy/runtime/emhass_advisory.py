@@ -53,6 +53,8 @@ def project_emhass_advisory(
         raise AdvisoryProjectionError("native_step_unsupported")
     step_hours = accepted.step_minutes / 60
     zone = ZoneInfo(time_zone)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise AdvisoryProjectionError("native_current_time_timezone_missing")
     now_utc = now.astimezone(timezone.utc)
     today = now_utc.astimezone(zone).date()
     horizons: dict[str, dict[str, Any]] = {}
@@ -65,14 +67,19 @@ def project_emhass_advisory(
         end = start + timedelta(minutes=accepted.step_minutes)
         last_end = end
         horizon_day = start.astimezone(zone).date()
+        # A local calendar boundary inside one native interval cannot be
+        # assigned wholly to either D0 or D1 without falsifying energy totals.
+        # A future source-aware interval splitter can admit it; for now HOLD.
+        if end.astimezone(zone).date() != horizon_day and end.astimezone(zone).time() != datetime.min.time():
+            raise AdvisoryProjectionError("native_interval_crosses_local_day")
         day_offset = (horizon_day - today).days
-        if day_offset not in (0, 1):
+        if day_offset not in (0, 1, 2):
             continue
-        hid = "D0" if day_offset == 0 else "D1"
+        hid = f"D{day_offset}"
         item = horizons.setdefault(hid, {
             "horizon_id": hid,
-            "label": "Today" if hid == "D0" else "Tomorrow",
-            "time_scope": "remaining_today" if hid == "D0" else "full_day_tomorrow",
+            "label": "Today" if hid == "D0" else "Tomorrow" if hid == "D1" else "Day after tomorrow",
+            "time_scope": "remaining_today" if hid == "D0" else "full_day_tomorrow" if hid == "D1" else "full_day_after_tomorrow",
             "provider": "emhass", "buckets": [],
             "quality": {"availability": "PARTIAL", "estimated": True,
                         "warnings": ["rolling_native_horizon_not_full_calendar_day"]},
@@ -100,10 +107,15 @@ def project_emhass_advisory(
                     "planned_energy_kwh": round(power * step_hours, 6),
                     "provider": "emhass",
                 })
-        battery_w = 0.0
+        battery_discharge_kw = 0.0
+        battery_charge_kw = 0.0
         for pos, aid in enumerate(accepted.battery_ids):
             key = "P_batt" if len(accepted.battery_ids) == 1 else f"P_batt_{pos}"
-            battery_w += _kw(row, key)
+            signed_kw = _kw(row, key)
+            # Native batteries are independent physical assets. Netting a
+            # discharging and a charging unit would conceal both flows.
+            battery_discharge_kw += max(0.0, signed_kw)
+            battery_charge_kw += max(0.0, -signed_kw)
         flex_kwh = sum(x["planned_energy_kwh"] for x in flex_allocations)
         imported = max(0.0, grid)
         exported = max(0.0, -grid)
@@ -115,7 +127,7 @@ def project_emhass_advisory(
         financial = (exported * export_price - imported * import_price) * step_hours
         pv_energy, home_energy = pv * step_hours, home * step_hours
         imported_energy, exported_energy = imported * step_hours, exported * step_hours
-        battery_support_energy = max(0.0, battery_w) * step_hours
+        battery_support_energy = battery_discharge_kw * step_hours
         item["buckets"].append({
             "start_time": start.astimezone(zone).isoformat(),
             "end_time": end.astimezone(zone).isoformat(),
@@ -126,7 +138,7 @@ def project_emhass_advisory(
             "grid_import_kwh": round(imported_energy, 6),
             "grid_export_kwh": round(exported_energy, 6),
             "battery_discharge_kwh": round(battery_support_energy, 6),
-            "battery_charge_kwh": round(max(0.0, -battery_w) * step_hours, 6),
+            "battery_charge_kwh": round(battery_charge_kw * step_hours, 6),
             "flexible_scheduled_kwh": round(flex_kwh, 6),
             "net_financial_result_eur": round(financial, 6),
             "planning_state": "advisory",
@@ -140,7 +152,7 @@ def project_emhass_advisory(
         item["balance"]["expected_grid_export_kwh"] += exported_energy
         item["price_value"]["net_financial_result_eur"] += financial
 
-    for key in ("D0", "D1"):
+    for key in ("D0", "D1", "D2"):
         horizon = horizons.get(key)
         if horizon is None:
             continue
@@ -150,9 +162,10 @@ def project_emhass_advisory(
             expected_end = datetime.combine(today + timedelta(days=1),
                                             datetime.min.time(), tzinfo=zone)
         else:
-            expected_start = datetime.combine(today + timedelta(days=1),
+            shift = 1 if key == "D1" else 2
+            expected_start = datetime.combine(today + timedelta(days=shift),
                                               datetime.min.time(), tzinfo=zone)
-            expected_end = datetime.combine(today + timedelta(days=2),
+            expected_end = datetime.combine(today + timedelta(days=shift + 1),
                                             datetime.min.time(), tzinfo=zone)
         actual_start = _utc(horizon["buckets"][0]["start_time"])
         actual_end = _utc(horizon["buckets"][-1]["end_time"])
@@ -187,21 +200,36 @@ def project_emhass_advisory(
             for allocation in bucket["asset_allocations"]
             if allocation["asset_id"] == aid
         ), 6)
+        after_kwh = round(sum(
+            allocation["planned_energy_kwh"]
+            for bucket in (horizons.get("D2") or {}).get("buckets") or []
+            for allocation in bucket["asset_allocations"]
+            if allocation["asset_id"] == aid
+        ), 6)
         flex_assets.append({
             "asset_id": aid, "planning_eligible": True,
-            "planning_status": "READY", "planned_today_kwh": today_kwh,
-            "planned_tomorrow_kwh": tomorrow_kwh,
-            "energy_need_kwh": accepted.flexible_scheduled_kwh[aid],
-            "still_to_plan_kwh": 0.0,
+            "planning_status": "ADVISORY_PARTIAL_NEED",
+            "planned_today_kwh": today_kwh if "D0" in horizons else None,
+            "planned_tomorrow_kwh": tomorrow_kwh if "D1" in horizons else None,
+            "planned_day_after_tomorrow_kwh": after_kwh if "D2" in horizons else None,
+            # The accepted solver result proves scheduled energy, NOT the
+            # consumer's total original Need or that nothing remains beyond
+            # its partial rolling horizon. Never turn missing need into zero.
+            "energy_need_kwh": None,
+            "still_to_plan_kwh": None,
+            "need_evidence": "not_proven_by_native_advisory_result",
         })
     flexible_plan = {
         "contract": "energy_flexible_plan_v1",
         "participating_asset_count": len(accepted.flexible_ids),
-        "incomplete_asset_count": 0, "totals_complete": True,
+        "incomplete_asset_count": len(accepted.flexible_ids),
+        "totals_complete": False,
         "participating_asset_ids": list(accepted.flexible_ids),
         "assets": flex_assets,
-        "known_need_kwh": round(sum(accepted.flexible_scheduled_kwh.values()), 6),
-        "unresolved_need_kwh": 0.0,
+        "known_need_kwh": None,
+        "unresolved_need_kwh": None,
+        "known_scheduled_kwh": round(sum(accepted.flexible_scheduled_kwh.values()), 6),
+        "reason_code": "native_advisory_demand_total_not_proven",
         "horizons": {
             hid: {"scheduled_kwh": h["flexible_planned_kwh"],
                   "quality": h["quality"]}
@@ -228,9 +256,9 @@ def project_emhass_advisory(
         "baseline_plan": baseline_plan,
         "flexible_plan": flexible_plan,
         "unresolved_flexible_need_kwh": 0.0,
-        "planning_horizons_json": [horizons[k] for k in ("D0", "D1") if k in horizons],
-        "health": "OK",
-        "reason": "native_mpc_accepted_read_only",
+        "planning_horizons_json": [horizons[k] for k in ("D0", "D1", "D2") if k in horizons],
+        "health": "DEGRADED",
+        "reason": "native_mpc_accepted_read_only_need_unproven",
         "net_financial_result_eur": accepted.net_financial_result_eur,
         "flexible_scheduled_kwh": dict(accepted.flexible_scheduled_kwh),
         "battery_discharge_kwh": dict(accepted.battery_discharge_kwh),

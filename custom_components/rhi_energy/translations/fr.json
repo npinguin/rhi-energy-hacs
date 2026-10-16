@@ -1,0 +1,169 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Robotix Home Intelligence - Module Énergie",
+        "description": "Ajoutez le module Énergie. Foundation doit être installé et configuré avant qu'Energy puisse activer son environnement de domaine."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Le module Énergie est déjà configuré. Ouvrez l'intégration existante au lieu d'ajouter une deuxième instance."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Paramètres d'énergie",
+        "description": "Choisissez les éléments à configurer. La sélection des sources techniques reste dans Foundation ; ces paramètres définissent le comportement d'Energy.",
+        "menu_options": {
+          "pricing": "Prix et tarifs",
+          "strategy": "Stratégie et priorités",
+          "metering": "Mesures",
+          "planner": "Optimisation de la planification"
+        }
+      },
+      "pricing": {
+        "title": "Paramètres d'énergie › Prix et tarifs",
+        "description": "Configurez uniquement les composantes tarifaires qui ne sont pas fournies par une source de prix en temps réel. Sans composantes tarifaires, le calcul peut rester basé sur les prix du marché.",
+        "data": {
+          "market_price_fallback": "Prix de marché de secours",
+          "network_cost": "Frais de réseau",
+          "levies": "Prélèvements",
+          "vat": "TVA",
+          "export_fee": "Frais d'injection"
+        }
+      },
+      "strategy": {
+        "title": "Paramètres d'énergie › Stratégie et priorités",
+        "description": "Choisissez la partie de la stratégie énergétique à configurer.",
+        "menu_options": {
+          "home": "Maison et priorités",
+          "battery": "Batterie",
+          "solar": "Solaire",
+          "grid": "Réseau électrique",
+          "ev_charging": "Recharge de véhicules",
+          "resilience": "Résilience"
+        }
+      },
+      "home": {
+        "title": "Paramètres d'énergie › Stratégie › Maison et priorités",
+        "description": "Définissez le niveau d'automatisation autorisé et les objectifs d'optimisation de la maison.",
+        "data": {
+          "primary_objective": "Objectif principal",
+          "operating_mode": "Mode de fonctionnement"
+        }
+      },
+      "battery": {
+        "title": "Paramètres d'énergie › Stratégie › Batterie",
+        "description": "Configurez la participation de la batterie domestique à l'optimisation. La réserve est le niveau de charge minimal qu'Energy doit protéger.",
+        "data": {
+          "objective": "Objectif batterie",
+          "grid_policy": "Utiliser l'énergie du réseau",
+          "solar_policy": "Utiliser l'énergie solaire",
+          "battery_policy": "Comportement de la batterie",
+          "surplus_policy": "Gérer le surplus",
+          "reserve_target": "Réserve cible"
+        }
+      },
+      "solar": {
+        "title": "Paramètres d'énergie › Stratégie › Solaire",
+        "description": "Définissez les priorités de la production solaire et l'utilisation des surplus.",
+        "data": {
+          "objective": "Objectif solaire",
+          "grid_policy": "Politique réseau",
+          "solar_policy": "Priorité solaire",
+          "battery_policy": "Interaction avec la batterie",
+          "surplus_policy": "Politique de surplus"
+        }
+      },
+      "grid": {
+        "title": "Paramètres d'énergie › Stratégie › Réseau électrique",
+        "description": "Définissez quand l'énergie du réseau peut alimenter la batterie domestique et les charges flexibles.",
+        "data": {
+          "home_battery_policy": "Politique réseau de la batterie",
+          "flexible_load_policy": "Politique réseau des charges flexibles"
+        }
+      },
+      "ev_charging": {
+        "title": "Paramètres d'énergie › Stratégie › Recharge de véhicules",
+        "description": "Configurez la recharge flexible en fonction du prix, du solaire, de la batterie et des surplus.",
+        "data": {
+          "objective": "Objectif de recharge",
+          "grid_policy": "Utiliser l'énergie du réseau",
+          "solar_policy": "Utiliser l'énergie solaire",
+          "battery_policy": "Utiliser la batterie domestique",
+          "surplus_policy": "Utiliser le surplus"
+        }
+      },
+      "resilience": {
+        "title": "Paramètres d'énergie › Stratégie › Résilience",
+        "description": "Configurez la protection de la capacité de secours et les réactions lorsqu'Energy privilégie la résilience.",
+        "data": {
+          "objective": "Objectif de résilience",
+          "grid_policy": "Politique réseau",
+          "battery_policy": "Politique batterie"
+        }
+      },
+      "metering": {
+        "title": "Paramètres d'énergie › Mesures",
+        "description": "Choisissez la période par défaut pour les mesures et les valeurs financières d'Energy.",
+        "data": {
+          "display_period": "Période par défaut"
+        }
+      },
+      "planner": {
+        "title": "Configurer les fournisseurs de planification",
+        "description": "Choisissez le planificateur actif ou configurez une connexion externe. Le planificateur intégré RHI Deterministic ne requiert pas de connexion ; une connexion ne donne pas l'autorisation d'exécuter des commandes.",
+        "menu_options": {
+          "planner_selection": "Planificateur actif (RHI Deterministic / fournisseur configuré)",
+          "emhass": "Connexion EMHASS (lecture seule avant validation)",
+          "haeo": "Intégration HAEO (adaptateur non validé)",
+          "akkudoktor_eos": "Point d'accès Akkudoktor EOS (adaptateur non validé)"
+        }
+      },
+      "emhass": {
+        "title": "Planificateur › EMHASS",
+        "description": "Configurez l'adresse du service EMHASS et le délai d'attente. Les équipements, tarifs et prévisions restent gérés par RHI Energy. Une connexion réussie n'autorise pas l'exécution des commandes.",
+        "data": {
+          "url": "Adresse du service EMHASS",
+          "timeout_seconds": "Délai d'attente (secondes)"
+        }
+      },
+      "haeo": {
+        "title": "Planificateur › HAEO",
+        "description": "Liez l'intégration HAEO installée dans Home Assistant. Les correspondances des entrées et résultats externes ne sont pas encore validées ; sa sélection met l'exécution en HOLD jusqu'à vérification.",
+        "data": {
+          "config_entry_id": "Intégration HAEO"
+        }
+      },
+      "akkudoktor_eos": {
+        "title": "Planificateur › Akkudoktor EOS",
+        "description": "Indiquez le serveur EOS et le protocole API exact ; /optimize et /v1/optimize ne sont pas interchangeables. L'adaptateur n'est pas encore validé pour l'exécution.",
+        "data": {
+          "url": "Adresse HTTP(S) EOS",
+          "protocol": "Contrat API EOS",
+          "timeout_seconds": "Délai d'attente (secondes)"
+        }
+      },
+      "planner_selection": {
+        "title": "Energy Planning › Planificateur actif",
+        "description": "RHI Deterministic est toujours disponible sans connexion. Les autres fournisseurs apparaissent après configuration ou sélection antérieure. Un fournisseur indisponible ou non validé maintient l'exécution en HOLD ; la planification de base reste visible.",
+        "data": {
+          "planner_provider": "Planificateur opérationnel demandé"
+        }
+      }
+    },
+    "error": {
+      "invalid_configuration": "Sélection invalide ou non prise en charge. Choisissez un planificateur connu ; configurer une connexion n'autorise pas l'exécution.",
+      "canonical_runtime_unavailable": "L'environnement d'exécution Energy n'est pas disponible. Rechargez l'intégration et réessayez.",
+      "emhass_activation_not_yet_supported": "EMHASS ne peut pas être défini comme planificateur principal tant que l'optimisation native et la sécurité ne sont pas validées.",
+      "invalid_url": "Saisissez une adresse de service EMHASS HTTP(S) valide.",
+      "write_not_confirmed": "La modification n'a pas été confirmée par Energy. Vérifiez l'état de l'opération et la valeur relue avant de réessayer.",
+      "partial_write": "Certains paramètres ont été enregistrés, mais une modification ultérieure n'a pas été confirmée. Vérifiez les valeurs relues avant de réessayer ; le formulaire n'a pas été appliqué comme une transaction unique."
+    },
+    "abort": {
+      "canonical_configuration_unavailable": "La configuration Energy n'est pas encore disponible. Rouvrez Configurer une fois l'environnement d'exécution prêt.",
+      "haeo_config_entry_missing": "Aucune intégration HAEO n'est installée. Installez et configurez HAEO avant de créer la connexion du planificateur Energy."
+    }
+  }
+}

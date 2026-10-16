@@ -1,0 +1,169 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Robotix Home Intelligence - Energiemodule",
+        "description": "Voeg de Energiemodule toe. Foundation moet geïnstalleerd en geconfigureerd zijn voordat Energy de domeinruntime kan activeren."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "De Energiemodule is al geconfigureerd. Open de bestaande integratie in plaats van een tweede instantie toe te voegen."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Energie-instellingen",
+        "description": "Kies wat je wilt configureren. Technische bronselectie blijft in Foundation; deze instellingen bepalen het gedrag van Energy.",
+        "menu_options": {
+          "pricing": "Prijzen en tarieven",
+          "strategy": "Strategie en prioriteiten",
+          "metering": "Meetgegevens",
+          "planner": "Planningsoptimalisatie"
+        }
+      },
+      "pricing": {
+        "title": "Energie-instellingen › Prijzen en tarieven",
+        "description": "Configureer alleen de tariefonderdelen die niet door een live prijsbron geleverd worden. Zonder tariefonderdelen blijft berekening op basis van marktprijzen mogelijk.",
+        "data": {
+          "market_price_fallback": "Terugvalprijs voor marktprijs",
+          "network_cost": "Netkosten",
+          "levies": "Heffingen",
+          "vat": "Btw",
+          "export_fee": "Injectiekosten"
+        }
+      },
+      "strategy": {
+        "title": "Energie-instellingen › Strategie en prioriteiten",
+        "description": "Kies welk onderdeel van de energiestrategie je wilt configureren.",
+        "menu_options": {
+          "home": "Woning en prioriteiten",
+          "battery": "Batterij",
+          "solar": "Zonne-energie",
+          "grid": "Elektriciteitsnet",
+          "ev_charging": "Elektrisch laden",
+          "resilience": "Veerkracht"
+        }
+      },
+      "home": {
+        "title": "Energie-instellingen › Strategie › Woning en prioriteiten",
+        "description": "Bepaal hoe actief Energy mag sturen en waarop de woning moet optimaliseren.",
+        "data": {
+          "primary_objective": "Hoofddoel",
+          "operating_mode": "Werkingsmodus"
+        }
+      },
+      "battery": {
+        "title": "Energie-instellingen › Strategie › Batterij",
+        "description": "Stel in hoe de thuisbatterij deelneemt aan optimalisatie. De reserve is de minimale laadstatus die Energy moet beschermen.",
+        "data": {
+          "objective": "Batterijdoel",
+          "grid_policy": "Netstroom gebruiken",
+          "solar_policy": "Zonne-energie gebruiken",
+          "battery_policy": "Batterijgedrag",
+          "surplus_policy": "Overschot benutten",
+          "reserve_target": "Doelreserve"
+        }
+      },
+      "solar": {
+        "title": "Energie-instellingen › Strategie › Zonne-energie",
+        "description": "Bepaal de prioriteit van zonneproductie en hoe overschotten worden gebruikt.",
+        "data": {
+          "objective": "Doel voor zonne-energie",
+          "grid_policy": "Netbeleid",
+          "solar_policy": "Prioriteit zonne-energie",
+          "battery_policy": "Samenwerking met batterij",
+          "surplus_policy": "Beleid voor overschotten"
+        }
+      },
+      "grid": {
+        "title": "Energie-instellingen › Strategie › Elektriciteitsnet",
+        "description": "Bepaal wanneer netstroom de thuisbatterij en flexibele verbruikers mag ondersteunen.",
+        "data": {
+          "home_battery_policy": "Netbeleid thuisbatterij",
+          "flexible_load_policy": "Netbeleid flexibele verbruikers"
+        }
+      },
+      "ev_charging": {
+        "title": "Energie-instellingen › Strategie › Elektrisch laden",
+        "description": "Stel in hoe flexibel laden rekening houdt met prijs, zonne-energie, batterij en energieoverschotten.",
+        "data": {
+          "objective": "Laaddoel",
+          "grid_policy": "Netstroom gebruiken",
+          "solar_policy": "Zonne-energie gebruiken",
+          "battery_policy": "Thuisbatterij gebruiken",
+          "surplus_policy": "Overschot gebruiken"
+        }
+      },
+      "resilience": {
+        "title": "Energie-instellingen › Strategie › Veerkracht",
+        "description": "Stel in hoe Energy de back-upcapaciteit beschermt en reageert wanneer veerkracht voorrang krijgt.",
+        "data": {
+          "objective": "Doel voor veerkracht",
+          "grid_policy": "Netbeleid",
+          "battery_policy": "Batterijbeleid"
+        }
+      },
+      "metering": {
+        "title": "Energie-instellingen › Meetgegevens",
+        "description": "Kies de standaardperiode voor metingen en financiële waarde in Energy.",
+        "data": {
+          "display_period": "Standaardperiode"
+        }
+      },
+      "planner": {
+        "title": "Planningsproviders configureren",
+        "description": "Kies de actieve planner of configureer een externe verbinding. De ingebouwde RHI Deterministic-planner heeft geen verbinding nodig; een verbinding alleen staat uitvoering niet toe.",
+        "menu_options": {
+          "planner_selection": "Actieve planner (RHI Deterministic / geconfigureerde provider)",
+          "emhass": "EMHASS-verbinding (alleen lezen tot validatie)",
+          "haeo": "HAEO-integratie (adapter nog niet gevalideerd)",
+          "akkudoktor_eos": "Akkudoktor EOS-eindpunt (adapter nog niet gevalideerd)"
+        }
+      },
+      "emhass": {
+        "title": "Planner › EMHASS",
+        "description": "Configureer het EMHASS-serviceadres en de time-out. Apparaten, tarieven en prognoses blijven beheerd door RHI Energy. Een geslaagde verbinding staat geen commando-uitvoering toe.",
+        "data": {
+          "url": "EMHASS-serviceadres",
+          "timeout_seconds": "Time-out aanvraag (seconden)"
+        }
+      },
+      "haeo": {
+        "title": "Planner › HAEO",
+        "description": "Koppel de geïnstalleerde HAEO-integratie in Home Assistant. Input- en resultaatmapping zijn nog niet gevalideerd; selectie in Energy houdt uitvoering op HOLD tot verificatie.",
+        "data": {
+          "config_entry_id": "HAEO-integratie"
+        }
+      },
+      "akkudoktor_eos": {
+        "title": "Planner › Akkudoktor EOS",
+        "description": "Geef de EOS-server en het exacte API-protocol op; /optimize en /v1/optimize zijn niet uitwisselbaar. De adapter is nog niet goedgekeurd voor uitvoering.",
+        "data": {
+          "url": "EOS HTTP(S)-adres",
+          "protocol": "EOS API-contract",
+          "timeout_seconds": "Time-out aanvraag (seconden)"
+        }
+      },
+      "planner_selection": {
+        "title": "Energy Planning › Actieve planner",
+        "description": "RHI Deterministic is altijd beschikbaar zonder verbinding. Andere providers verschijnen na configuratie of eerdere selectie. Een onbeschikbare of niet-gevalideerde provider houdt uitvoering op HOLD; de onafhankelijke basisplanning blijft zichtbaar.",
+        "data": {
+          "planner_provider": "Gevraagde operationele planner"
+        }
+      }
+    },
+    "error": {
+      "invalid_configuration": "Ongeldige of niet-ondersteunde keuze. Kies een gekende planner; alleen een verbinding instellen geeft geen toestemming voor uitvoering.",
+      "canonical_runtime_unavailable": "De Energy-runtime is niet beschikbaar. Herlaad de integratie en probeer opnieuw.",
+      "emhass_activation_not_yet_supported": "EMHASS kan pas als hoofdplanner worden gekozen na validatie van de native optimalisatie en veiligheid.",
+      "invalid_url": "Voer een geldig EMHASS HTTP(S)-serviceadres in.",
+      "write_not_confirmed": "Energy heeft de wijziging niet bevestigd. Controleer de operatiestatus en de uitgelezen waarde voordat je opnieuw probeert.",
+      "partial_write": "Sommige instellingen zijn opgeslagen, maar een latere wijziging is niet bevestigd. Controleer de uitgelezen waarden voordat je opnieuw probeert; het formulier werd niet als één transactie opgeslagen."
+    },
+    "abort": {
+      "canonical_configuration_unavailable": "De Energy-configuratie is nog niet beschikbaar. Open Configureren opnieuw zodra de runtime klaar is.",
+      "haeo_config_entry_missing": "Er is geen HAEO-integratie geïnstalleerd. Installeer en configureer HAEO voordat je de Energy-plannerverbinding maakt."
+    }
+  }
+}

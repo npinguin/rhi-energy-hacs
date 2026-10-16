@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 
 from .runtime.canonical_semantics import jload
 from .const import DOMAIN
@@ -19,9 +20,14 @@ def _parameters(value: Any) -> dict[str,Any]:
 async def async_register_services(hass: HomeAssistant, interaction: Any, manager: Any | None = None) -> dict[str,list[str]]:
     registered={"rhi_energy":[]}
     async def write_property(call: ServiceCall) -> None:
-        pid=str(call.data.get("property_id") or "")
-        if not pid: return
-        await interaction.write_property(pid,call.data.get("value"))
+        pid = str(call.data.get("property_id") or "")
+        if not pid:
+            raise HomeAssistantError("Energy write_property requires property_id")
+        result = await interaction.write_property(pid, call.data.get("value"))
+        if not isinstance(result, dict) or result.get("status") != "CONFIRMED":
+            status = str(result.get("status") or "UNKNOWN") if isinstance(result, dict) else "UNKNOWN"
+            reason = str(result.get("reason") or "unconfirmed") if isinstance(result, dict) else "invalid_response"
+            raise HomeAssistantError(f"Energy property write not confirmed ({status}): {reason}")
 
     async def invoke_command(call: ServiceCall) -> None:
         cid=str(call.data.get("command_id") or call.data.get("command_key") or "")
