@@ -931,6 +931,7 @@ def _planning_price_for_bucket(
 
     quotations: list[tuple[datetime, datetime | None, float]] = []
     seen: set[datetime] = set()
+    conflicts: set[datetime] = set()
     for row in future_intervals:
         if not isinstance(row, dict):
             continue
@@ -941,9 +942,10 @@ def _planning_price_for_bucket(
         if at is None or price is None or unit not in {"EUR/kWh", "€/kWh"}:
             continue
         if at in seen:
-            # Multiple accepted sources claiming one market instant are
-            # ambiguous even if their floating-point values happen to match.
-            return None
+            # Reject only the affected market interval, not unrelated valid
+            # prices on D0 when a D1 source has an overlap/conflict.
+            conflicts.add(at)
+            continue
         seen.add(at)
         raw_end = row.get("end") or row.get("end_at") or row.get("end_time")
         at_end = instant(raw_end) if raw_end is not None else None
@@ -952,6 +954,7 @@ def _planning_price_for_bucket(
         quotations.append((at, at_end, price))
     quotations.sort(key=lambda quote: quote[0])
     permitted = {timedelta(minutes=15), timedelta(minutes=30), timedelta(minutes=60)}
+    segments: list[tuple[datetime, datetime, float, datetime]] = []
     for index, (at, explicit_end, price) in enumerate(quotations):
         if explicit_end is not None:
             until = explicit_end
@@ -963,13 +966,28 @@ def _planning_price_for_bucket(
             continue
         if until <= at or until - at not in permitted:
             continue
-        if at <= start and end <= until:
-            return price
-    # Current live price never stands in for unobserved future market prices.
-    if start <= now_utc < end:
+        lower, upper = max(start, at), min(end, until)
+        if lower < upper:
+            segments.append((lower, upper, price, at))
+    # Exact observed coverage permits four 15m quotes in a 60m bucket;
+    # any overlap, gap or duplicate source instant remains unpriced.
+    segments.sort(key=lambda row: (row[0], row[1]))
+    cursor = start
+    weighted = 0.0
+    for lower, upper, price, source_at in segments:
+        if lower != cursor or source_at in conflicts:
+            return None
+        weighted += price * (upper - lower).total_seconds()
+        cursor = upper
+    if segments:
+        return round(weighted / (end - start).total_seconds(), 8) if cursor == end else None
+    # Live spot never replaces partially observed hourly or future prices.
+    if (
+        start <= now_utc < end and start not in conflicts
+        and not any(start <= at < end for at, _until, _price in quotations)
+    ):
         return current_price if current_price is not None and math.isfinite(current_price) else None
     return None
-
 
 def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible_assets: list[dict[str, Any]], now: datetime | None = None) -> dict[str, Any]:
     """Deterministic D0/D1 advisory plan with chronological evidence semantics.
@@ -1157,7 +1175,12 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             flex_allocs: list[dict[str, Any]] = []
             flex_energy = 0.0
 
-            if complete:
+            if solar_total is not None and demand is not None:
+                # A missing demand for a different participating asset prevents
+                # the COMPLETE plan and all physical command authority, but
+                # known, qualified demand can still be scheduled as explicitly
+                # provisional planning evidence. Never represent this subset
+                # as the full site demand or silently turn unknown need into 0.
                 # Continue previously started minimum-runtime windows first, then use
                 # deterministic deadline/asset ordering for newly starting loads.
                 ordered = sorted(
@@ -1429,6 +1452,16 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                 "expected_demand_kwh": round(demand + scheduled, 4) if demand is not None else None,
             },
             "known_demand_projection": known_demand_projection,
+            "known_flexible_preview": {
+                "basis": "only_producer_qualified_participating_consumers",
+                "status": "PROVISIONAL" if not complete else "COMPLETE",
+                "forecast_ready": bool(known_projection_ready),
+                "known_need_kwh": requested,
+                "planned_known_kwh": scheduled if known_projection_ready else None,
+                "still_to_plan_known_kwh": deferred if known_projection_ready else None,
+                "unknown_participating_load_count": len(incomplete_assets),
+                "execution_authorized": False,
+            },
             "baseline_demand": {"home_kwh": demand},
             "flexible_demand": {"known_need_kwh": requested},
             "scheduled": {"flexible_kwh": scheduled},

@@ -399,7 +399,37 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
             elif len(rows) > 1:
                 issues.append(f"battery_system_{role}:ambiguous:count_{len(rows)}")
 
+        # A system/controller rated-capacity source must be tied to the same
+        # concrete integration config entry as EVERY anchored Huawei storage
+        # unit. A similarly named capacity exposed by an unrelated controller,
+        # or by a source with no config-entry identity, cannot be attributed.
         capacity_rows = list(inputs.get("battery_capacity", []))
+        anchor_config_entries = [
+            {
+                str((candidate.get("source_identity") or {}).get("config_entry_id"))
+                for candidate in power_candidates
+                if unit_key(candidate) == anchor_key
+                and (candidate.get("source_identity") or {}).get("config_entry_id")
+            }
+            for anchor_key in anchor_keys
+        ]
+        shared_entries = (
+            set.intersection(*anchor_config_entries)
+            if anchor_config_entries and all(anchor_config_entries)
+            else set()
+        )
+        if integration == "huawei_solar":
+            admissible = [
+                row for row in capacity_rows
+                if str((row.get("source_identity") or {}).get("config_entry_id") or "")
+                in shared_entries
+            ]
+            rejected_count = len(capacity_rows) - len(admissible)
+            if rejected_count:
+                issues.append(
+                    f"battery_system_capacity:source_scope_unproven:count_{rejected_count}"
+                )
+            capacity_rows = admissible
         if len(anchor_keys) > 1:
             if len(capacity_rows) == 1:
                 binding_id = f"energy:{system_id}:capacity"
@@ -433,8 +463,7 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
                     for candidate in inputs.get(input_id, [])
                     if not unit_key_resolver(candidate)
                     and (
-                        not (candidate.get("source_identity") or {}).get("config_entry_id")
-                        or str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
+                        str((candidate.get("source_identity") or {}).get("config_entry_id") or "")
                         in anchor_config_entries
                     )
                 ]
@@ -443,6 +472,13 @@ def _accept_battery(build_input: dict[str, Any], previous: dict[str, dict[str, A
                 # be duplicated across several units.
                 if len(anchor_keys) == 1 and len(sibling_rows) == 1:
                     rows = sibling_rows
+                elif (
+                    integration == "huawei_solar" and input_id == "battery_capacity"
+                    and not rows and inputs.get(input_id)
+                ):
+                    # Preserve the capacity gap as an explicit issue instead of
+                    # silently converting it to zero kWh or a guessed nameplate.
+                    issues.append(f"battery_capacity:{anchor_key}:source_scope_unproven")
             if len(rows) == 1:
                 binding_id = f"energy:{asset_id}:{role}"
                 bindings.append(_binding(asset_id, role, rows[0], previous.get(binding_id)))

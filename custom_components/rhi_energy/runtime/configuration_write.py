@@ -30,6 +30,17 @@ def checked_pricing_write(row: dict[str, Any] | None, raw: Any) -> tuple[str | N
         maximum is not None and value > float(maximum)
     ):
         return "outside_constraints", None
+    # Canonical number editors promise a step. Reject impossible values at
+    # the producer boundary, not only inside a frontend form.
+    step = limits.get("step")
+    if step is not None:
+        quantum = float(step)
+        if not isfinite(quantum) or quantum <= 0:
+            return "canonical_constraints_invalid", None
+        baseline = float(minimum) if minimum is not None else 0.0
+        steps = (value - baseline) / quantum
+        if abs(steps - round(steps)) > 1e-7:
+            return "outside_constraints", None
     return None, value
 
 
@@ -156,7 +167,7 @@ def preflight_configuration_writes(
                 maximum is not None and numeric > float(maximum)
             ):
                 raise ValueError("canonical_number_outside_constraints")
-            if editor == "slider" and constraints.get("step") is not None:
+            if constraints.get("step") is not None:
                 step = float(constraints["step"])
                 baseline = float(minimum) if minimum is not None else 0.0
                 if step <= 0 or not isfinite(step) or abs(

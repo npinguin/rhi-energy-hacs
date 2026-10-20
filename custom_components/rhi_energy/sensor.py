@@ -121,6 +121,10 @@ class EnergyMeteringPeriodSensor(SensorEntity):
     def extra_state_attributes(self):
         row = self._row()
         financial = interval_actuals(row)
+        session_state = (
+            (getattr(getattr(self, "_store", None), "data", {}) or {})
+            .get("metering", {}).get("charging_sessions") or {}
+        )
         measured = {
             "solar_production_kwh": row["solar_kwh"],
             "grid_import_kwh": row["grid_import_kwh"],
@@ -162,6 +166,24 @@ class EnergyMeteringPeriodSensor(SensorEntity):
                 },
             },
             "flexible_assets_kwh": row["flexible_assets_kwh"],
+            # Session identity and chronology come from Mobility physical
+            # observations, while Energy owns interval metering and cost.
+            # Bound native HA attributes; persistent history lives in the
+            # Energy store and is not duplicated per native period entity.
+            "charging_sessions": {
+                "active": list(
+                    session_state.get("active", {}).values()
+                )[:8],
+                "recent": (
+                    session_state.get("history", [])
+                )[-8:],
+                "history_count": len(
+                    session_state.get("history", [])
+                ),
+                "identity_owner": "rhi_mobility",
+                "periodization_owner": "rhi_energy",
+                "cost_allocation": "UNKNOWN_UNTIL_QUALIFIED",
+            },
             "field_quality": row["field_quality"],
             "field_coverage_seconds": row["field_coverage_seconds"],
             "financial_coverage_seconds": row["financial_coverage_seconds"],

@@ -496,6 +496,50 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "planning_runtime": deepcopy(snap.get("planning_runtime") or {}),
         "planning_selection": deepcopy(snap.get("planning_selection") or {}),
         "planning_providers": deepcopy(snap.get("planning_providers") or {}),
+        # An OK Foundation handoff cannot explain a missing D0/D1 schedule.
+        # Export the actual selected/baseline horizon quality and precise
+        # Mobility consumer blockers, without granting execution authority.
+        "planning_evidence": {
+            "effective_plan_health": (snap.get("plan") or {}).get("health"),
+            "baseline_plan_health": (snap.get("baseline_plan") or {}).get("health"),
+            "effective_horizons": {
+                horizon_id: {
+                    "quality": deepcopy(
+                        (((snap.get("plan") or {}).get("planning_horizons") or {}).get(horizon_id) or {}).get("quality") or {}
+                    ),
+                    "required_kwh": (((snap.get("plan") or {}).get("planning_horizons") or {}).get(horizon_id) or {}).get("required_kwh"),
+                    "planned_kwh": (((snap.get("plan") or {}).get("planning_horizons") or {}).get(horizon_id) or {}).get("planned_kwh"),
+                    "still_to_plan_kwh": (((snap.get("plan") or {}).get("planning_horizons") or {}).get(horizon_id) or {}).get("still_to_plan_kwh"),
+                }
+                for horizon_id in ("D0", "D1")
+            },
+            "baseline_horizons": {
+                horizon_id: {
+                    "quality": deepcopy(
+                        (((snap.get("baseline_plan") or {}).get("planning_horizons") or {}).get(horizon_id) or {}).get("quality") or {}
+                    ),
+                    "known_demand_projection": deepcopy(
+                        (((snap.get("baseline_plan") or {}).get("planning_horizons") or {}).get(horizon_id) or {}).get("known_demand_projection") or {}
+                    ),
+                }
+                for horizon_id in ("D0", "D1")
+            },
+            "incomplete_inputs": deepcopy(
+                ((snap.get("baseline_plan") or {}).get("flexible_plan") or {}).get("incomplete_inputs") or []
+            ),
+            "consumer_participation": [
+                {
+                    "asset_id": row.get("asset_id"),
+                    "participation_state": row.get("participation_state"),
+                    "planning_input_ready": row.get("planning_input_ready"),
+                    "planning_eligible": row.get("planning_eligible"),
+                    "planning_blockers": deepcopy(row.get("planning_blockers") or []),
+                    "planning_exclusion_reason": row.get("planning_exclusion_reason"),
+                }
+                for row in (snap.get("flexible_assets") or [])
+                if isinstance(row, dict) and row.get("infrastructure_only") is not True
+            ],
+        },
         "operational_readiness": deepcopy(snap.get("operational_readiness") or {}),
         "source_resolution_coherence": _source_resolution_coherence(snap.get("logical_assets") or []),
         "property_operations": {

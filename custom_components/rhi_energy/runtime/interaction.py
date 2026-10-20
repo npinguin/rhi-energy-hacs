@@ -8,6 +8,7 @@ blindly duplicate a physical operation.
 """
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 from datetime import datetime, timedelta
 import hashlib
@@ -34,6 +35,7 @@ from .canonical_semantics import (
 from ..const import COMMAND_IDEMPOTENCY_WINDOW_SECONDS, COMMAND_TIMEOUT_SECONDS
 from .producers import resolve_mobility_command
 from .configuration_write import checked_pricing_write, checked_strategy_write, checked_flexible_power_write
+from .planning_activity import energy_execution_participant, should_record_planning_block
 
 _LOGGER = logging.getLogger(__name__)
 _TERMINAL = {"CONFIRMED", "REJECTED", "TIMED_OUT"}
@@ -50,6 +52,8 @@ class EnergyInteractionEngine:
         self._remove_runtime = None
         self._remove_timer = None
         self._last_auto: dict[str, datetime] = {}
+        self._property_write_lock = asyncio.Lock()
+        self._last_automatic_plan_block: tuple[str, datetime] | None = None
 
     def add_callback(self, cb):
         self._callbacks.append(cb)
@@ -416,8 +420,15 @@ class EnergyInteractionEngine:
         return result
 
     async def write_property(self, property_id: str, value: Any) -> dict[str, Any]:
+        # A local settings save must be serialized: concurrent editor writes
+        # must not overwrite each other's independently validated changes.
+        async with self._property_write_lock:
+            return await self._write_property_serialized(property_id, value)
+
+    async def _write_property_serialized(self, property_id: str, value: Any) -> dict[str, Any]:
         operation = await self._admit_property_write(property_id, value)
-        settings = self.store.data.setdefault("settings", {})
+        settings_before = deepcopy(self.store.data.get("settings") or {})
+        settings = deepcopy(settings_before)
         pricing = settings.setdefault("pricing", {})
         strategy = settings.setdefault("strategy", {})
         result = {
@@ -518,6 +529,28 @@ class EnergyInteractionEngine:
             else:
                 settings["metering_selected_period"] = normalized
                 result.update(status="CONFIRMED", reason="persisted_metering_context", readback_value=normalized)
+        elif property_id.endswith(".planning_participation"):
+            # Energy-only scheduling intent. This never disables a Mobility
+            # vehicle or changes its physical charger/command ownership.
+            asset_id = property_id[: -len(".planning_participation")]
+            asset = self._find_asset(asset_id)
+            if (
+                not isinstance(asset, dict)
+                or asset.get("infrastructure_only") is True
+                or str(asset.get("participation_state") or "") in {"disabled", "infrastructure_only"}
+            ):
+                result["reason"] = "flexible_consumer_not_found_or_ineligible"
+            elif type(value) is not str or value not in {"participating", "excluded"}:
+                result["reason"] = "invalid_planning_participation"
+            else:
+                per_asset = settings.setdefault("flexible_loads", {}).setdefault(asset_id, {})
+                per_asset["planning_participation"] = value
+                result.update(
+                    status="CONFIRMED",
+                    reason="persisted_energy_planning_participation",
+                    readback_value=value,
+                    target_asset_id=asset_id,
+                )
         elif property_id.endswith(".ready_by"):
             asset_id = property_id[: -len(".ready_by")]
             asset = self._find_asset(asset_id)
@@ -586,18 +619,40 @@ class EnergyInteractionEngine:
                     source_entity_id=entity_id,
                     source_platform="number",
                 )
+        local_persistence = (
+            result.get("status") == "CONFIRMED"
+            and str(result.get("reason") or "").startswith("persisted_")
+        )
+        if local_persistence:
+            self.store.data["settings"] = settings
         result = self._finalize_property_write(operation, result)
         self.store.data.setdefault("property_operation_state", {})[property_id] = operation
-        self.store.add_activity(
-            {
-                "activity_type": "property_write",
-                "property_id": property_id,
-                "operation_id": result.get("operation_id"),
-                "status": result["status"],
-                "reason": result["reason"],
-            }
-        )
-        await self.store.async_save()
+        self.store.add_activity({
+            "activity_type": "property_write",
+            "property_id": property_id,
+            "operation_id": result.get("operation_id"),
+            "status": result["status"],
+            "reason": result["reason"],
+        })
+        try:
+            await self.store.async_save()
+        except Exception:
+            # Never confirm a policy/tariff write that was only changed in
+            # memory; keep other asynchronous activity and physical state.
+            if not local_persistence:
+                raise
+            self.store.data["settings"] = settings_before
+            self.store.data["activity"] = [
+                item for item in self.store.data.get("activity") or []
+                if not (
+                    isinstance(item, dict)
+                    and item.get("operation_id") == result.get("operation_id")
+                    and item.get("activity_type") == "property_write"
+                )
+            ]
+            result.update(status="REJECTED", reason="configuration_persistence_failed", readback_value=None)
+            self._finalize_property_write(operation, result)
+            _LOGGER.exception("Energy setting persistence failed; rolled back property=%s", property_id)
         self.runtime._recompute()
         self._notify()
         return result
@@ -1251,6 +1306,8 @@ class EnergyInteractionEngine:
         # Protective control always wins over positive scheduling.
         protected: set[str] = set()
         for asset in assets:
+            if not energy_execution_participant(asset):
+                continue
             asset_id = str(asset["asset_id"])
             decision = protective_execution_decision(
                 facts.get("grid_import.power_kw"),
@@ -1267,6 +1324,16 @@ class EnergyInteractionEngine:
                     self._last_auto[asset_id] = now
 
         if not allocations and plan_reason != "current_d0_bucket":
+            record = (
+                origin != "automatic"
+                or should_record_planning_block(
+                    self._last_automatic_plan_block, plan_reason, now
+                )
+            )
+            if not record:
+                return {"executed": False, "reason": plan_reason, "policy": policy}
+            if origin == "automatic":
+                self._last_automatic_plan_block = (plan_reason, now)
             self.store.add_activity({
                 "activity_type": "plan_execution",
                 "origin": origin,
@@ -1277,7 +1344,10 @@ class EnergyInteractionEngine:
             self._notify()
             return {"executed": False, "reason": plan_reason, "policy": policy}
 
+        self._last_automatic_plan_block = None
         for asset in assets:
+            if not energy_execution_participant(asset):
+                continue
             asset_id = str(asset["asset_id"])
             if asset_id in protected:
                 continue

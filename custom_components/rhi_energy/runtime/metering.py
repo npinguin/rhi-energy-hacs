@@ -15,12 +15,16 @@ from zoneinfo import ZoneInfo
 from homeassistant.core import HomeAssistant
 
 try:
+    from .charging_sessions import update_charging_sessions
     from .consumer_assets import physical_connection_power_total
     from .battery_metering import battery_gross_metering_powers
     from .metering_source import finite_nonnegative_source_power, finite_signed_money_rate
 except ImportError:  # Direct runpy/static regression execution.
     from pathlib import Path as _Path
     import runpy as _runpy
+    update_charging_sessions = _runpy.run_path(
+        str(_Path(__file__).resolve().parent / "charging_sessions.py")
+    )["update_charging_sessions"]
     _consumer_assets = _runpy.run_path(
         str(_Path(__file__).resolve().parent / "consumer_assets.py")
     )
@@ -238,11 +242,11 @@ class EnergyMetering:
     @staticmethod
     def _accumulate(row: dict[str, Any], field: str, kw: float, hours: float, seconds: float) -> None:
         current = row.get(field)
-        row[field] = round((float(current) if current is not None else 0.0) + max(0.0, float(kw)) * hours, 6)
+        row[field] = round((float(current) if current is not None else 0.0) + max(0.0, float(kw)) * hours, 12)
         quality = row.setdefault("field_quality", {})
         quality[field] = _sticky_field_quality(quality.get(field), observed=True)
         coverage = row.setdefault("field_coverage_seconds", {})
-        coverage[field] = int(coverage.get(field, 0)) + int(max(0, seconds))
+        coverage[field] = round(float(coverage.get(field, 0) or 0) + max(0.0, seconds), 6)
 
     @staticmethod
     def _accumulate_financial(
@@ -252,12 +256,12 @@ class EnergyMetering:
         row[field] = round(
             (float(current) if current is not None else 0.0)
             + float(rate_eur_h) * hours,
-            6,
+            12,
         )
         quality = row.setdefault("financial_quality", {})
         quality[field] = _sticky_field_quality(quality.get(field), observed=True)
         coverage = row.setdefault("financial_coverage_seconds", {})
-        coverage[field] = int(coverage.get(field, 0)) + int(max(0.0, hours * 3600))
+        coverage[field] = round(float(coverage.get(field, 0) or 0) + max(0.0, hours * 3600), 6)
 
     def _financial_rates(self, facts: dict[str, Any]) -> dict[str, float | None]:
         from .canonical_semantics import by_key, number, pricing_properties
@@ -437,7 +441,7 @@ class EnergyMetering:
                     kw = finite_nonnegative_source_power(sample)
                     if kw is not None:
                         per = row.setdefault("flexible_assets_kwh", {})
-                        per[asset_id] = round(float(per.get(asset_id) or 0.0) + kw * hours, 6)
+                        per[asset_id] = round(float(per.get(asset_id) or 0.0) + kw * hours, 12)
                 for field in ("import_cost_eur", "export_revenue_eur"):
                     rate = finite_signed_money_rate(last_financial.get(field))
                     if rate is not None:
@@ -456,6 +460,11 @@ class EnergyMetering:
                 self._mark_gap(row, last, now, last_financial)
 
         self._learn_baseload(now, facts)
+        # Energy owns session periodization; Mobility publishes only physical
+        # charger observation and qualified connected-vehicle identity.
+        update_charging_sessions(
+            state, snap.get("connections") or [], now,
+        )
         state["last_update"] = now.isoformat()
         state["last_powers"] = current
         state["last_flexible_powers"] = flexible_powers

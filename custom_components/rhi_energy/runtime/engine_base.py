@@ -25,7 +25,7 @@ from .canonical_semantics import (
     pricing_properties, strategy_properties,
 )
 from ..semantic import property_definitions
-from .consumer_assets import flexible_power_total, normalize_mobility_consumers, physical_connection_power_total
+from .consumer_assets import (apply_energy_planning_intent, flexible_power_total, normalize_mobility_consumers, physical_connection_power_total)
 from .event_flow import SourceEventCoalescer
 from .logical_assets import apply_runtime_values
 from .incremental import build_entity_targets, update_optimizer_entity
@@ -41,6 +41,7 @@ from .coverage import canonical_coverage
 from .retrospective import retrospective_evidence
 from .planning_cadence import TacticalPlanningCadence
 from .engine_auxiliary import EnergyRuntimeAuxiliary
+from .future_price_sources import source_future_price_rows, collapse_identical_price_quotes
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
 def _unit_to_kw(value: Any, unit: str | None) -> float | None:
@@ -77,10 +78,14 @@ def _unit_to_kwh(value: Any, unit: str | None) -> float | None:
         return None
     return round(value, 6)
 def _price_to_eur_kwh(value: Any, unit: str | None) -> float | None:
+    """Reject declared non-EUR prices; retain legacy sources without a unit."""
     value = number(value)
     if value is None:
         return None
-    if "mwh" in str(unit or "").lower():
+    normalized_unit = str(unit or "").strip().lower().replace(" ", "")
+    if normalized_unit not in {"", "eur/kwh", "€/kwh", "eur/mwh", "€/mwh"}:
+        return None
+    if normalized_unit in {"eur/mwh", "€/mwh"}:
         value /= 1000
     return round(value, 6)
 def _present(value: Any) -> bool:
@@ -283,9 +288,8 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
         key = str(prop.get("property_key") or "")
         kind = str(prop.get("kind") or "text")
         if key == "forecast.solar_remaining_today_kwh":
-            # Forecast.Solar exposes remaining-today as an ordinary sensor state in
-            # current HA versions. E0.12.1 looked only at optional attributes and
-            # therefore discarded two valid accepted bindings as UNAVAILABLE.
+            # Prefer the actual Forecast.Solar state; optional attributes are fallback.
+            # E0.12.1 omitted valid state-only remaining-today bindings.
             state_value = _unit_to_kwh(raw, unit)
             if state_value is not None:
                 return state_value
@@ -298,7 +302,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             value = raw or attrs.get("peak_time") or attrs.get("highest_power_time")
             return str(value) if _present(value) else None
         if key == "pricing.future_prices":
-            value = attrs.get("prices") or attrs.get("raw_today") or attrs.get("raw_tomorrow") or raw
+            value = source_future_price_rows(attrs, raw)
             if not _present(value):
                 return None
             rows = value if isinstance(value, list) else [value]
@@ -308,13 +312,13 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
                     continue
                 price = _price_to_eur_kwh(
                     row.get("price") if "price" in row else row.get("value"),
-                    unit,
+                    row.get("unit") if row.get("unit") is not None else unit,
                 )
                 when = row.get("time") or row.get("start") or row.get("start_time")
                 if price is None or when is None:
                     continue
                 normalized.append({**deepcopy(row), "time": str(when), "price": price, "unit": "EUR/kWh"})
-            return normalized or None
+            return collapse_identical_price_quotes(normalized) or None
         if key == "pricing.currency":
             value = raw or attrs.get("currency")
             return str(value) if _present(value) else None
@@ -758,11 +762,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
             )
         settings = deepcopy(self.store.data.get("settings") or {})
         configured_flexible = settings.get("flexible_loads") or {}
-        for asset in flexible:
-            intent = configured_flexible.get(str(asset.get("asset_id") or ""))
-            if isinstance(intent, dict) and intent.get("ready_by"):
-                asset["deadline"] = intent["ready_by"]
-                asset["ready_by"] = intent["ready_by"]
+        apply_energy_planning_intent(flexible, configured_flexible)
         metering_state = self.store.data.get("metering") or {}
         settings["baseload_profile"] = deepcopy(metering_state.get("baseload_profile") or {})
         # Bootstrap planning from accumulated canonical Home Consumption when the

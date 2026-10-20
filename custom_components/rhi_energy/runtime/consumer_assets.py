@@ -283,6 +283,49 @@ def normalize_mobility_consumers(
     return out
 
 
+def apply_energy_planning_intent(
+    assets: list[dict[str, Any]],
+    configured: dict[str, Any] | None,
+) -> None:
+    """Apply Energy-owned planning policy without changing Mobility source truth.
+
+    A producer asset remains visible and measurable when a household explicitly
+    excludes it from Energy scheduling.  Unknown need is never coerced to zero;
+    absent or invalid intent never silently excludes a participating vehicle.
+    """
+    policies = configured if isinstance(configured, dict) else {}
+    for asset in assets:
+        asset_id = str(asset.get("asset_id") or "")
+        intent = policies.get(asset_id)
+        if not isinstance(intent, dict):
+            asset["planning_participation"] = "participating"
+            continue
+        ready_by = intent.get("ready_by")
+        if ready_by:
+            asset["deadline"] = ready_by
+            asset["ready_by"] = ready_by
+        selected = intent.get("planning_participation")
+        # Publication is Energy-owned intent; never reinterpret a producer's
+        # source-based participation/availability as a user opt-out.
+        asset["planning_participation"] = (
+            "excluded" if selected == "excluded" else "participating"
+        )
+        if (
+            selected == "excluded"
+            and asset.get("infrastructure_only") is not True
+            and str(asset.get("participation_state") or "").lower() == "participating"
+        ):
+            asset["participation_state"] = "excluded"
+            asset["planning_eligible"] = False
+            asset["planning_exclusion_reason"] = "energy_user_excluded_from_planning"
+            asset["user_status"] = "Excluded from Energy planning"
+            technical = asset.get("technical_status")
+            if isinstance(technical, dict):
+                technical["planning_participation_reason"] = "energy_user_excluded_from_planning"
+        # "participating" restores the producer's original participation.
+        # A malformed stored value has no power to hide a missing input.
+
+
 def flexible_power_total(assets: list[dict[str, Any]], *, producer_available: bool) -> float | None:
     """Return producer-attributed vehicle power as diagnostics, never site truth.
 

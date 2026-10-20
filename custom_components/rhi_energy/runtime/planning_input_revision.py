@@ -6,6 +6,7 @@ invalidates the cached horizon immediately. This is Energy-owned, not discovery.
 """
 from __future__ import annotations
 from hashlib import sha256
+from math import floor, isfinite
 import json
 from typing import Any
 
@@ -26,6 +27,33 @@ _PLAN_FACT_FIELDS = (
 )
 
 
+# Telemetry can update many times per second. The tactical plan is refreshed
+# every five minutes; sub-quantum changes to continuously measured quantities
+# must not force an optimizer regeneration between scheduled refreshes.
+# Policy, deadlines, provider changes and command limits still invalidate
+# immediately. Operational control/readback never uses these coarse values.
+_FACT_QUANTA_KWH = {
+    "forecast.solar_remaining_today_kwh": 0.5,
+    "battery.available_kwh": 0.5,
+}
+_ASSET_QUANTA = {
+    "energy_to_target_kwh": 0.5,
+    "current_soc_pct": 2.0,
+}
+
+
+def _fingerprint_quantity(value: Any, quantum: float) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    try:
+        physical = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return value
+    if not isfinite(physical):
+        return value
+    return round(floor(physical / quantum) * quantum, 6)
+
+
 def planning_input_revision(
     facts: dict[str, Any],
     settings: dict[str, Any],
@@ -40,14 +68,22 @@ def planning_input_revision(
     they must not turn this into a per-state-change optimization loop.
     """
     assets = [
-        {key: asset.get(key) for key in _PLAN_ASSET_FIELDS}
+        {
+            key: _fingerprint_quantity(asset.get(key), _ASSET_QUANTA[key])
+            if key in _ASSET_QUANTA else asset.get(key)
+            for key in _PLAN_ASSET_FIELDS
+        }
         for asset in flexible_assets
         if isinstance(asset, dict)
     ]
     assets.sort(key=lambda row: str(row.get("asset_id") or ""))
     payload = {
         "day_key": day_key,  # force new D0/D1 at local midnight
-        "facts": {key: facts.get(key) for key in _PLAN_FACT_FIELDS},
+        "facts": {
+            key: _fingerprint_quantity(facts.get(key), _FACT_QUANTA_KWH[key])
+            if key in _FACT_QUANTA_KWH else facts.get(key)
+            for key in _PLAN_FACT_FIELDS
+        },
         "settings": {
             key: settings.get(key)
             for key in ("strategy", "planning", "holds", "baseload_profile")

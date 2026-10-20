@@ -54,7 +54,29 @@ class EmhassShadowRunner:
                 metering_profile: dict[str, Any], strategy: dict[str, Any],
                 settings: dict[str, Any],
                 cadence_revision: Any) -> None:
-        if self._stopped or cadence_revision is None:
+        if self._stopped:
+            return
+        if cadence_revision is None:
+            # Losing the authoritative input revision invalidates an earlier
+            # accepted shadow plan immediately. The in-flight solver may still
+            # finish, but its generation is now obsolete and must not publish.
+            if (
+                self.status.get("reason") != "canonical_cadence_revision_unavailable"
+                or self.result is not None
+                or self._pending is not None
+            ):
+                self._generation += 1
+                self._pending = None
+                self.result = None
+                self.status.update(
+                    status="SHADOW_BLOCKED",
+                    readiness="UNAVAILABLE",
+                    result_status="REJECTED",
+                    reason="canonical_cadence_revision_unavailable",
+                    version_verified=False,
+                    requested_cadence_revision=None,
+                )
+                self.notify()
             return
         if cadence_revision == self.status.get("requested_cadence_revision"):
             return

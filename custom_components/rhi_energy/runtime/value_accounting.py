@@ -55,9 +55,9 @@ def interval_actuals(meter: dict[str, Any]) -> dict[str, Any]:
         else True
     )
 
-    # Current metering records account for paid hours separately from physical
-    # grid kWh hours. A missing tariff can leave a convincing numeric EUR total
-    # behind, but it cannot certify the entire measured grid interval.
+    # Physical and priced seconds are integrated over the same intervals.
+    # Accept sub-centisecond floating noise, never an unpriced second that
+    # would falsely certify the actual Net Financial Result.
     financial_coverage = meter.get("financial_coverage_seconds")
     grid_coverage = meter.get("field_coverage_seconds") or {}
     coverage_complete = None
@@ -71,7 +71,7 @@ def interval_actuals(meter: dict[str, Any]) -> dict[str, Any]:
         ]
         coverage_complete = all(
             paid is not None and physical is not None and paid > 0
-            and physical > 0 and abs(paid - physical) <= 1
+            and physical > 0 and abs(paid - physical) <= 0.01
             for paid, physical in aligned
         )
         financial_complete = financial_complete and coverage_complete

@@ -118,7 +118,10 @@ def native_planning_horizon(
         **result,
         "availability": "AVAILABLE" if available else degraded_availability,
         "reason_code": reason,
-        "totals_complete": consistent,
+        # A mathematically consistent set of numbers is not complete when
+        # the authoritative producer labels its evidence incomplete/stale.
+        # Consumers must not interpret a mere numeric balance as full coverage.
+        "totals_complete": available,
         "execution_authorized": result["execution_authorized"] and available,
         "quality": out_quality,
         "details": details,
