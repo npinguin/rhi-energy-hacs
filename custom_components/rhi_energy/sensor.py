@@ -1339,6 +1339,9 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
             # Keep stable semantic/presentation metadata on the same entity instead
             # of requiring a second aggregate product model.
             "canonical_contract": "RHI_ENERGY_CANONICAL_PROPERTY_V2",
+            # Contract-owned version provenance, even when the optional diagnostic
+            # release sensor is disabled in HA entity registry.
+            "publisher_release": RELEASE,
             "logical_object_class": asset.get("object_class"),
             "asset_id": self._asset_id,
             "parent_asset_id": asset.get("parent_asset_id"),
