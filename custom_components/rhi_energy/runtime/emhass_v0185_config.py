@@ -70,6 +70,7 @@ def native_deferrable_config(loads: list[dict[str, Any]]) -> dict[str, Any]:
         "number_of_deferrable_loads": len(loads),
         "nominal_power_of_deferrable_loads": [],
         "minimum_power_of_deferrable_loads": [],
+        "def_minimum_on_time": [],
         "operating_hours_of_each_deferrable_load": [],
         "start_timesteps_of_each_deferrable_load": [],
         "end_timesteps_of_each_deferrable_load": [],
@@ -77,6 +78,10 @@ def native_deferrable_config(loads: list[dict[str, Any]]) -> dict[str, Any]:
     for row in loads:
         result["nominal_power_of_deferrable_loads"].append(_number(row, "nominal_kw") * 1000)
         result["minimum_power_of_deferrable_loads"].append(_number(row, "minimum_kw") * 1000)
+        min_on = _number(row, "minimum_on_timesteps")
+        if not min_on.is_integer():
+            raise NativeCapabilityError(f"{row['asset_id']}:non_integer_minimum_on_time")
+        result["def_minimum_on_time"].append(int(min_on))
         result["operating_hours_of_each_deferrable_load"].append(_number(row, "operating_hours"))
         start_step = _number(row, "start_timestep")
         end_step = _number(row, "end_timestep")

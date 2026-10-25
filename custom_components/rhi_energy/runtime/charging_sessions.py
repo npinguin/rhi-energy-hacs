@@ -30,6 +30,55 @@ def _clock(value: Any) -> datetime | None:
     return out if out.tzinfo is not None and out.utcoffset() is not None else None
 
 
+def _invalidate_session_cost(session: dict[str, Any]) -> None:
+    """Never publish a complete session EUR after any unpriced coverage gap."""
+    session["cost_coverage_complete"] = False
+    session["cost_eur"] = None
+    session["cost_quality"] = "NOT_ALLOCATED"
+    session["cost_source"] = None
+
+
+def _allocate_interval_cost(
+    session: dict[str, Any], delta_kwh: float, seconds: float,
+    latest_power_kw: float | None, grid_only_price: float | None,
+    *, counted_energy: bool,
+) -> None:
+    """Accumulate only complete Energy-qualified grid-only EVSE cost periods.
+
+    A partial/missing grid source, ambiguous site mix, tariff discontinuity,
+    estimated power-only kWh or any previous unpriced positive interval
+    permanently invalidates the session-wide total. A negative EUR tariff is
+    a real grid credit, not invalid energy. No apportionment of site EUR
+    across solar/battery/flexible assets is guessed.
+    """
+    if delta_kwh <= 0:
+        return
+    prior_energy = session.get("energy_kwh")
+    complete = session.get("cost_coverage_complete") is True
+    # Existing persisted sessions from before this accounting capability may
+    # have accrued energy without any price lineage; never back-price them.
+    if "cost_coverage_complete" not in session:
+        complete = prior_energy is None
+    previous_power = _power(session.get("last_power_kw"))
+    # Meter jumps beyond the physically observed EVSE power envelope cannot
+    # be monetized even if the cumulative counter itself is numeric.
+    capacity_plausible = (
+        previous_power is not None and seconds > 0
+        and delta_kwh <= previous_power * seconds / 3600.0 * 1.10 + 0.002
+    )
+    if (
+        not complete or not counted_energy or not capacity_plausible
+        or grid_only_price is None or not isfinite(grid_only_price)
+    ):
+        _invalidate_session_cost(session)
+        return
+    prior_cost = session.get("cost_eur")
+    session["cost_eur"] = round(float(prior_cost or 0.0) + delta_kwh * grid_only_price, 8)
+    session["cost_quality"] = "ALLOCATED"
+    session["cost_coverage_complete"] = True
+    session["cost_source"] = "energy_metering_verified_grid_only_import_rate"
+
+
 def update_charging_sessions(
     state: dict[str, Any],
     connections: list[dict[str, Any]],
@@ -37,6 +86,7 @@ def update_charging_sessions(
     *,
     max_evidence_gap_seconds: float = 300,
     history_limit: int = 120,
+    grid_only_import_price_eur_kwh: float | None = None,
 ) -> dict[str, Any]:
     """Idempotent in-window evidence integration without invented identities.
 
@@ -46,6 +96,20 @@ def update_charging_sessions(
     """
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("charging_session_timestamp_must_be_aware")
+    # This price is independently qualified by Energy metering from both
+    # physical grid-only site boundaries and accepted interval EUR evidence.
+    # A tariff on its own never permits billing a charger while PV/battery
+    # can also provide the energy.
+    if isinstance(grid_only_import_price_eur_kwh, bool):
+        grid_only_import_price_eur_kwh = None
+    elif grid_only_import_price_eur_kwh is not None:
+        try:
+            grid_only_import_price_eur_kwh = float(grid_only_import_price_eur_kwh)
+        except (ValueError, TypeError, OverflowError):
+            grid_only_import_price_eur_kwh = None
+        if (grid_only_import_price_eur_kwh is not None
+                and not isfinite(grid_only_import_price_eur_kwh)):
+            grid_only_import_price_eur_kwh = None
     sessions = state.setdefault("charging_sessions", {"active": {}, "history": []})
     active = sessions.setdefault("active", {})
     history = sessions.setdefault("history", [])
@@ -64,6 +128,22 @@ def update_charging_sessions(
             duplicated.add(charger_id)
         else:
             by_charger[charger_id] = row
+    # A vehicle cannot be physically connected to two independent chargers
+    # at once. Duplicate provider claims of the same vehicle are NOT valid
+    # proof of ownership: retain physical EVSE energy under the charger but
+    # publish vehicle attribution UNKNOWN for all colliding claims.
+    claims: dict[str, str] = {}
+    conflicting_vehicles: set[str] = set()
+    for charger_id, row in by_charger.items():
+        if charger_id in duplicated or row.get("connected_identity_proven") is not True:
+            continue
+        vehicle_id = str(row.get("connected_asset_id") or "").strip()
+        if not vehicle_id:
+            continue
+        if vehicle_id in claims and claims[vehicle_id] != charger_id:
+            conflicting_vehicles.add(vehicle_id)
+        claims[vehicle_id] = charger_id
+
     # Closing an active physical scope when its source disappears prevents
     # phantom ongoing charging and overintegration following reconnection.
     for charger_id in sorted(set(active) | set(by_charger)):
@@ -91,11 +171,13 @@ def update_charging_sessions(
         source_unknown = row is None or duplicate or conflicting_source or (
             not reported_active and not reported_idle and power is None
         )
-        proven_vehicle = (
-            str(row.get("connected_asset_id"))
+        claimed_vehicle = (
+            str(row.get("connected_asset_id")).strip()
             if row and row.get("connected_identity_proven") is True and row.get("connected_asset_id")
             else None
         )
+        vehicle_claim_conflict = claimed_vehicle in conflicting_vehicles
+        proven_vehicle = claimed_vehicle if not vehicle_claim_conflict else None
         if previous is not None:
             before = _clock(previous.get("last_observed_at"))
             seconds = ((now.astimezone(timezone.utc) - before.astimezone(timezone.utc)).total_seconds()
@@ -103,6 +185,30 @@ def update_charging_sessions(
             identity_changed = previous.get("vehicle_asset_id") != proven_vehicle
             old_total = _power(previous.get("last_lifetime_energy_kwh"))
             old_session = _power(previous.get("last_session_energy_kwh"))
+            # Physical samples at the same instant cannot cover a positive
+            # energy interval. The former path credited a positive counter
+            # difference at t=t with ZERO coverage; backwards samples even
+            # closed the live session and recreated it in the past. Preserve
+            # the latest established chronological boundary instead.
+            if seconds <= 0:
+                duplicate_observation = (
+                    seconds == 0 and not identity_changed
+                    and charging
+                    and current_total == old_total
+                    and current_session == old_session
+                    and power == _power(previous.get("last_power_kw"))
+                )
+                if not duplicate_observation:
+                    # A non-idempotent same-time or backwards sample breaks
+                    # chronological financial proof even if a later EVSE meter
+                    # delta could fit the next physically plausible interval.
+                    _invalidate_session_cost(previous)
+                    previous["quality"] = "PARTIAL"
+                    previous["reason"] = (
+                        "out_of_order_charger_observation" if seconds < 0
+                        else "conflicting_same_timestamp_evidence"
+                    )
+                continue
             # A reset of the authoritative EVSE energy counter invalidates
             # chronological continuity. Never stitch the old kWh onto a new
             # counter epoch or attribute the new epoch to the old session.
@@ -133,6 +239,14 @@ def update_charging_sessions(
                     and current_session >= old_session else None
                 )
                 if final_delta is not None:
+                    # The first/last counter timestamps bound a measured
+                    # interval; a bare tariff never allocates historical EUR.
+                    _allocate_interval_cost(
+                        previous, final_delta, seconds, power,
+                        grid_only_import_price_eur_kwh,
+                        counted_energy=current_total is not None and old_total is not None
+                        or current_session is not None and old_session is not None,
+                    )
                     previous["energy_kwh"] = round(
                         float(previous.get("energy_kwh") or 0) + final_delta, 9
                     )
@@ -146,6 +260,7 @@ def update_charging_sessions(
                         else "charger_session_counter"
                     )
                 else:
+                    _invalidate_session_cost(previous)
                     previous["quality"] = "PARTIAL"
                     previous["reason"] = "last_charging_interval_unmeasured"
             if (
@@ -160,6 +275,7 @@ def update_charging_sessions(
                     or identity_changed or counter_reset
                 ) else "FINISHED"
                 if previous["status"] == "INTERRUPTED":
+                    _invalidate_session_cost(previous)
                     previous["quality"] = "PARTIAL"
                     previous["reason"] = (
                         "identity_changed" if identity_changed else
@@ -195,12 +311,20 @@ def update_charging_sessions(
                         previous["quality"] = "PARTIAL"
                         previous["reason"] = "charger_energy_counter_unavailable"
                 if delta is not None:
+                    _allocate_interval_cost(
+                        previous, delta, seconds, power,
+                        grid_only_import_price_eur_kwh,
+                        counted_energy=previous.get("energy_source") in {
+                            "charger_lifetime_counter", "charger_session_counter",
+                        },
+                    )
                     existing = previous.get("energy_kwh")
                     previous["energy_kwh"] = round(float(existing or 0) + delta, 9)
                     previous["coverage_seconds"] = round(
                         float(previous.get("coverage_seconds") or 0) + max(seconds, 0), 6
                     )
                 else:
+                    _invalidate_session_cost(previous)
                     previous["quality"] = "PARTIAL"
                 previous["last_observed_at"] = now.isoformat()
                 previous["last_lifetime_energy_kwh"] = current_total
@@ -217,8 +341,13 @@ def update_charging_sessions(
                 "finished_at": None, "status": "CHARGING",
                 "energy_kwh": None, "coverage_seconds": 0.0,
                 "energy_source": None, "quality": "PARTIAL",
-                "reason": "initial_meter_sample_not_a_period",
+                "reason": (
+                    "multiple_chargers_claim_same_vehicle"
+                    if vehicle_claim_conflict else "initial_meter_sample_not_a_period"
+                ),
                 "cost_eur": None, "cost_quality": "NOT_ALLOCATED",
+                "cost_coverage_complete": True,
+                "cost_source": None,
                 "last_lifetime_energy_kwh": current_total,
                 "last_session_energy_kwh": current_session,
                 "last_power_kw": power,

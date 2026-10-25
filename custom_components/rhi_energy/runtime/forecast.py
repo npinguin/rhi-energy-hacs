@@ -13,13 +13,14 @@ from typing import Any
 def canonical_hourly_solar_watts(
     plan: dict[str, Any], *, start_utc: datetime, horizon_hours: int,
 ) -> dict[str, float]:
-    """Adapt the already accepted Energy D0/D1 solar curve to hourly watts.
+    """Adapt deterministic planning-preview buckets into hourly watts.
 
-    The native optimizer consumes the same canonical solar estimate as the
-    deterministic planner. No forecast provider API, config-entry selection,
-    interpolation, missing-to-zero coercion or fabricated D2 horizon is allowed.
-    A partial D0 bucket cannot stand in for a full future hourly interval;
-    a complete hour of 15/30-minute buckets can be summed without interpolation.
+    This is a strict temporal contract for a *derived planning curve*, not
+    source provenance. It is NOT permitted to qualify EMHASS optimizer inputs:
+    the native optimizer instead consumes accepted real hourly source data
+    through Energy's existing CanonicalEnergyForecastProvider.
+    Missing/partial buckets cannot become zero, and full 15/30-minute evidence
+    is required when converting a preview to hourly values.
     """
     if (
         start_utc.tzinfo is None or start_utc.utcoffset() is None
@@ -37,7 +38,7 @@ def canonical_hourly_solar_watts(
     # intervals, never interpolate or infer a missing portion of an hour.
     requested_end = start + timedelta(hours=horizon_hours)
     segments: dict[datetime, list[tuple[datetime, datetime, float]]] = {}
-    for horizon_id in ("D0", "D1"):
+    for horizon_id in ("D0", "D1", "D2"):
         horizon = horizons.get(horizon_id)
         if not isinstance(horizon, dict):
             continue

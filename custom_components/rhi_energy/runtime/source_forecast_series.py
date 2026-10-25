@@ -1,7 +1,8 @@
 """Energy-owned, selected-source Forecast.Solar interval adapter.
 
-Never called from a solver. One selected logical Forecast.Solar asset may have
-multiple accepted physical configurations. Each entry must contribute every
+Energy's runtime forecast preflight is the sole consumer of this source path,
+not an external solver or a second provider framework. One selected logical
+Forecast.Solar asset may have multiple accepted physical configurations. Each entry must contribute every
 requested slot; absent contributions are UNKNOWN, never silently zero.
 """
 from __future__ import annotations
@@ -44,7 +45,16 @@ def selected_forecast_entries(bindings: Any, registry_lookup: Callable[[str], An
         source = row.get("source_identity") or {}
         if not isinstance(source, dict):
             source = {}
-        domain = row.get("integration_domain") or source.get("integration_domain")
+        nested_domain = source.get("integration_domain")
+        flat_domain = row.get("integration_domain")
+        # A conflicting flat-vs-accepted identity must not silently drop one
+        # selected forecast source while allowing a second source to stand in.
+        if (
+            nested_domain and flat_domain and nested_domain != flat_domain
+            and "forecast_solar" in (nested_domain, flat_domain)
+        ):
+            raise ValueError("canonical_forecast_integration_identity_conflict")
+        domain = nested_domain or flat_domain
         if domain != "forecast_solar":
             continue
         key = row.get("raw_capability_id") or row.get("input_id") or row.get("concept_id")
@@ -56,6 +66,15 @@ def selected_forecast_entries(bindings: Any, registry_lookup: Callable[[str], An
         bound_entity = source.get("current_entity_id") or row.get("current_entity_id") or source.get("entity_id")
         expected_registry_id = source.get("entity_registry_id") or row.get("entity_registry_id")
         selected = source.get("config_entry_id") or row.get("config_entry_id")
+        for nested_key, flat_key in (
+            ("current_entity_id", "current_entity_id"),
+            ("entity_registry_id", "entity_registry_id"),
+            ("config_entry_id", "config_entry_id"),
+        ):
+            nested_value = source.get(nested_key)
+            flat_value = row.get(flat_key)
+            if nested_value and flat_value and nested_value != flat_value:
+                raise ValueError("canonical_forecast_nested_identity_conflict:" + nested_key)
         if not selected:
             relation = row.get("config_entry_relation") or {}
             selected = relation.get("config_entry_id") if isinstance(relation, dict) else None

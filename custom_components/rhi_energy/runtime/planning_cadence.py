@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
+from homeassistant.core import callback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .canonical_semantics import deterministic_plan
@@ -53,7 +54,11 @@ class TacticalPlanningCadence:
         self.request_refresh()
         self._recompute()
 
+    @callback
     def _tick(self, _now) -> None:
+        # HA time helpers run undecorated synchronous handlers in an executor.
+        # This timer recomputes canonical state and notifies HA entities, so it
+        # must execute on the event loop like the source-event callback.
         self.refresh_now()
 
     def resolve(

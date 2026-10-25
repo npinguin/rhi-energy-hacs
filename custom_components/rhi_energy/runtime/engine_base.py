@@ -32,7 +32,7 @@ from .incremental import build_entity_targets, update_optimizer_entity
 from .grid_power import apply_grid_power_facts
 from .producers import mobility_entity_ids, read_mobility_energy_assets
 from .presence import experience_presence, physical_input, concept_present
-from .battery_metering import qualified_battery_balance_powers
+from .battery_metering import qualified_battery_balance_powers, apply_battery_capacity_facts
 from .metering_source import finite_nonnegative_source_power
 from .aggregation import aggregate_objects
 from .semantic_authority import CanonicalFactStore
@@ -41,6 +41,7 @@ from .coverage import canonical_coverage
 from .retrospective import retrospective_evidence
 from .planning_cadence import TacticalPlanningCadence
 from .engine_auxiliary import EnergyRuntimeAuxiliary
+from .normalization_logging import NormalizationLogGuard, record_normalization_failure, record_normalization_recovery
 from .future_price_sources import source_future_price_rows, collapse_identical_price_quotes
 _LOGGER = logging.getLogger(__name__)
 _UNKNOWN_STATES = {"unknown", "unavailable", "none", ""}
@@ -124,6 +125,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
         # facts are rebuilt from this source authority each recompute and can never
         # become the accidental persistence layer for source truth.
         self._source_fact_cache: dict[str, Any] = {}
+        self._normalization_log_guard = NormalizationLogGuard()
         self._fact_state: dict[str, Any] = {}
         self._producer_cache: tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, bool], dict[str, dict[str, Any]]] = ([], [], {"mobility": False}, {"mobility": {}})
         self._flexible_state: list[dict[str, Any]] = []
@@ -253,6 +255,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
         self._incremental_entity_targets = build_entity_targets(model)
         self._dirty_entity_ids.clear()
         self._source_fact_cache.clear()
+        self._normalization_log_guard.reset()
         self._fact_state.clear()
         self._producer_cache = ([], [], {"mobility": False}, {"mobility": {}})
         self._flexible_state = []
@@ -466,6 +469,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
                     continue
                 try:
                     observed = self._read_property(asset, prop, facts)
+                    record_normalization_recovery(self, _LOGGER, asset.get("asset_id"), prop.get("property_key"))
                     self._source_fact_cache[fact_key] = observed
                     facts[fact_key] = observed
                 except Exception as exc:
@@ -476,10 +480,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
                     issues.append(
                         f"property_normalization_failed:{asset.get('asset_id')}:{prop.get('property_key')}:{exc.__class__.__name__}"
                     )
-                    _LOGGER.warning(
-                        "Energy property normalization failed asset=%s property=%s: %s",
-                        asset.get("asset_id"), prop.get("property_key"), exc,
-                    )
+                    record_normalization_failure(self, _LOGGER, asset.get("asset_id"), prop.get("property_key"), exc)
         for asset in assets:
             if dirty_entity_ids is not None:
                 asset_source_entities = {
@@ -524,10 +525,7 @@ class EnergyRuntime(EnergyRuntimeAuxiliary):
                         # and therefore win over contradictory signed source evidence.
                         if power_key:
                             facts[power_key] = directional_power
-                capacity = facts.get((props.get("battery.capacity_kwh") or {}).get("fact_key"))
-                soc = facts.get((props.get("battery.soc_pct") or {}).get("fact_key"))
-                if "battery.available_kwh" in props:
-                    facts[str(props["battery.available_kwh"].get("fact_key"))] = round(float(capacity) * float(soc) / 100, 4) if isinstance(capacity, (int, float)) and isinstance(soc, (int, float)) and 0 <= float(soc) <= 100 else None
+                apply_battery_capacity_facts(props, facts, issues, aid)
     def _canonicalize(self, assets: list[dict[str, Any]], facts: dict[str, Any], issues: list[str]) -> None:
         """Project accepted logical objects into canonical Energy facts.
         Structural selection is complete before runtime activation. Runtime never

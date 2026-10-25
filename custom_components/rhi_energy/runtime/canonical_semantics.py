@@ -756,9 +756,10 @@ def _solar_bucket_curve(total_kwh: float | None, buckets: list[dict[str, Any]], 
             weighted.append(max(0.0, math.sin(math.pi * x)) * duration)
     weight_sum = sum(weighted)
     if weight_sum <= 0:
-        # A non-zero remaining forecast outside the configured solar window is evidence
-        # we cannot time-distribute safely. Keep the aggregate, leave bucket curve zero.
-        return [0.0 for _ in buckets]
+        # A positive forecast with no remaining daylight cannot be assigned to
+        # any time bucket. Do not turn that contradiction into a fully scheduled
+        # zero-solar day. A genuinely observed zero remains exactly zero.
+        return [0.0 for _ in buckets] if total_kwh == 0 else [None for _ in buckets]
     return [round(float(total_kwh) * weight / weight_sum, 6) for weight in weighted]
 
 
@@ -800,9 +801,28 @@ def _baseload_bucket_curve(
     return out
 
 
+def _deadline_instant(asset: dict[str, Any]) -> datetime | None:
+    raw = asset.get("deadline") or asset.get("ready_by")
+    if raw is None or raw == "":
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
 def _deadline_sort_key(asset: dict[str, Any]) -> tuple[str, str]:
-    raw = asset.get("deadline") or "9999-12-31T23:59:59+00:00"
-    return str(raw), str(asset.get("asset_id") or "")
+    # Local ISO strings are NOT sorted chronologically across UTC offset/DST
+    # transitions. The same qualified UTC instant governs priority and the
+    # safe scheduling cutoff; invalid deadlines fail the admission gate.
+    instant = _deadline_instant(asset)
+    return (
+        instant.isoformat() if instant is not None else "9999-12-31T23:59:59+00:00",
+        str(asset.get("asset_id") or ""),
+    )
 
 
 def _lane_totals(buckets: list[dict[str, Any]], *, complete: bool, solar: float | None, demand: float | None) -> dict[str, Any]:
@@ -1008,15 +1028,42 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
     mode = control_policy["configured_mode"]
     solar_today = number(facts.get("forecast.solar_remaining_today_kwh"))
     solar_tomorrow = number(facts.get("forecast.solar_tomorrow_kwh"))
+    # Negative solar production cannot be assigned as physical generation.
+    if solar_today is not None and solar_today < 0:
+        solar_today = None
+    if solar_tomorrow is not None and solar_tomorrow < 0:
+        solar_tomorrow = None
 
     capacity = number(facts.get("battery.capacity_kwh"))
     battery_available = number(facts.get("battery.available_kwh"))
-    reserve_pct = number(strategy.get("battery.reserve_target_pct")) or 20.0
+    reserve_pct = number(strategy.get("battery.reserve_target_pct"))
+    if reserve_pct is None:
+        reserve_pct = 20.0
     if strategy.get("resilience.objective") == "resilience_first":
         reserve_pct = max(reserve_pct, 30.0)
-    protected = capacity * reserve_pct / 100.0 if capacity is not None else None
-    usable_battery = max(0.0, battery_available - (protected or 0.0)) if battery_available is not None else None
     battery_policy = strategy.get("flexible_loads.battery_policy", "minimum_power_bridge")
+    # Available kWh cannot be safely spent against an unknown rated capacity:
+    # doing so would silently assume zero protected reserve. The complete
+    # battery ledger requires physically consistent capacity/available evidence.
+    battery_evidence_invalid = (
+        battery_available is not None
+        and (
+            capacity is None or capacity <= 0
+            or battery_available < 0 or battery_available > capacity + 1e-6
+            or not 0 <= reserve_pct <= 100
+        )
+    )
+    protected = (
+        capacity * reserve_pct / 100.0
+        if capacity is not None and capacity > 0 and 0 <= reserve_pct <= 100
+        else None
+    )
+    usable_battery = (
+        max(0.0, battery_available - protected)
+        if battery_available is not None and battery_available >= 0
+        and protected is not None and not battery_evidence_invalid
+        else None
+    )
     if battery_policy in {"never", "avoid"} and usable_battery is not None:
         usable_battery = 0.0
 
@@ -1029,8 +1076,59 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         value = number(raw)
         return value if value is not None and value >= 0 else None
 
+    def qualified_power_envelope(asset: dict[str, Any]) -> bool:
+        # Producer-proven physical kW bounds are required before reserving
+        # energy or authorizing a physical power command. In particular,
+        # deriving max kW from energy_to_target / bucket duration fabricates
+        # an EVSE capability when Mobility did not resolve its envelope.
+        # Explicitly evidenced zero demand needs no physical charging command.
+        # An unavailable power envelope must not turn true 0 kWh into UNKNOWN.
+        if qualified_need(asset) == 0.0:
+            return True
+        minimum = asset.get("min_power_kw")
+        maximum = asset.get("max_power_kw")
+        if isinstance(minimum, bool) or isinstance(maximum, bool):
+            return False
+        min_kw, max_kw = number(minimum), number(maximum)
+        return (
+            min_kw is not None and max_kw is not None
+            and 0 <= min_kw <= max_kw and max_kw > 0
+        )
+
+    deadline_at = _deadline_instant
+
+    def invalid_deadline(asset: dict[str, Any]) -> bool:
+        raw = asset.get("deadline") or asset.get("ready_by")
+        return raw is not None and raw != "" and deadline_at(asset) is None
+
+    # One Mobility asset ID is one physical consumer. Two producer rows with
+    # the same ID are an unresolved attribution collision, not two loads and
+    # never an opportunity to silently overwrite one dict entry.
+    participating_ids = [
+        str(asset.get("asset_id") or "").strip()
+        for asset in flexible_assets
+        if str(asset.get("participation_state") or "participating").strip().lower() == "participating"
+        and asset.get("infrastructure_only", False) is not True
+    ]
+    seen_ids: set[str] = set()
+    duplicate_ids: set[str] = set()
+    for aid in participating_ids:
+        if aid and aid in seen_ids:
+            duplicate_ids.add(aid)
+        seen_ids.add(aid)
+
+    def invalid_identity(asset: dict[str, Any]) -> bool:
+        aid = str(asset.get("asset_id") or "").strip()
+        return not aid or aid in duplicate_ids
+
     def planning_blockers_for(asset: dict[str, Any]) -> list[str]:
         blockers = list(asset.get("planning_blockers") or [])
+        if invalid_identity(asset) and "consumer_identity_ambiguous" not in blockers:
+            blockers.append("consumer_identity_ambiguous")
+        if invalid_deadline(asset) and "deadline_invalid" not in blockers:
+            blockers.append("deadline_invalid")
+        if not qualified_power_envelope(asset) and "power_envelope_unavailable" not in blockers:
+            blockers.append("power_envelope_unavailable")
         if asset.get("planning_input_ready") is True and qualified_need(asset) is None:
             if "energy_need_unavailable" not in blockers:
                 blockers.append("energy_need_unavailable")
@@ -1043,6 +1141,9 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         and (
             asset.get("planning_input_ready") is not True
             or qualified_need(asset) is None
+            or invalid_deadline(asset)
+            or not qualified_power_envelope(asset)
+            or invalid_identity(asset)
         )
     ]
     active_assets = sorted(
@@ -1054,6 +1155,9 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             # Only a producer-qualified asset may enter the allocation ledger.
             and asset.get("planning_input_ready") is True
             and qualified_need(asset) is not None
+            and not invalid_deadline(asset)
+            and qualified_power_envelope(asset)
+            and not invalid_identity(asset)
             and asset.get("infrastructure_only", False) is not True
         ],
         key=_deadline_sort_key,
@@ -1102,15 +1206,25 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         home_curve = _baseload_bucket_curve(bucket_meta, baseload_profile, fallback_kw)
         demand = round(sum(v for v in home_curve if v is not None), 4) if home_curve and all(v is not None for v in home_curve) else None
         requested = round(sum(asset_remaining.values()), 4)
-        # A horizon must not advertise complete required/planned/still-to-plan
-        # totals while a participating flexible consumer's demand is unknown.
+        # Conservation is prerequisite to declaring a usable plan: daily solar
+        # energy must actually be allocatable to the covered calendar buckets.
+        solar_allocatable = (
+            solar_total is not None
+            and bool(bucket_meta)
+            and all(row is not None for row in solar_curve)
+            and abs(sum(solar_curve) - solar_total) <= 0.0001
+        )
         complete = (
-            solar_total is not None and demand is not None
-            and not incomplete_assets
+            solar_allocatable and demand is not None
+            and not incomplete_assets and not battery_evidence_invalid
         )
         warnings: list[str] = []
         if solar_total is None or demand is None:
             warnings.append("incomplete_forecast_or_demand_evidence")
+        if solar_total is not None and not solar_allocatable:
+            warnings.append("solar_forecast_unallocatable_to_horizon")
+        if battery_evidence_invalid:
+            warnings.append("battery_reserve_or_capacity_evidence_invalid")
         if incomplete_assets:
             warnings.append("incomplete_flexible_asset_planning_evidence")
         if bootstrap_kw is not None and number(planning_cfg.get("explicit_baseload_fallback_kw")) is None:
@@ -1170,12 +1284,20 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
             bucket_price = price_for_bucket(meta)
             bucket_grid_allowed = grid_allowed(bucket_price)
             local_surplus = max(0.0, (solar_b or 0.0) - (home_b or 0.0)) if solar_b is not None and home_b is not None else 0.0
-            local_energy_for_flex = local_surplus + max(0.0, battery_remaining or 0.0)
+            # Baseload has first claim on the stored battery. The old
+            # allocation path independently gave the *entire* battery budget
+            # to flexible loads, then dispatched that same budget for home;
+            # with grid_policy=never this could silently add grid import for
+            # scheduled flexible loads. Reserve home demand before allocation.
+            home_deficit = max(0.0, home_b - solar_b) if solar_b is not None and home_b is not None else 0.0
+            battery_for_home = min(max(0.0, battery_remaining or 0.0), home_deficit)
+            battery_for_flex = max(0.0, (battery_remaining or 0.0) - battery_for_home)
+            local_energy_for_flex = local_surplus + battery_for_flex
             available_for_flex = float("inf") if bucket_grid_allowed else local_energy_for_flex
             flex_allocs: list[dict[str, Any]] = []
             flex_energy = 0.0
 
-            if solar_total is not None and demand is not None:
+            if solar_allocatable and demand is not None and not battery_evidence_invalid:
                 # A missing demand for a different participating asset prevents
                 # the COMPLETE plan and all physical command authority, but
                 # known, qualified demand can still be scheduled as explicitly
@@ -1197,8 +1319,19 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                     need = asset_remaining.get(aid, 0.0)
                     if not aid or need <= 1e-9 or available_for_flex <= 1e-9:
                         continue
+                    # Ready-by is an absolute instant, never a string sorting
+                    # hint. A command spans its full native bucket: do not
+                    # start one that crosses the published deadline (including
+                    # different offsets on DST transitions).
+                    deadline = deadline_at(asset)
+                    if deadline is not None and datetime.fromisoformat(str(meta["end_at"])).astimezone(timezone.utc) > deadline:
+                        continue
                     min_power = max(0.0, number(asset.get("min_power_kw")) or 0.0)
-                    max_power = max(min_power, number(asset.get("max_power_kw")) or min_power or need / max(duration, 1e-6))
+                    max_power = number(asset.get("max_power_kw"))
+                    # This is a safety assertion, not a fallback. Admission
+                    # filtered any unresolved producer power capability above.
+                    if max_power is None or max_power < min_power or max_power <= 0:
+                        continue
                     minimum_runtime = max(0, int(round(number(asset.get("minimum_runtime_minutes")) or 0)))
                     continuing = runtime_remaining.get(aid, 0) > 0
                     required_minutes = min(max_minutes, runtime_remaining.get(aid, 0)) if continuing else min(max_minutes, minimum_runtime)
@@ -1206,6 +1339,11 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
                     if not continuing and total_minimum_energy > need + 1e-6:
                         warnings.append(f"minimum_runtime_exceeds_remaining_need:{aid}")
                         continue
+                    if not continuing and minimum_runtime > 0 and deadline is not None:
+                        start_at = datetime.fromisoformat(str(meta["start_at"])).astimezone(timezone.utc)
+                        if start_at + timedelta(minutes=minimum_runtime) > deadline:
+                            warnings.append(f"minimum_runtime_crosses_deadline:{aid}")
+                            continue
                     if not continuing and not can_sustain_minimum(index, min_power, minimum_runtime, battery_remaining):
                         continue
                     min_energy = min_power * (required_minutes / 60.0) if required_minutes > 0 else 0.0
@@ -1357,7 +1495,7 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         # it must not erase independent, evidenced solar and home baseload truth.
         # Publish the known-loads-only projection separately so UX cannot
         # mistake it for total future demand or autonomous execution authority.
-        known_projection_ready = solar_total is not None and demand is not None
+        known_projection_ready = solar_allocatable and demand is not None
         # Use only measured/learned home demand and the independent solar
         # outlook. Flexible allocations and battery dispatch from the full plan
         # cannot be relabelled as a known-load baseline.
@@ -1531,9 +1669,18 @@ def deterministic_plan(facts: dict[str, Any], settings: dict[str, Any], flexible
         if not aid:
             continue
         participating = str(asset.get("participation_state") or "participating").strip().lower() == "participating"
-        ready = asset.get("planning_input_ready") is True and qualified_need(asset) is not None
+        ready = (
+            asset.get("planning_input_ready") is True
+            and qualified_need(asset) is not None
+            and qualified_power_envelope(asset)
+            and not invalid_deadline(asset)
+            and not invalid_identity(asset)
+        )
         eligible = bool(participating and ready)
-        known_need = qualified_need(asset) if ready else None
+        # A producer-qualified energy need remains known even when an unrelated
+        # physical power envelope or deadline blocks safe scheduling. Do not
+        # erase demand truth just because execution eligibility is incomplete.
+        known_need = qualified_need(asset) if asset.get("planning_input_ready") is True else None
         d0_scheduled = asset_scheduled_kwh(d0, aid) if eligible else None
         d1_scheduled = asset_scheduled_kwh(d1, aid) if eligible else None
         still_after_today = (

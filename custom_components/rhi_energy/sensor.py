@@ -544,15 +544,18 @@ class EnergyV2MetricSensor(SensorEntity):
 
 
 class _RuntimeSensor(_EnergySensor):
+    """Listen to aggregate canonical facts, not an individual logical asset."""
+
     def __init__(self, entry, runtime):
         super().__init__(entry)
         self._runtime = runtime
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        self.async_on_remove(
-            self._runtime.add_asset_callback(self._asset_id, self.async_write_ha_state)
-        )
+        # Battery metrics expose aggregate facts (battery.*), which have no
+        # individual asset_id. General notifications fire after every canonical
+        # recompute, including multi-battery changes and restart hydration.
+        self.async_on_remove(self._runtime.add_callback(self.async_write_ha_state))
 
 
 _METRICS = {

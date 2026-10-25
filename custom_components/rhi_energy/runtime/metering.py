@@ -38,6 +38,55 @@ except ImportError:  # Direct runpy/static regression execution.
     finite_nonnegative_source_power = _power_quality["finite_nonnegative_source_power"]
     finite_signed_money_rate = _power_quality["finite_signed_money_rate"]
 
+def qualified_grid_only_session_price(
+    before: dict[str, Any], after: dict[str, Any],
+    before_eur_h: dict[str, Any], after_eur_h: dict[str, Any],
+    start: datetime | None, end: datetime,
+) -> float | None:
+    """Admit EVSE session billing only when the entire sampled site was grid-only.
+
+    The same accepted grid import and EUR/h site observations that feed
+    Energy's actual financial accounting must agree at both interval ends.
+    Zero PV, zero storage discharge and zero grid export must be *measured*,
+    not missing. The period cannot cross a quarter-hour pricing boundary.
+    A bare configured spot price or EVSE energy is insufficient proof.
+    """
+    if start is None or start.tzinfo is None or start.utcoffset() is None:
+        return None
+    if end.tzinfo is None or end.utcoffset() is None:
+        return None
+    elapsed=(end.astimezone(timezone.utc)-start.astimezone(timezone.utc)).total_seconds()
+    if not 0 < elapsed <= 300:
+        return None
+    if int(start.timestamp() // 900) != int(end.timestamp() // 900):
+        return None
+    def evidence(row: dict[str, Any], key: str) -> float | None:
+        return finite_nonnegative_source_power(row.get(key))
+    for field in ("solar_kwh", "battery_discharge_kwh", "grid_export_kwh"):
+        if evidence(before, field) != 0 or evidence(after, field) != 0:
+            return None
+    previous_grid=evidence(before,"grid_import_kwh")
+    current_grid=evidence(after,"grid_import_kwh")
+    previous_flex=evidence(before,"flexible_loads_energy_in_kwh")
+    current_flex=evidence(after,"flexible_loads_energy_in_kwh")
+    if (
+        previous_grid is None or previous_grid <= 0 or
+        current_grid is None or current_grid <= 0 or
+        previous_flex is None or current_flex is None or
+        previous_flex > previous_grid + 0.001 or current_flex > current_grid + 0.001
+    ):
+        return None
+    previous_rate=finite_signed_money_rate(before_eur_h.get("import_cost_eur"))
+    current_rate=finite_signed_money_rate(after_eur_h.get("import_cost_eur"))
+    if previous_rate is None or current_rate is None:
+        return None
+    previous_price=previous_rate/previous_grid
+    current_price=current_rate/current_grid
+    if abs(previous_price-current_price)>0.000001:
+        return None
+    return previous_price
+
+
 BASELOAD_SAMPLE_MINUTES = 15
 PERSIST_DEBOUNCE_SECONDS = 10
 BASELOAD_PROFILE_SEMANTICS_VERSION = 2
@@ -460,15 +509,21 @@ class EnergyMetering:
                 self._mark_gap(row, last, now, last_financial)
 
         self._learn_baseload(now, facts)
-        # Energy owns session periodization; Mobility publishes only physical
-        # charger observation and qualified connected-vehicle identity.
+        # Energy owns session periodization and the cost-quality decision.
+        # Reuse the already selected actual site facts and interval EUR rates:
+        # a quoted tariff alone never proves that the car used paid grid kWh.
+        now_financial=self._financial_rates(facts)
+        grid_only_price=qualified_grid_only_session_price(
+            last, current, last_financial, now_financial, prev, now,
+        )
         update_charging_sessions(
             state, snap.get("connections") or [], now,
+            grid_only_import_price_eur_kwh=grid_only_price,
         )
         state["last_update"] = now.isoformat()
         state["last_powers"] = current
         state["last_flexible_powers"] = flexible_powers
-        state["last_financial_rates"] = self._financial_rates(facts)
+        state["last_financial_rates"] = now_financial
         self._notify()
         self._schedule_save()
 

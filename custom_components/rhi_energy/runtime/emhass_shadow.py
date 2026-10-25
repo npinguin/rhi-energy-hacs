@@ -10,7 +10,7 @@ from copy import deepcopy
 from typing import Any
 
 from .emhass_client import VanillaEmhassClient
-from .forecast import canonical_hourly_solar_watts
+from .source_forecast_series import CanonicalEnergyForecastProvider
 from .emhass_context import build_emhass_context
 from .emhass_result_adapter import accept_shadow_plan
 from .emhass_strategy import assess_emhass_strategy
@@ -26,11 +26,26 @@ _NATIVE_KEYS = frozenset({
     "battery_minimum_state_of_charge", "battery_maximum_state_of_charge",
     "battery_charge_efficiency", "battery_discharge_efficiency",
     "soc_init", "soc_final", "number_of_deferrable_loads",
-    "nominal_power_of_deferrable_loads", "minimum_power_of_deferrable_loads",
+    "nominal_power_of_deferrable_loads", "minimum_power_of_deferrable_loads", "def_minimum_on_time",
     "operating_hours_of_each_deferrable_load", "start_timesteps_of_each_deferrable_load",
     "end_timesteps_of_each_deferrable_load", "maximum_power_from_grid",
     "maximum_power_to_grid", "prediction_horizon",
 })
+
+
+# Status is public product truth: once a requested plan is invalidated,
+# numeric evidence from the previous accepted solver run must not survive.
+_UNQUALIFIED_RESULT = {
+    "planned_import_kwh": None,
+    "planned_export_kwh": None,
+    "net_financial_result_eur": None,
+    "flexible_scheduled_kwh": None,
+    "battery_count": None,
+    "flexible_load_count": None,
+    "forecast_source_evidence": None,
+    "strategy_mapped_constraints": [],
+    "strategy_preference_differences": [],
+}
 
 
 class EmhassShadowRunner:
@@ -50,10 +65,11 @@ class EmhassShadowRunner:
         self.result = None
 
     def request(self, *, plan: dict[str, Any], facts: dict[str, Any],
+                accepted_bindings: list[dict[str, Any]],
                 batteries: list[dict[str, Any]], loads: list[dict[str, Any]],
                 metering_profile: dict[str, Any], strategy: dict[str, Any],
                 settings: dict[str, Any],
-                cadence_revision: Any) -> None:
+                cadence_revision: Any, source_revision: Any = None) -> None:
         if self._stopped:
             return
         if cadence_revision is None:
@@ -75,24 +91,34 @@ class EmhassShadowRunner:
                     reason="canonical_cadence_revision_unavailable",
                     version_verified=False,
                     requested_cadence_revision=None,
+                    requested_source_revision=None,
+                    **_UNQUALIFIED_RESULT,
                 )
                 self.notify()
             return
-        if cadence_revision == self.status.get("requested_cadence_revision"):
+        # Model rebinding invalidates optimizer results even when tactical
+        # time cadence has not advanced: no stale-source plan survives a
+        # selected forecast source change or a repaired binding.
+        if (
+            cadence_revision == self.status.get("requested_cadence_revision")
+            and source_revision == self.status.get("requested_source_revision")
+        ):
             return
         # The latest immutable Energy revision wins. Never drop a new input
         # just because an older native solver run is still awaiting HTTP.
         inputs = (
             deepcopy(plan), deepcopy(facts), deepcopy(batteries),
             deepcopy(loads), deepcopy(metering_profile), deepcopy(strategy),
-            deepcopy(settings),
+            deepcopy(settings), deepcopy(accepted_bindings),
         )
         self._generation += 1
         self.status["requested_cadence_revision"] = cadence_revision
+        self.status["requested_source_revision"] = source_revision
         self.result = None
         self.status.update(
             status="OPTIMIZING", readiness="INPUTS_NOT_VALIDATED",
             result_status="PENDING", version_verified=False, reason=None,
+            **_UNQUALIFIED_RESULT,
         )
         if self._task is not None and not self._task.done():
             # The external optimizer may still be working. Serialize native
@@ -120,7 +146,7 @@ class EmhassShadowRunner:
         if newest is not None:
             self._launch(newest)
 
-    async def _run(self, generation, plan, facts, batteries, loads, metering_profile, strategy, settings):
+    async def _run(self, generation, plan, facts, batteries, loads, metering_profile, strategy, settings, accepted_bindings):
         try:
             requested_hours = self.options.get("emhass_horizon_hours", 24)
             if requested_hours not in (24, 48):
@@ -154,11 +180,15 @@ class EmhassShadowRunner:
             if start < datetime.now(timezone.utc):
                 from datetime import timedelta
                 start += timedelta(hours=1)
-            # One authoritative solar curve: the validated Energy D0/D1 plan.
-            # Never re-query source integrations behind the planner's back.
-            # Missing slots, partial buckets and unsupported D2 fail closed.
-            pv = canonical_hourly_solar_watts(
-                plan, start_utc=start, horizon_hours=requested_hours,
+            # A daily aggregate redistributed into a sine-shaped D0/D1
+            # bucket curve is a planner estimate, not observed hourly forecast
+            # evidence. Resolve the exact accepted Energy source identities
+            # through the existing domain-owned source adapter. No optimizer
+            # integration scan, cross-source fallback or synthetic D2 slots.
+            forecast_provider = CanonicalEnergyForecastProvider(self.hass)
+            pv = await forecast_provider.hourly_watts(
+                model={"accepted_bindings": accepted_bindings},
+                start_utc=start, horizon_hours=requested_hours,
             )
             strategy_coverage = assess_emhass_strategy(strategy)
             if strategy_coverage.blockers:
@@ -210,6 +240,7 @@ class EmhassShadowRunner:
                 "planned_export_kwh": accepted.total_export_kwh,
                 "net_financial_result_eur": accepted.net_financial_result_eur,
                 "flexible_scheduled_kwh": accepted.flexible_scheduled_kwh,
+                "forecast_source_evidence": dict(forecast_provider.last_evidence),
                 "strategy_mapped_constraints": list(strategy_coverage.mapped_constraints),
                 "strategy_preference_differences": list(strategy_coverage.advisory_preferences),
             })
@@ -223,6 +254,7 @@ class EmhassShadowRunner:
                 "status": "SHADOW_BLOCKED", "readiness": "UNAVAILABLE",
                 "result_status": "REJECTED",
                 "reason": f"{type(exc).__name__}:{str(exc)[:200]}",
+                **_UNQUALIFIED_RESULT,
             })
         if not self._stopped and generation == self._generation:
             self.notify()
@@ -233,7 +265,8 @@ class EmhassShadowRunner:
         self._pending = None
         self.result = None
         self.status.update(status="STOPPED", readiness="UNAVAILABLE",
-                           result_status="UNAVAILABLE", version_verified=False)
+                           result_status="UNAVAILABLE", version_verified=False,
+                           **_UNQUALIFIED_RESULT)
         if self._task is not None:
             self._task.cancel()
             try:

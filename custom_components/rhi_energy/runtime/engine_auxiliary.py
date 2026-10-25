@@ -164,6 +164,11 @@ class EnergyRuntimeAuxiliary:
             return
         self._emhass_runner.request(
             plan=canonical_plan, facts=dict(facts),
+            # Pass the exact accepted Energy model identity to the existing
+            # source adapter. The optimizer must never turn daily-totals or
+            # another HA integration's forecast into fabricated hourly input.
+            accepted_bindings=(self.model or {}).get("accepted_bindings") or [],
+            source_revision=(self.model or {}).get("domain_model_revision"),
             batteries=self._battery_units(logical_assets), loads=flexible,
             metering_profile=(self.store.data.get("metering") or {}).get("baseload_profile") or {},
             strategy=settings.get("strategy") or {},

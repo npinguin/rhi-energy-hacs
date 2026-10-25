@@ -1226,21 +1226,43 @@ class EnergyInteractionEngine:
         if ((d0.get("quality") or {}).get("availability")) != AVAILABLE:
             return {}, "planning_horizon_unavailable"
         for bucket in d0.get("buckets") or []:
+            if not isinstance(bucket, dict):
+                return {}, "planning_bucket_interval_invalid"
             try:
                 start = datetime.fromisoformat(str(bucket.get("start_time") or bucket.get("start_at")))
                 end = datetime.fromisoformat(str(bucket.get("end_time") or bucket.get("end_at")))
-                if start.tzinfo is None:
-                    start = start.replace(tzinfo=now.tzinfo)
-                if end.tzinfo is None:
-                    end = end.replace(tzinfo=now.tzinfo)
             except (TypeError, ValueError):
-                continue
+                return {}, "planning_bucket_interval_invalid"
+            # Command admission must never invent a local offset for a naive
+            # timestamp, especially in the repeated DST hour. Planning owns
+            # UTC/offset-aware bucket instants or the executor must HOLD.
+            if (
+                start.tzinfo is None or start.utcoffset() is None
+                or end.tzinfo is None or end.utcoffset() is None
+            ):
+                return {}, "planning_bucket_timezone_missing"
+            if end <= start:
+                return {}, "planning_bucket_interval_invalid"
             if start <= now < end:
-                rows = {
-                    str(row.get("asset_id")): deepcopy(row)
-                    for row in bucket.get("asset_allocations") or []
-                    if isinstance(row, dict) and row.get("asset_id")
-                }
+                published = bucket.get("asset_allocations")
+                if published is None:
+                    published = []
+                if not isinstance(published, list):
+                    return {}, "planning_bucket_allocations_invalid"
+                # Dict comprehensions silently let the last of two physical
+                # assets with one ID overwrite the first. This can redirect
+                # actual charger commands. Fail closed at the command owner,
+                # independently from producer planning identity validation.
+                rows = {}
+                for allocation in published:
+                    if not isinstance(allocation, dict):
+                        return {}, "planning_bucket_allocations_invalid"
+                    asset_id = str(allocation.get("asset_id") or "").strip()
+                    if not asset_id:
+                        return {}, "planning_bucket_allocations_invalid"
+                    if asset_id in rows:
+                        return {}, "planning_bucket_allocation_identity_duplicate"
+                    rows[asset_id] = deepcopy(allocation)
                 return rows, "current_d0_bucket"
         return {}, "no_current_planning_bucket"
 

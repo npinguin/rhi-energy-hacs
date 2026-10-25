@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from math import floor, isfinite
+from math import ceil, floor, isfinite
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
@@ -239,6 +239,16 @@ def _deferrable_rows(
         min_runtime = _finite(asset.get("minimum_runtime_minutes", 0), aid + ":min_runtime", nonnegative=True)
         if min_runtime > 0 and need + 1e-8 < minimum * min_runtime / 60:
             raise NativeCapabilityError("flexible_minimum_runtime_infeasible:" + aid)
+        # EMHASS 0.18.5 models minimum contiguous ON duration in full
+        # optimizer timesteps. Never discard Mobility's minimum runtime, or
+        # round it down to a physically shorter charging session.
+        minimum_on_timesteps = ceil(min_runtime / step_minutes) if need > 0 else 0
+        if minimum_on_timesteps > end_step:
+            raise NativeCapabilityError("flexible_minimum_runtime_exceeds_deadline:" + aid)
+        if minimum_on_timesteps and minimum <= 0:
+            raise NativeCapabilityError("flexible_minimum_runtime_power_unproven:" + aid)
+        if need + 1e-8 < minimum * minimum_on_timesteps * step_minutes / 60:
+            raise NativeCapabilityError("flexible_minimum_runtime_infeasible:" + aid)
         rows.append({
             "asset_id": aid,
             "nominal_kw": nominal,
@@ -246,6 +256,7 @@ def _deferrable_rows(
             "operating_hours": need / nominal,
             "start_timestep": 0,
             "end_timestep": end_step,
+            "minimum_on_timesteps": minimum_on_timesteps,
         })
     return rows
 
@@ -332,7 +343,7 @@ def build_emhass_context(
         flexible_ids=tuple(row["asset_id"] for row in loads),
         timeline_utc=tuple(row.timestamp for row in hours),
         provenance={
-            "solar_forecast": "canonical_energy_d0_d1_estimated_hourly_curve",
+            "solar_forecast": "canonical_energy_qualified_hourly_curve",
             "native_step_minutes": step_minutes,
             "source_resolution_minutes": 60,
             "local_timezone": local_timezone,
