@@ -18,7 +18,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from .const import DOMAIN
+from .const import DOMAIN, UX_OPTION
 from .v2_configuration import canonical_configuration_rows
 from .runtime.capability_service import EnergyCapabilityService
 from .runtime.configuration_write import (
@@ -195,7 +195,18 @@ class RhiEnergyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         return self.async_show_menu(
             step_id="init",
-            menu_options=["pricing", "strategy", "metering", "planner"],
+            menu_options=["pricing", "strategy", "metering", "planner", "frontend"],
+        )
+
+    async def async_step_frontend(self, user_input=None):
+        """Enable bundled UX without changing backend configuration."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data={**self.config_entry.options, **user_input})
+        return self.async_show_form(
+            step_id="frontend",
+            data_schema=vol.Schema({
+                vol.Required(UX_OPTION, default=self.config_entry.options.get(UX_OPTION, True) is True): bool,
+            }),
         )
 
     async def async_step_pricing(self, user_input=None):

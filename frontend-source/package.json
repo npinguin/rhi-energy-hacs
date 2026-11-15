@@ -1,0 +1,28 @@
+{
+  "name": "rhi-energy-ux",
+  "private": true,
+  "description": "Bundled RHI Energy frontend build and validation (version from integration manifest)",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "build": "python tools/build.py",
+    "check:syntax": "node --check dist/rhi-energy-ux.js",
+    "validate:package": "python validation/validate_hacs_package.py",
+    "validate:public": "python validation/validate_public_repository.py",
+    "validate": "npm run build && npm run test:contract && npm run test:ux && npm run test:package && npm run check:ux-core && npm run check:test-ownership",
+    "test": "npm run validate",
+    "check:test-ownership": "python validation/validate_test_ownership.py",
+    "test:contract": "node validation/test_canonical_property_runtime.js && node validation/test_command_contract.js && node validation/test_energy_v2_projection.js && node validation/test_core_authority_precedence.js && node validation/test_current_energy_view_model.js && node validation/test_energy_contract_gateway.js && node validation/test_asset_profile_contract.js && node validation/test_visual_ref_contract.js && node validation/test_object_primary_details_contract.js && node validation/test_energy_visual_catalog.js && node validation/test_solar_hardware_experience.js && node validation/test_picture_first_asset_identity.js && node validation/test_asset_visual_everywhere.js && node validation/test_live_consumption_flow_metering.js && node validation/test_flexible_asset_connection_projection.js && node validation/test_planning_contract.js && node validation/test_native_energy_backend_interfaces.js && node validation/test_c1_native_value_all_periods.js && python validation/validate_contract_gateway_architecture.py && node validation/test_cross_domain_navigation.js && node validation/test_cross_surface_projection_authority.js",
+    "test:ux": "python validation/validate_branding_assets.py && python validation/validate_renderer_reference_integrity.py && python validation/validate_visual_manifest.py && node validation/test_battery_contributor_layout.js && node validation/test_localization_contract.js && node validation/test_energy_ux_grammar.js && node validation/test_asset_tab_primary_grammar.js && node validation/test_all_object_primary_details.js && node validation/test_solar_information_architecture.js && node validation/test_compact_solar_value_flow.js && node validation/test_tab_ia_device_visuals.js && node validation/test_asset_visual_runtime_scope.js && node validation/test_gas_insights_tab.js && python validation/validate_ux_core_integration.py && npm run check:shared-visual-ownership && python validation/validate_ux_convergence.py && node validation/test_dashboard_portability.js && node validation/test_energy_visual_editor.js && node validation/test_structural_capability_presence.js && node validation/test_literal_product_ux_contract.js && node validation/test_4323_children_and_consumer_visuals.js && node validation/test_4325_flat_hierarchy.js && node validation/test_native_energy_history_graphs.js && node validation/test_power_flow_dependency.js && node validation/test_power_flow_card_integration.js && node validation/test_native_flow_dependency_fallback.js && node validation/test_live_backend_identity_and_flow_fallback.js && node validation/test_native_flow_storage_solar_daily.js && node validation/test_energy_editor_authoritative_operation.js && node validation/test_metering_period_canonical_readback.js && node validation/test_c1_grid_home_flexible_history.js && node validation/test_c1_d2_native_consumer.js",
+    "test:package": "npm run check:syntax && node validation/test_bundle_load.mjs && npm run check:zero-debt && npm run check:canonical-only && npm run check:source-ownership && npm run check:asset-policy && npm run validate:package && npm run validate:public",
+    "check:source-ownership": "python validation/validate_source_ownership.py",
+    "check:asset-policy": "python validation/validate_asset_policy.py",
+    "check:documentation-drift": "python validation/validate_documentation_drift.py",
+    "check:shared-visual-ownership": "python validation/validate_shared_visual_ownership.py",
+    "check:ux-core": "python validation/validate_ux_core_dependency.py",
+    "check:zero-debt": "python validation/validate_zero_debt.py",
+    "check:canonical-only": "node tools/audit-canonical-dependencies.mjs --fail-on-legacy"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

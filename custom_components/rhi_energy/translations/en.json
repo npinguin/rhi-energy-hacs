@@ -19,7 +19,8 @@
           "pricing": "Pricing & tariffs",
           "strategy": "Strategy & priorities",
           "metering": "Metering view",
-          "planner": "Planning optimizer"
+          "planner": "Planning optimizer",
+          "frontend": "Dashboard card"
         }
       },
       "pricing": {
@@ -150,6 +151,13 @@
         "description": "RHI Deterministic is always available to select and needs no connection. Other providers only appear after configuration or when already selected. An unqualified or unavailable selected provider keeps execution on HOLD; the independent deterministic baseline remains visible.",
         "data": {
           "planner_provider": "Requested operational planner"
+        }
+      },
+      "frontend": {
+        "title": "Dashboard card",
+        "description": "Enable the bundled Energy dashboard resource. Existing backend operations continue unchanged. Replace the old resource manually and refresh the browser.",
+        "data": {
+          "enable_ux": "Enable bundled Energy UX"
         }
       }
     },

@@ -4,7 +4,9 @@
   "after_dependencies": [
     "rhi_foundation",
     "energy",
-    "hassio"
+    "hassio",
+    "http",
+    "frontend"
   ],
   "codeowners": [
     "@npinguin"
@@ -16,5 +18,5 @@
   "issue_tracker": "https://github.com/npinguin/rhi-energy/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.15.141"
+  "version": "0.15.142"
 }

@@ -19,7 +19,8 @@
           "pricing": "Prix et tarifs",
           "strategy": "Stratégie et priorités",
           "metering": "Mesures",
-          "planner": "Optimisation de la planification"
+          "planner": "Optimisation de la planification",
+          "frontend": "Carte du tableau de bord"
         }
       },
       "pricing": {
@@ -150,6 +151,13 @@
         "description": "RHI Deterministic est toujours disponible sans connexion. Les autres fournisseurs apparaissent après configuration ou sélection antérieure. Un fournisseur indisponible ou non validé maintient l'exécution en HOLD ; la planification de base reste visible.",
         "data": {
           "planner_provider": "Planificateur opérationnel demandé"
+        }
+      },
+      "frontend": {
+        "title": "Carte du tableau de bord",
+        "description": "Activez la ressource Energy intégrée. Le moteur reste actif. Remplacez manuellement l’ancienne ressource et actualisez le navigateur.",
+        "data": {
+          "enable_ux": "Activer Energy UX intégrée"
         }
       }
     },

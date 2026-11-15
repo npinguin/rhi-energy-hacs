@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 900" role="img" aria-labelledby="title desc">
+<title id="title">SolarEdge Home Hub SE10K-RWB48</title>
+<desc id="desc">Crisp vector product representation of the SolarEdge three-phase Home Hub inverter.</desc>
+<defs>
+  <linearGradient id="front" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#ffffff"/><stop offset=".72" stop-color="#f5f6f4"/><stop offset="1" stop-color="#e9eceb"/>
+  </linearGradient>
+  <linearGradient id="side" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#d8dcdd"/><stop offset="1" stop-color="#b8bec1"/>
+  </linearGradient>
+  <filter id="shadow" x="-30%" y="-20%" width="170%" height="170%">
+    <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#23303d" flood-opacity=".18"/>
+  </filter>
+</defs>
+<g filter="url(#shadow)" transform="translate(116 32)">
+  <path d="M58 44 Q68 20 92 15 H352 L408 52 V760 L354 804 H62 Q38 796 36 772 V78 Q38 56 58 44Z" fill="url(#front)" stroke="#cbd1d3" stroke-width="3"/>
+  <path d="M352 15 L408 52 V760 L354 804 V62 Z" fill="url(#side)" stroke="#b4babc" stroke-width="3"/>
+  <path d="M62 226 H354" stroke="#c8cdcf" stroke-width="3"/>
+  <path d="M62 410 H354" stroke="#c8cdcf" stroke-width="3"/>
+  <path d="M62 594 H354" stroke="#c8cdcf" stroke-width="3"/>
+  <g fill="#6d7377">
+    <rect x="42" y="218" width="17" height="17" rx="4"/><rect x="42" y="402" width="17" height="17" rx="4"/><rect x="42" y="586" width="17" height="17" rx="4"/>
+    <rect x="347" y="218" width="17" height="17" rx="4"/><rect x="347" y="402" width="17" height="17" rx="4"/><rect x="347" y="586" width="17" height="17" rx="4"/>
+  </g>
+  <rect x="130" y="664" width="150" height="60" rx="6" fill="#fff" stroke="#aeb5b8" stroke-width="2"/>
+  <text x="205" y="691" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700" fill="#4a4f52">solar<tspan fill="#e53935">edge</tspan></text>
+  <text x="205" y="712" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="700" fill="#6b7280">SE10K-RWB48</text>
+  <g fill="#3e4548">
+    <rect x="115" y="802" width="30" height="23" rx="5"/><rect x="157" y="802" width="30" height="23" rx="5"/>
+    <rect x="234" y="800" width="44" height="57" rx="8"/><rect x="292" y="800" width="44" height="57" rx="8"/>
+    <rect x="365" y="786" width="27" height="29" rx="6"/>
+  </g>
+  <g fill="#14191c">
+    <rect x="239" y="850" width="34" height="20" rx="5"/><rect x="297" y="850" width="34" height="20" rx="5"/>
+  </g>
+</g>
+</svg>

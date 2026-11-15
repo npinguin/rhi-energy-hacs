@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "principle": "one source concern, one owner",
+  "owners": {
+    "app": {
+      "path": "src/app",
+      "owns": [
+        "Energy custom element",
+        "shared shell",
+        "navigation",
+        "renderers",
+        "package asset references",
+        "logical-device representative visual catalog"
+      ]
+    },
+    "runtime": {
+      "path": "src/runtime",
+      "owns": [
+        "Home Assistant public Energy contract registry/gateway",
+        "contract readers",
+        "command contract boundary",
+        "canonical Energy V2 asset profile and publication-context readers",
+        "Energy and producer visual_ref resolution"
+      ]
+    },
+    "domain_models": {
+      "path": "src/domain/models",
+      "owns": [
+        "canonical Energy UX view models",
+        "metering model",
+        "flexible-asset domain model",
+        "presentation-neutral consumption of backend-owned asset profile/state context"
+      ]
+    },
+    "planning": {
+      "path": "src/domain/planning",
+      "owns": [
+        "planning contract adaptation",
+        "planning contract reader",
+        "planning view model"
+      ]
+    },
+    "assets": {
+      "path": "src/assets",
+      "owns": [
+        "canonical package artwork grouped by public asset category"
+      ]
+    },
+    "package": {
+      "path": "tools/build.py",
+      "owns": [
+        "source manifest consumption",
+        "module injection",
+        "bundle generation",
+        "dist package assembly",
+        "package manifest generation"
+      ]
+    },
+    "ui": {
+      "path": "src/ui",
+      "owns": [
+        "interactive UX components",
+        "logical-device visual picker composition"
+      ]
+    }
+  }
+}

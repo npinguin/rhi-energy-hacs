@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "product": "rhi_energy",
+  "version": "0.15.142",
+  "source_manifest_schema": 1,
+  "bundle_filename": "rhi-energy-ux.js",
+  "assets_root": "assets",
+  "asset_categories": [
+    "energy",
+    "heroes"
+  ],
+  "runtime_sha256": "63508a43cbfc6dad890181710a7a4ea19b244811ff640812ac562e1d2722f99d",
+  "files": [
+    {
+      "path": "assets/energy/battery_system_4_towers.webp",
+      "bytes": 81706,
+      "sha256": "1d25e127e557239c459d107e5ec25225d8199c5dcef9d6a75c257b2d63c522c6"
+    },
+    {
+      "path": "assets/energy/byd_lvs_20.webp",
+      "bytes": 9264,
+      "sha256": "1f4c0ee222e13ee7ec121c843a2c5657f9055095071c428c4ada4ea2a88f0d08"
+    },
+    {
+      "path": "assets/energy/flonidan_uniflo_g4srtv.webp",
+      "bytes": 79862,
+      "sha256": "0d5f8f2d3f88b1187f534b64e296b24f54438f072bde66367700a91680d26e69"
+    },
+    {
+      "path": "assets/energy/homewizard_p1.webp",
+      "bytes": 41872,
+      "sha256": "dc88b520182dd932af09d5ef47ec79bd7d36c1f6a1018e1e70ecb87969c56272"
+    },
+    {
+      "path": "assets/energy/huawei_luna2000_15_s0.webp",
+      "bytes": 40900,
+      "sha256": "3f00047ef141d766edb6ffdde23f42e831987e639dee66727e25130535b0decf"
+    },
+    {
+      "path": "assets/energy/huawei_sun2000_4_6ktl_l1.webp",
+      "bytes": 69094,
+      "sha256": "8181c34f771195b14b82027b4cddc2d91e9b71f9c9f30775189b1394e538cee3"
+    },
+    {
+      "path": "assets/energy/jinkosolar_jkm435n_54hl4r.webp",
+      "bytes": 9856,
+      "sha256": "e94bef1cb8282455e482d98a2806ff356c3e77ca2f43be0546e7a4f0885ef42c"
+    },
+    {
+      "path": "assets/energy/sagemcom_t211_d3.webp",
+      "bytes": 75366,
+      "sha256": "49a71ba04ab4ac4af95eccc3b13fd1027f23a8a5bbfd3059e29bc324b5503d12"
+    },
+    {
+      "path": "assets/energy/sma_sunny_boy_5_0_sb5_0_1av_41.webp",
+      "bytes": 55466,
+      "sha256": "0849606a36df68b738d6f3d82adf46d5f872486ac7152b1410dbfb7712c778c8"
+    },
+    {
+      "path": "assets/energy/sma_sunny_tripower_7000tl_20.webp",
+      "bytes": 67608,
+      "sha256": "6eba99ef2723aefde433bccebb1dc99061b6ecd1c6040e4519e0f0c37b6812ad"
+    },
+    {
+      "path": "assets/energy/solar_zone_generic.webp",
+      "bytes": 696448,
+      "sha256": "775d924696febcb40e0ddac484346a1e798bdc66cd9125ce789382740a60c867"
+    },
+    {
+      "path": "assets/energy/solaredge_backup_interface_3phase.webp",
+      "bytes": 55390,
+      "sha256": "019f38341818a5dce6796a5b3e16ed5b408dde780e424bbb79bca47b158a2e1f"
+    },
+    {
+      "path": "assets/energy/solaredge_home_battery_48v_9_6.webp",
+      "bytes": 8162,
+      "sha256": "dd5250279a3aac76e74f1f8b2221530a6c1a860742c2ac1343fd91e2c9c1d902"
+    },
+    {
+      "path": "assets/energy/solaredge_rwb_10k.svg",
+      "bytes": 2559,
+      "sha256": "459c3ef02c2c82c33acecc277c268ae65623ccd697999e3f32968dd339264bc6"
+    },
+    {
+      "path": "assets/energy/solaredge_rwb_10k.webp",
+      "bytes": 35408,
+      "sha256": "971fb183bc37eb14759b66116a9183acaac6b1058f4091b6ea347e3ff841d4d0"
+    },
+    {
+      "path": "assets/energy/solaredge_rws_8k.webp",
+      "bytes": 45162,
+      "sha256": "0179323b8a3577c24ea46eb212f4983de87f831cf77a7d2bf09ec4fea2e288c3"
+    },
+    {
+      "path": "assets/energy/solaredge_s500b_optimizer.webp",
+      "bytes": 14512,
+      "sha256": "7de52100c4a72f975ba35173e3c05813047ac40058c5e31f182395bc8d3a70c9"
+    },
+    {
+      "path": "assets/energy/solaredge_se7k_rw0tebnn4.webp",
+      "bytes": 46880,
+      "sha256": "7bf70e40eaef53ce0d42db23c9b69c026c1038e7955e4e941eeb43dd9c66abab"
+    },
+    {
+      "path": "assets/energy/sonnen_batterie_10_10kwh.webp",
+      "bytes": 29354,
+      "sha256": "263014ad6e64a52c829bae530c677931fae0e04cfff784034381af7e030ead5a"
+    },
+    {
+      "path": "assets/energy/sonnen_batterie_10_20kwh.webp",
+      "bytes": 25058,
+      "sha256": "55e02562a45127859ae03fe00ee74ef45766d1fcf40b5b567e75e921a92a9c93"
+    },
+    {
+      "path": "assets/energy/sunpower_spr_x21_335_blk.webp",
+      "bytes": 8146,
+      "sha256": "156d71f9d30cd7906e678b46c2a191ad09b71e9f1f9fb004790f47df173bad7b"
+    },
+    {
+      "path": "assets/heroes/battery-hero.webp",
+      "bytes": 20336,
+      "sha256": "a2472fecea114c964af312d43d5db880e48b209f30327bd532b034afba918b76"
+    },
+    {
+      "path": "assets/heroes/consumers-hero.webp",
+      "bytes": 21918,
+      "sha256": "edd644cbbd32bbc2ee8e15b8c532df8d456d46655c0c37bdbac9fe1d2826cd71"
+    },
+    {
+      "path": "assets/heroes/diagnostics-hero.webp",
+      "bytes": 22934,
+      "sha256": "5506736d7c7713cc2df32f31b5f0b70f2f4f8fbb0d85963469ed100ee795044f"
+    },
+    {
+      "path": "assets/heroes/flow-hero.webp",
+      "bytes": 155494,
+      "sha256": "679e4536df790ec87de6659d209990d767d53d3bd44c191034bdc3ec90065601"
+    },
+    {
+      "path": "assets/heroes/gas-hero.svg",
+      "bytes": 3317,
+      "sha256": "484581cb4a2e795511d76adf9176fd8e5289d79b904e2080749f663b464e35c6"
+    },
+    {
+      "path": "assets/heroes/gas-hero.webp",
+      "bytes": 14322,
+      "sha256": "52ddc3f8ee064cd63e46160cad193a788dad947ed6df561cae19ae6bebe9262e"
+    },
+    {
+      "path": "assets/heroes/gas-page-hero-v3.webp",
+      "bytes": 21958,
+      "sha256": "9ef1b601f9d28a9fa8e6d1bb601dedd01d54522c9d0c04d70eaa8ea883e0f7d6"
+    },
+    {
+      "path": "assets/heroes/intelligence-hero.webp",
+      "bytes": 94328,
+      "sha256": "811f8a77fba3e327496b6c28be5de259791707571827c1018e6a8d9348ba7ac2"
+    },
+    {
+      "path": "assets/heroes/metering-hero.webp",
+      "bytes": 91996,
+      "sha256": "1d3c042a96807bbe7a2b56986a7f2c7a48ebb427fe861ad95ce184793c209cca"
+    },
+    {
+      "path": "assets/heroes/outlook-hero.webp",
+      "bytes": 91812,
+      "sha256": "3851695bfa9c8e7c6b412966c232901cff54485d80c27aaed95ed2599c5b3e50"
+    },
+    {
+      "path": "assets/heroes/overview-hero.webp",
+      "bytes": 20802,
+      "sha256": "c46e932e6bb140bbb7ad167a85e82a7c347fab2b2d1d972a03f1342d314d95ea"
+    },
+    {
+      "path": "assets/heroes/planning-hero.webp",
+      "bytes": 21200,
+      "sha256": "ede325a5112815401b49e46a5fd7bcf099d968ba26fa98897e997648ffcfec1f"
+    },
+    {
+      "path": "assets/heroes/pricing-hero.webp",
+      "bytes": 21464,
+      "sha256": "cd959098f2b5c02f7d35b0f63eb433e9011a840f5d538ceae848f4815b30fe6a"
+    },
+    {
+      "path": "assets/heroes/solar-hero.webp",
+      "bytes": 31708,
+      "sha256": "3d6b862b8f2946814fd23d49c5a2e6dbb85afd600b20b14f78b3395872662abe"
+    },
+    {
+      "path": "assets/heroes/strategies-hero.webp",
+      "bytes": 23074,
+      "sha256": "2bb7fa2e36ce22126e5641545056ecff329d86d528be38cce9d04d2aad075d83"
+    },
+    {
+      "path": "assets/heroes/value-hero.webp",
+      "bytes": 21792,
+      "sha256": "f9561b3b5f67e3ff02652a475ab728c68cf02c32ac62bb9406c0f6d0642e5afc"
+    },
+    {
+      "path": "rhi-energy-ux.js",
+      "bytes": 969710,
+      "sha256": "63508a43cbfc6dad890181710a7a4ea19b244811ff640812ac562e1d2722f99d"
+    },
+    {
+      "path": "rhi-energy-ux.js.sha256",
+      "bytes": 83,
+      "sha256": "3934edbc7032a4898269a2772832fda3422d1cf1266fc0d1fe588ef40fd5dadb"
+    }
+  ]
+}

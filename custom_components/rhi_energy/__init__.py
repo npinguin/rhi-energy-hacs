@@ -14,6 +14,7 @@ from .home_assistant_energy import async_ensure_home_assistant_energy_framework_
 from .const import (
     DOMAIN,
     DOMAIN_ID,
+    UX_OPTION,
     INTEROP_PROVIDER_REGISTRY_KEY,
     PLATFORMS,
     PROFILE_CATALOG_PROVIDER_ID,
@@ -131,6 +132,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """
     _ensure_publication_provider(hass)
     await async_ensure_home_assistant_energy_framework_provider(hass)
+    if getattr(hass, "http", None) is not None:
+        from .frontend import async_register_frontend
+        await async_register_frontend(hass)
     return True
 
 
@@ -321,9 +325,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if connection_errors else discovery_reason or "emhass_endpoint_unavailable"
                 ),
             )
-    entry.async_on_unload(entry.add_update_listener(_reload_on_options_update))
+    from .frontend import async_setup_ux
+    async_setup_ux(hass, entry)
+    entry.async_on_unload(entry.add_update_listener(_entry_update_listener(entry)))
     _LOGGER.info("RHI Energy %s setup complete", RELEASE)
     return True
+
+
+def _entry_update_listener(entry: ConfigEntry):
+    """Skip only a pure UX toggle; retain normal reload for every other update."""
+    from copy import deepcopy
+
+    def snapshot(current):
+        return (
+            deepcopy(dict(current.options)),
+            deepcopy(dict(getattr(current, "data", {}))),
+            tuple(getattr(current, key, None) for key in (
+                "title", "unique_id", "version", "minor_version",
+                "disabled_by", "pref_disable_new_entities", "pref_disable_polling",
+            )),
+        )
+
+    previous = snapshot(entry)
+
+    async def listener(hass, updated):
+        nonlocal previous
+        current = snapshot(updated)
+        before, after = previous[0], current[0]
+        changed = {key for key in before.keys() | after.keys()
+                   if key not in before or key not in after or before[key] != after[key]}
+        only_ux = changed == {UX_OPTION} and previous[1:] == current[1:]
+        previous = current
+        if not only_ux:
+            await _reload_on_options_update(hass, updated)
+
+    return listener
 
 
 async def _reload_on_options_update(hass: HomeAssistant, entry: ConfigEntry) -> None:

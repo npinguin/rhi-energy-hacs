@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "template": "app/energy-card.js",
+  "module_groups": [
+    {
+      "placeholder": "// __RHI_RUNTIME_MODULES__",
+      "modules": [
+        "runtime/public-interface-registry.js",
+        "runtime/canonical-property-index.js",
+        "runtime/energy-contract-gateway.js",
+        "runtime/energy-v2-contract.js",
+        "domain/selectors/energy-selectors.js",
+        "app/energy-asset-catalog.js",
+        "runtime/foundation-visual-registry.js",
+        "runtime/visual-asset-resolver.js",
+        "runtime/asset-profile-contract.js",
+        "runtime/consumption-contract.js",
+        "domain/models/current-energy-view-model.js",
+        "domain/models/physical-flow-view-model.js",
+        "runtime/power-flow-card-adapter.js",
+        "domain/models/metering-status-model.js",
+        "runtime/command-contract.js",
+        "runtime/command-action-model.js"
+      ]
+    },
+    {
+      "placeholder": "// __RHI_FLEXIBLE_ASSET_MODULES__",
+      "modules": [
+        "domain/models/flexible-asset-model.js"
+      ]
+    },
+    {
+      "placeholder": "// __RHI_PLANNING_MODULES__",
+      "modules": [
+        "domain/planning/contract-adapter.js",
+        "domain/planning/planning-contract.js",
+        "domain/planning/planning-view-model.js"
+      ]
+    },
+    {
+      "placeholder": "// __RHI_PRESENTATION_MODULES__",
+      "modules": [
+        "vendor/rhi-ux-core.js",
+        "app/localization.js",
+        "app/presentation.js",
+        "ui/components/page-header.js",
+        "ui/components/energy-visual-picker.js"
+      ]
+    }
+  ],
+  "assets_root": "assets"
+}

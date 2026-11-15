@@ -19,7 +19,8 @@
           "pricing": "Prijzen en tarieven",
           "strategy": "Strategie en prioriteiten",
           "metering": "Meetgegevens",
-          "planner": "Planningsoptimalisatie"
+          "planner": "Planningsoptimalisatie",
+          "frontend": "Dashboardkaart"
         }
       },
       "pricing": {
@@ -150,6 +151,13 @@
         "description": "RHI Deterministic is altijd beschikbaar zonder verbinding. Andere providers verschijnen na configuratie of eerdere selectie. Een onbeschikbare of niet-gevalideerde provider houdt uitvoering op HOLD; de onafhankelijke basisplanning blijft zichtbaar.",
         "data": {
           "planner_provider": "Gevraagde operationele planner"
+        }
+      },
+      "frontend": {
+        "title": "Dashboardkaart",
+        "description": "Schakel de gebundelde Energy-dashboardresource in. De backend blijft ongewijzigd werken. Vervang de oude resource manueel en vernieuw de browser.",
+        "data": {
+          "enable_ux": "Gebundelde Energy UX inschakelen"
         }
       }
     },

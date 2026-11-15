@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "package": "rhi-ux-core",
+  "version": "1.6.4",
+  "source_repository": "npinguin/rhi-ux-core",
+  "source_commit": "501caa2c038f21f299933e68aa320e3d40198709",
+  "runtime_dependency": false,
+  "branding_owner": "rhi-ux-core"
+}
