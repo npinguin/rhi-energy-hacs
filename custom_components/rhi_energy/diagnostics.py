@@ -461,7 +461,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         and str(asset.get("integration_domain") or "") == "solaredge_modbus_multi"
     ]
 
+    from .frontend import ux_diagnostics
     return {
+        "ux": ux_diagnostics(hass, entry),
         "identity": {
             "release": RELEASE,
             "release_name": RELEASE_NAME,

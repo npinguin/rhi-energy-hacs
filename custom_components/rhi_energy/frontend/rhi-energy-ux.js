@@ -1,5 +1,5 @@
 (() => {
-  const UX_VERSION = 'R0.15.142';
+  const UX_VERSION = 'R0.15.143';
   const RELEASE_ENTITY = 'sensor.rhi_energy_release';
   // ---- src/runtime/public-interface-registry.js ----
 // Native Energy publication is discovered by exact canonical contract markers.
@@ -9763,7 +9763,7 @@ function rhiEnergyVisualPickerStyles() {
   if (typeof window !== 'undefined') {
     window.customCards = window.customCards || [];
     if (!window.customCards.some(card => card.type === 'homebrain-energy-card')) {
-      window.customCards.push({type: 'homebrain-energy-card', name: 'RHI Energy', description: 'RHI Energy dashboard', preview: false});
+      window.customCards.push({type: 'homebrain-energy-card', name: 'Robotix Energy', description: 'RHI Energy dashboard', preview: false});
     }
   }
 })();

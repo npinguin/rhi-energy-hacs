@@ -1,12 +1,13 @@
 {
   "domain": "rhi_energy",
-  "name": "Robotix Home Intelligence - Energy Module",
+  "name": "Robotix Energy",
   "after_dependencies": [
     "rhi_foundation",
     "energy",
     "hassio",
     "http",
-    "frontend"
+    "frontend",
+    "lovelace"
   ],
   "codeowners": [
     "@npinguin"
@@ -18,5 +19,5 @@
   "issue_tracker": "https://github.com/npinguin/rhi-energy/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.15.142"
+  "version": "0.15.143"
 }

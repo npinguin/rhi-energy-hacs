@@ -6887,7 +6887,7 @@
   if (typeof window !== 'undefined') {
     window.customCards = window.customCards || [];
     if (!window.customCards.some(card => card.type === 'homebrain-energy-card')) {
-      window.customCards.push({type: 'homebrain-energy-card', name: 'RHI Energy', description: 'RHI Energy dashboard', preview: false});
+      window.customCards.push({type: 'homebrain-energy-card', name: 'Robotix Energy', description: 'RHI Energy dashboard', preview: false});
     }
   }
 })();

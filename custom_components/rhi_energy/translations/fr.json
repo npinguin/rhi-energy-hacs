@@ -173,5 +173,6 @@
       "canonical_configuration_unavailable": "La configuration Energy n'est pas encore disponible. Rouvrez Configurer une fois l'environnement d'exécution prêt.",
       "haeo_config_entry_missing": "Aucune intégration HAEO n'est installée. Installez et configurez HAEO avant de créer la connexion du planificateur Energy."
     }
-  }
+  },
+  "title": "Robotix Energy"
 }
