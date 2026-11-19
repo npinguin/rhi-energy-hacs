@@ -927,7 +927,7 @@ class EnergyLogicalEntityManager:
             self._known.discard(unique_id)
 
         devices = dr.async_get(self._hass)
-        for device in list(devices.devices.values()):
+        for device in list(devices.devices):
             if self._entry.entry_id not in device.config_entries:
                 continue
             logical_keys = {
@@ -1298,7 +1298,13 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
     @property
     def native_value(self):
         prop = self._property() or {}
-        return prop.get("value")
+        value = prop.get("value")
+        # HA state is a scalar with a 255-character limit. A structured
+        # canonical property retains its exact value in attributes; its
+        # native state is only the number of published records, never a tariff.
+        if isinstance(value, (list, dict, tuple)):
+            return len(value)
+        return value
 
     @property
     def available(self):
@@ -1308,11 +1314,15 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
     @property
     def native_unit_of_measurement(self):
         prop = self._property() or {}
+        if isinstance(prop.get("value"), (list, dict, tuple)):
+            return None
         return prop.get("unit")
 
     @property
     def device_class(self):
         prop = self._property() or {}
+        if isinstance(prop.get("value"), (list, dict, tuple)):
+            return None
         kind = prop.get("kind")
         if kind == "power":
             return SensorDeviceClass.POWER
@@ -1325,6 +1335,8 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
     @property
     def state_class(self):
         prop = self._property() or {}
+        if isinstance(prop.get("value"), (list, dict, tuple)):
+            return None
         key = str(prop.get("property_key") or "")
         if prop.get("kind") in {"power", "battery"}:
             return SensorStateClass.MEASUREMENT
@@ -1352,6 +1364,9 @@ class EnergyLogicalPropertySensor(_LogicalEnergySensor):
             "property_key": self._property_key,
             "display_name": prop.get("display_name") or self._property_key,
             "value": prop.get("value"),
+            "state_representation": (
+                "record_count" if isinstance(prop.get("value"), (list, dict, tuple)) else "value"
+            ),
             "availability": prop.get("availability"),
             "quality": prop.get("quality"),
             "unit": prop.get("unit"),

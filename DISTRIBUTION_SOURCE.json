@@ -1,9 +1,9 @@
 {
   "status": "PROTECTED_TEST_CANDIDATE",
-  "source_commit": "eb25b0224ac68f40a5006e62d715df728c47d27f",
-  "source_zip_sha256": "51630a6d9fdbbc6480d919a1333e9a2fcf280241863c969e9445716a8163891d",
-  "protected_zip_sha256": "8de261c2b1c72df7058340f171bc07f9fc10849312f4896e32fe395ed466de4d",
-  "manifest_version": "0.15.143",
+  "source_commit": "09afb402280d84bde6ebfbebc9182b4c2069edff",
+  "source_zip_sha256": "57a6da4e0800322553694413750e6b11c2dcb73b73ab345aa322d791c68d24cf",
+  "protected_zip_sha256": "6548cf021cac8b4a53e67911f7c2bdedfd36f53744c3b64ed6ed7a7de0318488",
+  "manifest_version": "0.15.144",
   "platforms": {
     "aarch64": {
       "ha_image": "ghcr.io/home-assistant/home-assistant@sha256:6785d1eca68747a524c156faae1b139ed415c07357386ae6fe17291986e59e82",
@@ -11,7 +11,7 @@
       "extension_suffix": ".cpython-314-aarch64-linux-musl.so",
       "cython": "3.2.9",
       "compiler": "cc (Alpine 15.2.0) 15.2.0",
-      "protected_zip_sha256": "e49dbd4ddffc2671b7e1ce65648eac41d5ea8f6b69f58138da5bbc55f0325112"
+      "protected_zip_sha256": "eb056d0e4d0bc33f8080a0f4177d111f4847d5336c1935fa597552812a2c632d"
     },
     "x86_64": {
       "ha_image": "ghcr.io/home-assistant/home-assistant@sha256:6785d1eca68747a524c156faae1b139ed415c07357386ae6fe17291986e59e82",
@@ -19,7 +19,7 @@
       "extension_suffix": ".cpython-314-x86_64-linux-musl.so",
       "cython": "3.2.9",
       "compiler": "cc (Alpine 15.2.0) 15.2.0",
-      "protected_zip_sha256": "266ff43d2a5e361f0f396a5e27226b6264a6d77901422036480841842c4a62f7"
+      "protected_zip_sha256": "136dfe7cb1f4bba1538b79974d23b91f10cee0c5702aff16a856e7128f0a89f5"
     }
   },
   "protected_modules": [
@@ -170,9 +170,9 @@
     "config_flow.py": "c5ba9807de91df14950b53f7ba88ce8adb5846c5f923bdb9a4d4715c94fb58dc",
     "configured_surface_acceptance.cpython-314-aarch64-linux-musl.so": "a7b9b38fe55c7d18622f74218f5793a90c43ffdd1e2696bfe2a3f3056d264e95",
     "configured_surface_acceptance.cpython-314-x86_64-linux-musl.so": "5ea584f0a52c7387f38cadcb1b042845005335d9e010b521d4ef4b9f185bc464",
-    "const.py": "388c4ad2711444a3238d66394c2f1daa2eb2857716a4cdebdb8045b81c835283",
+    "const.py": "cf52141109231bdcb7f46c2a06926a58a78c4fe6c187c0a3fe70a3b7dd69bba4",
     "contracts/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "contracts/canonical_discovery_requirements.json": "ce604673ab434e0d7d32acd943495d4b8aa830312a26a8aa67063005a2b7328c",
+    "contracts/canonical_discovery_requirements.json": "9d36971bbbd62d472abfbc04270f58ddf6b4a78b25e325a82db93ec6caf5139a",
     "contracts/configuration_surfaces.json": "cd06f56da022a3fd23622600bf3f540cc610b57a4b368fef92964fed339c4900",
     "contracts/domain_build_specifications/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "contracts/domain_build_specifications/energy_battery_system_home_assistant_energy_v1.json": "b22298cf3e6bf8664f4b26e96ee6f91e9a21091948e31b1c373f27b8c6be093d",
@@ -204,8 +204,8 @@
     "contracts/publication.cpython-314-aarch64-linux-musl.so": "216466c5f0fe29794322c232e65af2383726895f1febbce860857275b9d9c752",
     "contracts/publication.cpython-314-x86_64-linux-musl.so": "ae86eed5b3cf9a90427867f3fe1613b6bfcefe2616a1fdb59c7e4d85231524fb",
     "contracts/runtime/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "contracts/runtime/profile_catalog.json": "0c7c7b097a137d8845d6c5a5279cbd5c4920ac9924df871ca66aa6f7c2b7ea90",
-    "contracts/runtime/publication_inventory.json": "fc796cb482a6370d133e915137f0eb4d6d362525365706c5f5a923ef18677f1e",
+    "contracts/runtime/profile_catalog.json": "e4f29f3aee04b31d5f71d340b20bf1afc7cf72e770096d7504e146fc5d4d74cd",
+    "contracts/runtime/publication_inventory.json": "9e98220cc8081764fd4d2b2a1de1b37f8cb2adf970dd3ef348c5808b6a50d859",
     "contracts/runtime/publication_inventory_part_0.json": "1073650a5a0a70b6e6be42d344fd31f70ed76564ad845ec684b4d5becd406f87",
     "contracts/runtime/publication_inventory_part_1.json": "80838ae3799244b1271085f7ee271e7ceee89d0b2dc42d194b9795a1280395f2",
     "contracts/runtime/publication_inventory_part_2.json": "fae1cf4c6cf00b23aad50026a1e1545d74d19f4017ef46e963939a957c52bbb2",
@@ -215,7 +215,7 @@
     "diagnostics.py": "2793e22b9f3856d89f36480b640aabdfb04002b0463c0552faf8b4fcded76a8f",
     "frontend.py": "60c738ff0688accd7291aedb425c5272d5c45d174ee2ef1994b6bd306aea444c",
     "frontend/LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-    "frontend/PACKAGE_MANIFEST.json": "48ad64278423e92bfeefc8660b9bc0c1e3cb360f5eba608c707ef748ce43eb52",
+    "frontend/PACKAGE_MANIFEST.json": "51c17b6adc94818c36e1c0cef0b9e0ca346dfabf4f26d15532fe5665ec07ec7f",
     "frontend/assets/energy/battery_system_4_towers.webp": "1d25e127e557239c459d107e5ec25225d8199c5dcef9d6a75c257b2d63c522c6",
     "frontend/assets/energy/byd_lvs_20.webp": "1f4c0ee222e13ee7ec121c843a2c5657f9055095071c428c4ada4ea2a88f0d08",
     "frontend/assets/energy/flonidan_uniflo_g4srtv.webp": "0d5f8f2d3f88b1187f534b64e296b24f54438f072bde66367700a91680d26e69",
@@ -253,15 +253,15 @@
     "frontend/assets/heroes/solar-hero.webp": "3d6b862b8f2946814fd23d49c5a2e6dbb85afd600b20b14f78b3395872662abe",
     "frontend/assets/heroes/strategies-hero.webp": "2bb7fa2e36ce22126e5641545056ecff329d86d528be38cce9d04d2aad075d83",
     "frontend/assets/heroes/value-hero.webp": "f9561b3b5f67e3ff02652a475ab728c68cf02c32ac62bb9406c0f6d0642e5afc",
-    "frontend/rhi-energy-ux.js": "0023845ffcd159a89120f565dd659ec5aa1aa32cc189424e2f9978421fefaf06",
-    "frontend/rhi-energy-ux.js.sha256": "3872014117d10c3890a3359cd5e6b6c6d36bb449aa929ec570fa992123dc43ff",
+    "frontend/rhi-energy-ux.js": "eb9feb5bea85ef8c1ed9e57d11518d0730b8f29ccaa7190696bff43969ef0a7b",
+    "frontend/rhi-energy-ux.js.sha256": "f6ddbe01f275e3f5c6982fd77e6413a8408da390801b80be4902c80f527b07a9",
     "home_assistant_energy.cpython-314-aarch64-linux-musl.so": "9988f77cb571f3c4c38d5225cbae2336648b33f3eb7fdc5d44abd35f137c6311",
     "home_assistant_energy.cpython-314-x86_64-linux-musl.so": "45daf2bc2d95b166bb782fab21c4b1344cac5864fb558e34a61e393901de277e",
     "icon.png": "8925e28f6d3e2eafde22a14896e58ec292bfddd1ae58d881a6b4de1ac1c30bc2",
     "logical_control.cpython-314-aarch64-linux-musl.so": "265ec0ba9e26494459c2e345f6cf7fd23794c5bad283ab85aa6eda31185f7b97",
     "logical_control.cpython-314-x86_64-linux-musl.so": "e5210ab35f131d878affb6cec0590456861c019dac8227c40c8be9a0016a0d38",
     "logo.png": "960321934daedcd75e08e7146d4f983dae0081e910d00750793053205a43d3ba",
-    "manifest.json": "648168d0049b85781041cbbefc49376c8f89ff3993ee4987936663caf235fcf0",
+    "manifest.json": "afba633c98fff15f13f2235aa02eb69d53496715e26b9b824657264cb18a25c5",
     "migration_cleanup.cpython-314-aarch64-linux-musl.so": "896d521df208f21429f3b6e4b359a7f1a0f792d927b9765ed06190fb6c6d0373",
     "migration_cleanup.cpython-314-x86_64-linux-musl.so": "70c873effd336cb2ecfaf903600920055aa825f9745ff459dbdb42a0d80c4b32",
     "model/__init__.py": "5a6d88ff388649c1deeef25975d5fdfd740b332fe31af1d8a07352d3bc2b0c34",
@@ -406,7 +406,7 @@
     "semantic_acceptance.cpython-314-x86_64-linux-musl.so": "a07b1c22bed0cdea47c919b3e1fa00bdde4022ce04b658bfd8f78fb26e8db784",
     "semantics/closure.cpython-314-aarch64-linux-musl.so": "669b4b18091539c0fc8dae3a4b682ebd8f46e079837f57dd487c112d21e84c7b",
     "semantics/closure.cpython-314-x86_64-linux-musl.so": "411b4793ae9ee2365628ce714ae12f3e1f07f78c150dc2c0ebebc55afd987940",
-    "sensor.py": "f46b6d8ac895240306ffcc677cae9839a2c32ad6361d2e3f369152b37600a978",
+    "sensor.py": "7e40483a770b770caed891b97863ba8be4d1240665b13182deeb7c224de0bef2",
     "services.cpython-314-aarch64-linux-musl.so": "4d814391c29ad3113a08381e90747fe1d7e30a2f01dacdf406a08b311608c4f2",
     "services.cpython-314-x86_64-linux-musl.so": "55cd3650cc08fc87d3f3302b42270be2bffe4f8d5d7f80c4cecbab4c2dbe0a85",
     "services.yaml": "e67fde841f94a206f26c6a806d468509bf4e69a728616a529f39e459681d448f",
@@ -427,12 +427,12 @@
   "branding_files": {
     "icon.png": "960321934daedcd75e08e7146d4f983dae0081e910d00750793053205a43d3ba",
     "logo@2x.png": "0b6af551f2939c13d18eb9ef763c0dbed5e75c0956da8548d9b17315e44a568c",
-    "logo.png": "d9bded56e39e44bdf9cc06ba6db92d1ac16e3e497a95071e6672034f4e1884ee",
-    "icon@2x.png": "20df6bc79a72407dac2feaea43a96381eeb0c93005e3e75bd2a9877d05239261"
+    "icon@2x.png": "20df6bc79a72407dac2feaea43a96381eeb0c93005e3e75bd2a9877d05239261",
+    "logo.png": "d9bded56e39e44bdf9cc06ba6db92d1ac16e3e497a95071e6672034f4e1884ee"
   },
   "runtime_file_count": 288,
   "source_repository": "npinguin/rhi-energy",
-  "source_release": "E0.15.143",
+  "source_release": "E0.15.144",
   "shared_baseline": "1.8.4",
   "shared_baseline_checksum": "sha256:09d40a89f3ec8cad84bb82967448164b9c25e9d8e6143ea35d540f8e5bc1c084",
   "approved_release": false,
